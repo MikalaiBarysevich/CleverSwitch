@@ -11,6 +11,49 @@ import platform
 
 import hid
 
+import ctypes.util
+
+# On macOS, hidapi ≥ 0.12.0 added hid_darwin_set_open_exclusive(int).
+# Calling it with 0 switches from kIOHIDOptionsTypeSeizeDevice to
+# kIOHIDOptionsTypeNone, allowing coexistence with Logi Options+.
+# Must be called before any hid.Device() / hid.open() call.
+#
+# ctypes.util.find_library("hidapi") returns None on Apple Silicon because
+# /opt/homebrew/lib is not in the standard search path, so we try known
+# Homebrew paths explicitly.
+if platform.system() == "Darwin":
+    _hidapi_candidates = [
+        ctypes.util.find_library("hidapi"),   # works on Intel / if DYLD_LIBRARY_PATH set
+        "/opt/homebrew/lib/libhidapi.dylib",  # Apple Silicon Homebrew
+        "/usr/local/lib/libhidapi.dylib",     # Intel Homebrew
+        "libhidapi.dylib",                    # already loaded in process (last resort)
+    ]
+    _log = logging.getLogger(__name__)
+    for _candidate in _hidapi_candidates:
+        if not _candidate:
+            continue
+        try:
+            _hidapi = ctypes.CDLL(_candidate)
+        except OSError:
+            continue
+        _set_excl = getattr(_hidapi, "hid_darwin_set_open_exclusive", None)
+        if _set_excl is None:
+            _log.warning(
+                "macOS: hidapi at %s lacks hid_darwin_set_open_exclusive "
+                "(hidapi < 0.12.0) — run 'brew upgrade hidapi'", _candidate
+            )
+            break
+        _set_excl.argtypes = [ctypes.c_int]
+        _set_excl.restype = None
+        _set_excl(0)
+        _log.debug(
+            "macOS: hid_darwin_set_open_exclusive(0) via %s — "
+            "non-exclusive HID access enabled", _candidate
+        )
+        break
+    else:
+        _log.warning("macOS: hidapi not found — run 'brew install hidapi'")
+
 from .constants import (
     ALL_RECEIVER_PIDS,
     BOLT_PID,

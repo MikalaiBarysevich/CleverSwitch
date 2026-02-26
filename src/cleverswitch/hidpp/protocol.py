@@ -341,9 +341,9 @@ def parse_message(raw: bytes) -> FeatureEvent | DeviceStatusEvent | HostChangeEv
     """Parse a raw HID++ packet into a structured event, or None if irrelevant."""
     if not raw or len(raw) < 4:
         return None
-    log.info("Parse a raw HID++ packet into a structured event, or None if irrelevant")
 
-    log.info("raw: %s", raw)
+    log.debug("Parse a raw HID++ packet into a structured event, or None if irrelevant")
+    log.debug("raw: %s", raw)
 
     report_id = raw[0]
     devnumber  = raw[1]
@@ -351,11 +351,11 @@ def parse_message(raw: bytes) -> FeatureEvent | DeviceStatusEvent | HostChangeEv
     address    = raw[3]
     data       = raw[4:]
 
-    log.debug("report_id: %s", report_id)
+    log.debug("\nreport_id: %s", report_id)
     log.debug("devnumber: %s", devnumber)
     log.debug("sub_id: %s", sub_id)
     log.debug("address: %s", address)
-    log.debug("data: %s", data)
+    log.debug("data: %s\n", data)
 
     # ── HID++ 2.0 feature notification ───────────────────────────────────────
     # Criteria (from Solaar base.py make_notification):
