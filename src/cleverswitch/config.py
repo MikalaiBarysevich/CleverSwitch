@@ -24,70 +24,72 @@ _DEFAULT_CONFIG_PATH = Path("~/.config/cleverswitch/config.yaml").expanduser()
 
 @dataclasses.dataclass(frozen=True)
 class ReceiverConfig:
-    vendor_id:  int = 0x046D
+    vendor_id: int = 0x046D
     product_id: int = BOLT_PID
-    path:       str | None = None  # force a specific HID path
+    path: str | None = None  # force a specific HID path
 
 
 @dataclasses.dataclass(frozen=True)
 class DeviceConfig:
-    name:         str
-    wpid:         int | None = None   # wireless PID (receiver-paired)
-    btid:         int | None = None   # Bluetooth product ID (direct BT)
-    device_index: int | None = None   # skip auto-detection if set
+    name: str
+    wpid: int | None = None  # wireless PID (receiver-paired)
+    btid: int | None = None  # Bluetooth product ID (direct BT)
+    device_index: int | None = None  # skip auto-detection if set
 
 
 @dataclasses.dataclass(frozen=True)
 class HookEntry:
-    path:    str
+    path: str
     timeout: int = 5
 
 
 @dataclasses.dataclass(frozen=True)
 class HooksConfig:
-    on_switch:     tuple[HookEntry, ...] = ()
-    on_connect:    tuple[HookEntry, ...] = ()
+    on_switch: tuple[HookEntry, ...] = ()
+    on_connect: tuple[HookEntry, ...] = ()
     on_disconnect: tuple[HookEntry, ...] = ()
 
 
 @dataclasses.dataclass(frozen=True)
 class Settings:
-    read_timeout_ms: int   = 1000
-    retry_interval_s: int  = 5
-    max_retries:      int  = 0      # 0 = infinite
-    log_level:        str  = "INFO"
+    read_timeout_ms: int = 1000
+    retry_interval_s: int = 5
+    max_retries: int = 0  # 0 = infinite
+    log_level: str = "INFO"
 
 
 @dataclasses.dataclass(frozen=True)
 class Config:
     receiver: ReceiverConfig
     keyboard: DeviceConfig
-    mouse:    DeviceConfig
-    hooks:    HooksConfig
+    mouse: DeviceConfig
+    hooks: HooksConfig
     settings: Settings
 
 
 # ── Default config (works for MX Keys + MX Master 3 on any receiver) ──────────
 
+
 def default_config() -> Config:
     return Config(
-        receiver = ReceiverConfig(),
-        keyboard = DeviceConfig(
-            name = "MX Keys",
-            wpid = MX_KEYS_WPID,
-            btid = MX_KEYS_BTID,
+        receiver=ReceiverConfig(),
+        keyboard=DeviceConfig(
+            name="MX Keys",
+            wpid=MX_KEYS_WPID,
+            btid=MX_KEYS_BTID,
         ),
-        mouse = DeviceConfig(
-            name = "MX Master 3",
-            wpid = MX_MASTER_3_WPID,
-            btid = MX_MASTER_3_BTID,
+        mouse=DeviceConfig(
+            name="MX Master 3",
+            wpid=MX_MASTER_3_WPID,
+            btid=MX_MASTER_3_BTID,
         ),
-        hooks    = HooksConfig(),
-        settings = Settings(),
+        hooks=HooksConfig(),
+        settings=Settings(),
     )
 
 
 # ── YAML loading ──────────────────────────────────────────────────────────────
+
 
 def load(path: Path | str | None = None) -> Config:
     """Load config from *path*. Falls back to ~/.config/cleverswitch/config.yaml,
@@ -117,30 +119,30 @@ def _parse(raw: dict[str, Any]) -> Config:
     # ── receiver ──────────────────────────────────────────────────────────────
     r = raw.get("receiver", {})
     receiver = ReceiverConfig(
-        vendor_id  = _hex_or_int(r.get("vendor_id", defaults.receiver.vendor_id)),
-        product_id = _hex_or_int(r.get("product_id", defaults.receiver.product_id)),
-        path       = r.get("path"),
+        vendor_id=_hex_or_int(r.get("vendor_id", defaults.receiver.vendor_id)),
+        product_id=_hex_or_int(r.get("product_id", defaults.receiver.product_id)),
+        path=r.get("path"),
     )
 
     # ── devices ───────────────────────────────────────────────────────────────
     keyboard = _parse_device(raw.get("devices", {}).get("keyboard", {}), defaults.keyboard)
-    mouse    = _parse_device(raw.get("devices", {}).get("mouse", {}), defaults.mouse)
+    mouse = _parse_device(raw.get("devices", {}).get("mouse", {}), defaults.mouse)
 
     # ── hooks ─────────────────────────────────────────────────────────────────
     h = raw.get("hooks", {})
     hooks = HooksConfig(
-        on_switch     = tuple(_parse_hooks(h.get("on_switch", []))),
-        on_connect    = tuple(_parse_hooks(h.get("on_connect", []))),
-        on_disconnect = tuple(_parse_hooks(h.get("on_disconnect", []))),
+        on_switch=tuple(_parse_hooks(h.get("on_switch", []))),
+        on_connect=tuple(_parse_hooks(h.get("on_connect", []))),
+        on_disconnect=tuple(_parse_hooks(h.get("on_disconnect", []))),
     )
 
     # ── settings ──────────────────────────────────────────────────────────────
     s = raw.get("settings", {})
     settings = Settings(
-        read_timeout_ms  = int(s.get("read_timeout_ms",  defaults.settings.read_timeout_ms)),
-        retry_interval_s = int(s.get("retry_interval_s", defaults.settings.retry_interval_s)),
-        max_retries      = int(s.get("max_retries",      defaults.settings.max_retries)),
-        log_level        = str(s.get("log_level",        defaults.settings.log_level)).upper(),
+        read_timeout_ms=int(s.get("read_timeout_ms", defaults.settings.read_timeout_ms)),
+        retry_interval_s=int(s.get("retry_interval_s", defaults.settings.retry_interval_s)),
+        max_retries=int(s.get("max_retries", defaults.settings.max_retries)),
+        log_level=str(s.get("log_level", defaults.settings.log_level)).upper(),
     )
 
     _validate(receiver, keyboard, mouse, settings)
@@ -149,23 +151,25 @@ def _parse(raw: dict[str, Any]) -> Config:
 
 def _parse_device(d: dict, default: DeviceConfig) -> DeviceConfig:
     return DeviceConfig(
-        name         = str(d.get("name", default.name)),
-        wpid         = _hex_or_int(d["wpid"]) if "wpid" in d else default.wpid,
-        btid         = _hex_or_int(d["btid"]) if "btid" in d else default.btid,
-        device_index = int(d["device_index"]) if "device_index" in d else default.device_index,
+        name=str(d.get("name", default.name)),
+        wpid=_hex_or_int(d["wpid"]) if "wpid" in d else default.wpid,
+        btid=_hex_or_int(d["btid"]) if "btid" in d else default.btid,
+        device_index=int(d["device_index"]) if "device_index" in d else default.device_index,
     )
 
 
 def _parse_hooks(entries: list) -> list[HookEntry]:
     result = []
-    for entry in (entries or []):
+    for entry in entries or []:
         if isinstance(entry, str):
             result.append(HookEntry(path=os.path.expanduser(entry)))
         elif isinstance(entry, dict):
-            result.append(HookEntry(
-                path    = os.path.expanduser(str(entry["path"])),
-                timeout = int(entry.get("timeout", 5)),
-            ))
+            result.append(
+                HookEntry(
+                    path=os.path.expanduser(str(entry["path"])),
+                    timeout=int(entry.get("timeout", 5)),
+                )
+            )
     return result
 
 
@@ -173,8 +177,7 @@ def _validate(receiver: ReceiverConfig, keyboard: DeviceConfig, mouse: DeviceCon
     valid_pids = (BOLT_PID,) + UNIFYING_PIDS
     if receiver.product_id not in valid_pids:
         raise ConfigError(
-            f"receiver.product_id 0x{receiver.product_id:04X} is not a known "
-            f"Bolt/Unifying PID. Expected one of: "
+            f"receiver.product_id 0x{receiver.product_id:04X} is not a known Bolt/Unifying PID. Expected one of: "
             + ", ".join(f"0x{p:04X}" for p in valid_pids)
         )
     if not keyboard.wpid and not keyboard.btid:

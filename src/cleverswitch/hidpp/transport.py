@@ -38,16 +38,16 @@ if platform.system() == "Darwin":
         _set_excl = getattr(_hidapi, "hid_darwin_set_open_exclusive", None)
         if _set_excl is None:
             _log.warning(
-                "macOS: hidapi at %s lacks hid_darwin_set_open_exclusive "
-                "(hidapi < 0.12.0) — run 'brew upgrade hidapi'", _candidate
+                "macOS: hidapi at %s lacks hid_darwin_set_open_exclusive (hidapi < 0.12.0) — run 'brew upgrade hidapi'",
+                _candidate,
             )
             break
         _set_excl.argtypes = [ctypes.c_int]
         _set_excl.restype = None
         _set_excl(0)
         _log.debug(
-            "macOS: hid_darwin_set_open_exclusive(0) via %s — "
-            "non-exclusive HID access enabled", _candidate
+            "macOS: hid_darwin_set_open_exclusive(0) via %s — non-exclusive HID access enabled",
+            _candidate,
         )
         break
     else:

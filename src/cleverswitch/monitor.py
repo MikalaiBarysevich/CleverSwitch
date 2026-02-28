@@ -14,12 +14,14 @@ import threading
 
 from . import hooks as hook_runner
 from .config import Config
-from .discovery import Setup, discover, DeviceContext
+from .discovery import DeviceContext, Setup, discover
 from .errors import DeviceNotFound, FeatureNotSupported, ReceiverNotFound, TransportError
 from .hidpp.constants import HOST_SWITCH_CIDS
 from .hidpp.protocol import (
     HostChangeEvent,
-    parse_message, send_change_host, set_cid_divert,
+    parse_message,
+    send_change_host,
+    set_cid_divert,
 )
 
 log = logging.getLogger(__name__)
@@ -58,6 +60,7 @@ def run(cfg: Config, shutdown: threading.Event) -> None:
 
 # ── Inner event loop ──────────────────────────────────────────────────────────
 
+
 def _monitor_loop(setup: Setup, cfg: Config, shutdown: threading.Event) -> None:
     """Block-read from the keyboard's transport until shutdown or transport error."""
     kbd = setup.keyboard
@@ -82,7 +85,8 @@ def _monitor_loop(setup: Setup, cfg: Config, shutdown: threading.Event) -> None:
             target_host = event.target_host
             log.info(
                 "%s switched to host %d",
-                kbd.name, target_host + 1,
+                kbd.name,
+                target_host + 1,
             )
             _switch(kbd, target_host)
             _switch(mouse, target_host)
@@ -91,6 +95,7 @@ def _monitor_loop(setup: Setup, cfg: Config, shutdown: threading.Event) -> None:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _role_for_devnumber(devnumber: int, setup: Setup) -> str | None:
     if devnumber == setup.keyboard.devnumber:
@@ -111,8 +116,12 @@ def _close_setup(setup: Setup) -> None:
             for cid in ctx.diverted_cids:
                 try:
                     set_cid_divert(
-                        ctx.transport, ctx.devnumber, ctx.reprog_feat_idx,
-                        cid, False, long=ctx.long_msg,
+                        ctx.transport,
+                        ctx.devnumber,
+                        ctx.reprog_feat_idx,
+                        cid,
+                        False,
+                        long=ctx.long_msg,
                     )
                     log.debug("Undiverted CID 0x%04X on %s", cid, ctx.name)
                 except Exception as e:
@@ -132,7 +141,9 @@ def _divert_all_es_keys(kbd: DeviceContext) -> None:
 
 def _switch(device: DeviceContext, target_host: int) -> None:
     send_change_host(
-        device.transport, device.devnumber,
-        device.change_host_feat_idx, target_host,
+        device.transport,
+        device.devnumber,
+        device.change_host_feat_idx,
+        target_host,
         long=device.long_msg,
     )
