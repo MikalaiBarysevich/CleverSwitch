@@ -58,13 +58,14 @@ FEATURE_HOSTS_INFO  = 0x1815
 FEATURE_REPROG_CONTROLS_V4 = 0x1B04  # Reprogrammable keys / button diversion
 
 # Host-Switch Channel CID codes → 0-based host index
-HOST_SWITCH_CIDS = {0x00D1: 0, 0x00D2: 1, 0x00D3: 2}
+HOST_SWITCH_CIDS = {0x00D1: 1, 0x00D2: 2, 0x00D3: 3}
 
 # REPROG_CONTROLS_V4 key capability flag (byte 4 of getCidInfo response)
 KEY_FLAG_DIVERTABLE = 0x20   # key can be temporarily diverted
 
 # Mapping flag bit for setCidReporting (byte 2 of request payload)
 MAP_FLAG_DIVERTED = 0x01     # temporarily divert (cleared on device reset)
+MAP_FLAG_PERSISTENTLY_DIVERTED = 0x04     # persistently divert (cleared on device reset)
 
 # CHANGE_HOST function codes (upper nibble of the function/address byte)
 CHANGE_HOST_FN_GET = 0x00   # GetHostCount — returns (num_hosts, current_host)

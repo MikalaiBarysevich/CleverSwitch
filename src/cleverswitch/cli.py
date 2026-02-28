@@ -12,6 +12,7 @@ from . import __version__
 from . import config as cfg_module
 from . import platform_setup
 from .errors import CleverSwitchError, ConfigError
+from .monitor import run
 
 
 def main() -> None:
@@ -37,15 +38,11 @@ def main() -> None:
 
     # Graceful shutdown on Ctrl-C / SIGTERM
     shutdown = threading.Event()
-    signal.signal(signal.SIGINT,  lambda *_: shutdown.set())
+    signal.signal(signal.SIGINT, lambda *_: shutdown.set())
     signal.signal(signal.SIGTERM, lambda *_: shutdown.set())
 
-    from .monitor import run
     try:
-
-        t = threading.Thread(target=run(cfg, shutdown), daemon=True)
-        t.start()
-
+        run(cfg, shutdown)
     except CleverSwitchError as e:
         log.error("%s", e)
         sys.exit(1)
@@ -65,8 +62,8 @@ def _dry_run(cfg) -> None:
                  setup.keyboard.name, setup.keyboard.devnumber,
                  setup.keyboard.change_host_feat_idx, setup.keyboard.transport.kind)
         log.info("Mouse:    %s dev=0x%02X feat=%d via %s",
-                 setup.mouse.name,    setup.mouse.devnumber,
-                 setup.mouse.change_host_feat_idx,    setup.mouse.transport.kind)
+                 setup.mouse.name, setup.mouse.devnumber,
+                 setup.mouse.change_host_feat_idx, setup.mouse.transport.kind)
         for t in setup.unique_transports():
             t.close()
     except CleverSwitchError as e:

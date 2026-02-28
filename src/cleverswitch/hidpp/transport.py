@@ -120,7 +120,7 @@ def find_receiver_transports() -> list[HIDTransport]:
     for pid in ALL_RECEIVER_PIDS:
         kind = "bolt" if pid == BOLT_PID else "unifying"
         for info in hid.enumerate(LOGITECH_VENDOR_ID, pid):
-            print(f"Checking: Interface {info.get('interface_number')}, Usage Page: {info.get('usage_page')}")
+            log.debug(f"Checking: Interface {info.get('interface_number')}, Usage Page: {info.get('usage_page')}")
             if not _is_hidpp_interface(info):
                 continue
             path = info["path"]
