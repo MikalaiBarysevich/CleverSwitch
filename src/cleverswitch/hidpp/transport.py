@@ -6,12 +6,11 @@ All other modules go through HIDTransport.
 
 from __future__ import annotations
 
+import ctypes.util
 import logging
 import platform
 
 import hid
-
-import ctypes.util
 
 # On macOS, hidapi ≥ 0.12.0 added hid_darwin_set_open_exclusive(int).
 # Calling it with 0 switches from kIOHIDOptionsTypeSeizeDevice to
@@ -23,10 +22,10 @@ import ctypes.util
 # Homebrew paths explicitly.
 if platform.system() == "Darwin":
     _hidapi_candidates = [
-        ctypes.util.find_library("hidapi"),   # works on Intel / if DYLD_LIBRARY_PATH set
+        ctypes.util.find_library("hidapi"),  # works on Intel / if DYLD_LIBRARY_PATH set
         "/opt/homebrew/lib/libhidapi.dylib",  # Apple Silicon Homebrew
-        "/usr/local/lib/libhidapi.dylib",     # Intel Homebrew
-        "libhidapi.dylib",                    # already loaded in process (last resort)
+        "/usr/local/lib/libhidapi.dylib",  # Intel Homebrew
+        "libhidapi.dylib",  # already loaded in process (last resort)
     ]
     _log = logging.getLogger(__name__)
     for _candidate in _hidapi_candidates:
@@ -91,12 +90,12 @@ class HIDTransport:
         self.path = path
         self.kind = kind
         self.pid = pid
-        self._dev = hid.Device(pid = pid, path = path)
+        self._dev = hid.Device(pid=pid, path=path)
         log.debug("Opened %s transport pid=0x%04X path=%s", kind, pid, path)
 
-    def read(self, timeout_ms: int = 1000) -> bytes | None:
+    def read(self) -> bytes | None:
         """Read one HID packet. Returns None on timeout."""
-        data = self._dev.read(MAX_READ_SIZE, timeout_ms)
+        data = self._dev.read(MAX_READ_SIZE)
 
         return bytes(data) if data else None
 
@@ -116,7 +115,7 @@ class HIDTransport:
 
 def find_receiver_transports() -> list[HIDTransport]:
     """Return an open HIDTransport for every Bolt/Unifying receiver found."""
-    found = []
+    found = {}
     for pid in ALL_RECEIVER_PIDS:
         kind = "bolt" if pid == BOLT_PID else "unifying"
         for info in hid.enumerate(LOGITECH_VENDOR_ID, pid):
@@ -124,13 +123,15 @@ def find_receiver_transports() -> list[HIDTransport]:
             if not _is_hidpp_interface(info):
                 continue
             path = info["path"]
+            if path in found:
+                continue
             try:
                 t = HIDTransport(path, kind, pid)
-                found.append(t)
+                found[path] = t
                 log.info("Found %s receiver pid=0x%04X path=%s", kind, pid, path)
             except OSError as e:
                 log.warning("Cannot open %s receiver at %s: %s", kind, path, e)
-    return found
+    return list(found.values())
 
 
 def find_bluetooth_transports() -> list[tuple[HIDTransport, int]]:

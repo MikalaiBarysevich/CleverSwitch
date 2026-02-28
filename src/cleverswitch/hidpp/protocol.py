@@ -16,11 +16,6 @@ from .constants import (
     CHANGE_HOST_FN_GET,
     CHANGE_HOST_FN_SET,
     DEVICE_RECEIVER,
-    DJ_DEVICE_PAIRING,
-    DJ_DEVICE_UNPAIRING,
-    DJ_FLAG_DISCONNECTED,
-    DJ_HOST_CHANGE,
-    DJ_PROTO_BOLT,
     FEATURE_ROOT,
     MAP_FLAG_DIVERTED,
     MSG_DJ_LEN,
@@ -34,6 +29,7 @@ from .constants import (
     REPORT_SHORT,
     SW_ID,
     MAP_FLAG_PERSISTENTLY_DIVERTED,
+    HOST_SWITCH_CIDS
 )
 from .transport import HIDTransport
 
@@ -120,7 +116,7 @@ def request(
     while time() < deadline:
         remaining_ms = max(1, int((deadline - time()) * 1000))
         try:
-            raw = transport.read(timeout_ms=min(remaining_ms, 200))
+            raw = transport.read()
         except Exception as e:
             from ..errors import TransportError
             raise TransportError(f"read failed: {e}") from e
@@ -157,7 +153,7 @@ def request(
                 continue  # sub-register mismatch — not our reply
             return rdata[2:]
 
-    log.warning("Timeout (%.1fs) on request 0x%04X from device 0x%02X", timeout, request_id, devnumber)
+    log.debug("Timeout (%.1fs) on request 0x%04X from device 0x%02X", timeout, request_id, devnumber)
     return None
 
 
@@ -259,6 +255,7 @@ def read_pairing_wpid(transport: HIDTransport, slot: int, receiver_kind: str) ->
     wpid = int(wpid_bytes.hex(), 16)
     return wpid if wpid != 0 else None
 
+
 def set_cid_divert(
         transport: HIDTransport,
         devnumber: int,
@@ -295,28 +292,18 @@ class FeatureEvent:
 
 
 @dataclass
-class DeviceStatusEvent:
-    """A DJ device connection/disconnection notification."""
-    devnumber: int
-    connected: bool
-    wpid: int | None  # None if not readable from this notification
-    is_bolt: bool
-
-
-@dataclass
 class HostChangeEvent:
     """Diverted Easy-Switch event from device."""
     devnumber: int
     target_host: int  # device cid
 
 
-def parse_message(raw: bytes) -> FeatureEvent | DeviceStatusEvent | HostChangeEvent | None:
+def parse_message(divert_feat_idx: int, raw: bytes) -> FeatureEvent | HostChangeEvent | None:
     """Parse a raw HID++ packet into a structured event, or None if irrelevant."""
     if not raw or len(raw) < 4:
         return None
 
-    log.debug("Parse a raw HID++ packet into a structured event, or None if irrelevant")
-    log.debug("raw: %s", raw)
+    log.debug("Attempt to parse raw data=: %s", raw)
 
     report_id = raw[0]
     devnumber = raw[1]
@@ -324,60 +311,20 @@ def parse_message(raw: bytes) -> FeatureEvent | DeviceStatusEvent | HostChangeEv
     address = raw[3]
     data = raw[4:]
 
-    # ── HID++ 2.0 feature notification ───────────────────────────────────────
-    # Criteria (from Solaar base.py make_notification):
-    #   - report_id is SHORT or LONG
-    #   - sub_id < 0x80  (not a register reply; 0x80–0xFF are HID++ 1.0 register sub_ids)
-    #   - address low nibble == 0x00 (sw_id 0 = unsolicited, not a reply to us)
-    #   - not a no-op (sub_id==0 and address==0)
+    if (
+            report_id == REPORT_LONG
+            and address == 0x00
+            and divert_feat_idx == sub_id
+            and data[1] in HOST_SWITCH_CIDS.keys()
+    ):
+        return HostChangeEvent(devnumber, HOST_SWITCH_CIDS[data[1]])
+
     if (
             report_id in (REPORT_SHORT, REPORT_LONG)
             and sub_id < 0x80
             and (address & 0x0F) == 0x00
             and not (sub_id == 0x00 and address == 0x00)
     ):
-        return FeatureEvent(
-            devnumber=devnumber,
-            feature_idx=sub_id,
-            function=address & 0xF0,
-            data=data,
-        )
-
-    # ── HID++ 1.0 device status via SHORT report (sub_id=0x41) ──────────────
-    # The FeatureEvent filter rejects this because address & 0x0F != 0x00.
-    # flags byte: data[0]; bit 6 (0x40) set → disconnected.
-    # wpid: data[1]=low, data[2]=high (little-endian).
-    if report_id == REPORT_SHORT and sub_id == DJ_DEVICE_PAIRING:
-        flags = data[0] if len(data) > 0 else 0
-        connected = not bool(flags & DJ_FLAG_DISCONNECTED)
-        wpid = None
-        if len(data) >= 3:
-            wpid = (data[2] << 8) | data[1]
-        return DeviceStatusEvent(
-            devnumber=devnumber,
-            connected=connected,
-            wpid=wpid if wpid else None,
-            is_bolt=False,
-        )
-
-    # ── DJ device connection / disconnection ─────────────────────────────────
-    if report_id == REPORT_DJ and sub_id in (DJ_DEVICE_PAIRING, DJ_DEVICE_UNPAIRING):
-        flags = data[0] if len(data) > 0 else 0
-        connected = not bool(flags & DJ_FLAG_DISCONNECTED)
-        wpid = None
-        if sub_id == DJ_DEVICE_PAIRING and len(data) >= 3:
-            # data[1] = wpid_low, data[2] = wpid_high
-            wpid = (data[2] << 8) | data[1]
-        return DeviceStatusEvent(
-            devnumber=devnumber,
-            connected=connected,
-            wpid=wpid if wpid else None,
-            is_bolt=(address == DJ_PROTO_BOLT),
-        )
-
-    # # ── DJ host-change notification ───────────────────────────────────────────
-    # # sub_id=0x42: device physically switched host; address = 0-based target host.
-    # if report_id == REPORT_DJ and sub_id == DJ_HOST_CHANGE:
-    #     return HostChangeEvent(devnumber=devnumber, target_host=address)
+        return FeatureEvent(devnumber, sub_id, address & 0xF0, data)
 
     return None
