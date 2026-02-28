@@ -12,22 +12,17 @@ from __future__ import annotations
 import dataclasses
 import logging
 
-from .config import Config, DeviceConfig
-from .errors import DeviceNotFound, FeatureNotSupported
+from .config import Config
+from .errors import DeviceNotFound
 from .hidpp.constants import (
-    BOLT_PID,
     DEVICE_RECEIVER,
     FEATURE_CHANGE_HOST,
     FEATURE_REPROG_CONTROLS_V4,
-    HOST_SWITCH_CIDS,
-    KEY_FLAG_DIVERTABLE,
 )
 from .hidpp.protocol import (
     get_change_host_info,
-    list_reprog_cids,
     read_pairing_wpid,
     resolve_feature_index,
-    set_cid_divert,
 )
 from .hidpp.transport import HIDTransport, find_bluetooth_transports, find_receiver_transports
 
@@ -37,22 +32,23 @@ log = logging.getLogger(__name__)
 @dataclasses.dataclass
 class DeviceContext:
     """Everything needed to talk to one device."""
-    transport:           HIDTransport
-    devnumber:           int    # 1-6 for receiver-paired, 0xFF for Bluetooth direct
+    transport: HIDTransport
+    devnumber: int  # 1-6 for receiver-paired, 0xFF for Bluetooth direct
     change_host_feat_idx: int
-    long_msg:            bool   # True for Bluetooth (always long messages)
-    role:                str    # "keyboard" or "mouse"
-    name:                str
-    wpid:                int | None
-    reprog_feat_idx:     int | None = dataclasses.field(default=None)
-    diverted_cids:       list       = dataclasses.field(default_factory=list)
+    divert_feat_idx: int | None
+    long_msg: bool  # True for Bluetooth (always long messages)
+    role: str  # "keyboard" or "mouse"
+    name: str
+    wpid: int | None
+    reprog_feat_idx: int | None = dataclasses.field(default=None)
+    diverted_cids: list = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
 class Setup:
     """Resolved device contexts for keyboard and mouse."""
     keyboard: DeviceContext
-    mouse:    DeviceContext
+    mouse: DeviceContext
 
     def unique_transports(self) -> list[HIDTransport]:
         """Unique transports needed (de-duplicated by object identity)."""
@@ -87,7 +83,7 @@ def discover(cfg: Config) -> Setup:
     log.info(
         "Ready — keyboard: dev=%d feat=%d | mouse: dev=%d feat=%d",
         setup.keyboard.devnumber, setup.keyboard.change_host_feat_idx,
-        setup.mouse.devnumber,    setup.mouse.change_host_feat_idx,
+        setup.mouse.devnumber, setup.mouse.change_host_feat_idx,
     )
     return setup
 
@@ -117,9 +113,9 @@ def _scan_receivers(cfg: Config, contexts: dict[str, DeviceContext]) -> None:
 
 
 def _scan_one_receiver(
-    transport: HIDTransport,
-    cfg: Config,
-    contexts: dict[str, DeviceContext],
+        transport: HIDTransport,
+        cfg: Config,
+        contexts: dict[str, DeviceContext],
 ) -> None:
     """Scan all pairing slots in one receiver. Populates *contexts* in-place."""
     max_slot = 6
@@ -196,12 +192,12 @@ def _role_for_btid(btid: int, cfg: Config) -> str | None:
 # ── Context creation ──────────────────────────────────────────────────────────
 
 def _make_context(
-    transport: HIDTransport,
-    devnumber: int,
-    long_msg: bool,
-    role: str,
-    name: str,
-    wpid: int | None,
+        transport: HIDTransport,
+        devnumber: int,
+        long_msg: bool,
+        role: str,
+        name: str,
+        wpid: int | None,
 ) -> DeviceContext | None:
     """Resolve CHANGE_HOST feature index and build a DeviceContext.
 
@@ -215,8 +211,23 @@ def _make_context(
             name, devnumber, transport.kind,
         )
         return None
+    log.debug("%s (dev=0x%02X, %s) found CHANGE_HOST (0x1814) idx — %s",
+              name, devnumber, transport.kind, feat_idx)
 
-    log.info("%s found: transport=%s dev=0x%02X feat_idx=%d", name, transport.kind, devnumber, feat_idx)
+    feat_idx_rep = None
+    if role == "keyboard":
+        feat_idx_rep = resolve_feature_index(transport, devnumber, FEATURE_REPROG_CONTROLS_V4, long=long_msg)
+        log.debug("feat_idx_rep=%s", feat_idx_rep)
+        if feat_idx_rep is None:
+            log.warning(
+                "%s (dev=0x%02X, %s) does not support FEATURE_REPROG_CONTROLS_V4 (0x1B04) — skipping",
+                name, devnumber, transport.kind,
+            )
+            return None
+        log.debug("%s (dev=0x%02X, %s) found FEATURE_REPROG_CONTROLS_V4 (0x1B04) idx — %s",
+                  name, devnumber, transport.kind, feat_idx_rep)
+
+    log.info("%s found: transport=%s dev=0x%02X", name, transport.kind, devnumber)
 
     info = get_change_host_info(transport, devnumber, feat_idx, long=long_msg)
     if info:
@@ -224,50 +235,13 @@ def _make_context(
         log.info("%s: %d hosts available, currently on host %d", name, num_hosts, current_host + 1)
 
     ctx = DeviceContext(
-        transport            = transport,
-        devnumber            = devnumber,
-        change_host_feat_idx = feat_idx,
-        long_msg             = long_msg,
-        role                 = role,
-        name                 = name,
-        wpid                 = wpid,
+        transport=transport,
+        devnumber=devnumber,
+        change_host_feat_idx=feat_idx,
+        divert_feat_idx=feat_idx_rep,
+        long_msg=long_msg,
+        role=role,
+        name=name,
+        wpid=wpid,
     )
-    _setup_key_diversion(ctx)
     return ctx
-
-
-def _setup_key_diversion(ctx: DeviceContext) -> None:
-    """Resolve REPROG_CONTROLS_V4 on *ctx* and divert Host_Switch_Channel keys.
-
-    Only keys that advertise KEY_FLAG_DIVERTABLE are touched.
-    Stores the feature index and diverted CID list on *ctx* for later cleanup.
-    """
-    reprog_idx = resolve_feature_index(
-        ctx.transport, ctx.devnumber, FEATURE_REPROG_CONTROLS_V4, long=ctx.long_msg,
-    )
-    if reprog_idx is None:
-        log.debug("%s: REPROG_CONTROLS_V4 not found — skipping key diversion", ctx.name)
-        return
-
-    ctx.reprog_feat_idx = reprog_idx
-    cid_list = list_reprog_cids(ctx.transport, ctx.devnumber, reprog_idx, long=ctx.long_msg)
-
-    for cid, key_flags in cid_list:
-        if cid not in HOST_SWITCH_CIDS:
-            continue
-        if not (key_flags & KEY_FLAG_DIVERTABLE):
-            log.debug("%s: CID 0x%04X not divertable (flags=0x%02X)", ctx.name, cid, key_flags)
-            continue
-        ok = set_cid_divert(ctx.transport, ctx.devnumber, reprog_idx, cid, True, long=ctx.long_msg)
-        if ok:
-            ctx.diverted_cids.append(cid)
-            log.info("%s: diverted CID 0x%04X (host %d key)", ctx.name, cid, HOST_SWITCH_CIDS[cid] + 1)
-
-    if ctx.diverted_cids:
-        log.info("%s: %d host-switch key(s) diverted", ctx.name, len(ctx.diverted_cids))
-    else:
-        log.warning(
-            "%s: no divertable host-switch keys found — "
-            "Easy-Switch button will not trigger host sync",
-            ctx.name,
-        )
