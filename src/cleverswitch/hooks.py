@@ -10,7 +10,6 @@ import logging
 import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
 
 from .config import HookEntry, HooksConfig
 
@@ -29,10 +28,10 @@ def fire_switch(hooks_cfg: HooksConfig, device_name: str, role: str, target_host
     fire(
         hooks_cfg.on_switch,
         {
-            "CLEVERSWITCH_EVENT":         "switch",
-            "CLEVERSWITCH_DEVICE":        role,
-            "CLEVERSWITCH_DEVICE_NAME":   device_name,
-            "CLEVERSWITCH_TARGET_HOST":   str(target_host + 1),   # 1-based for humans
+            "CLEVERSWITCH_EVENT": "switch",
+            "CLEVERSWITCH_DEVICE": role,
+            "CLEVERSWITCH_DEVICE_NAME": device_name,
+            "CLEVERSWITCH_TARGET_HOST": str(target_host + 1),  # 1-based for humans
             "CLEVERSWITCH_PREVIOUS_HOST": str(previous_host + 1),
         },
     )
@@ -42,8 +41,8 @@ def fire_connect(hooks_cfg: HooksConfig, device_name: str, role: str) -> None:
     fire(
         hooks_cfg.on_connect,
         {
-            "CLEVERSWITCH_EVENT":       "connect",
-            "CLEVERSWITCH_DEVICE":      role,
+            "CLEVERSWITCH_EVENT": "connect",
+            "CLEVERSWITCH_DEVICE": role,
             "CLEVERSWITCH_DEVICE_NAME": device_name,
         },
     )
@@ -53,8 +52,8 @@ def fire_disconnect(hooks_cfg: HooksConfig, device_name: str, role: str) -> None
     fire(
         hooks_cfg.on_disconnect,
         {
-            "CLEVERSWITCH_EVENT":       "disconnect",
-            "CLEVERSWITCH_DEVICE":      role,
+            "CLEVERSWITCH_EVENT": "disconnect",
+            "CLEVERSWITCH_DEVICE": role,
             "CLEVERSWITCH_DEVICE_NAME": device_name,
         },
     )

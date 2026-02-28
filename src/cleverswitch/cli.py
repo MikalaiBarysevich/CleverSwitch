@@ -8,9 +8,8 @@ import signal
 import sys
 import threading
 
-from . import __version__
+from . import __version__, platform_setup
 from . import config as cfg_module
-from . import platform_setup
 from .errors import CleverSwitchError, ConfigError
 from .monitor import run
 
@@ -53,22 +52,33 @@ def main() -> None:
 def _dry_run(cfg) -> None:
     """Discover devices, print info, then exit without sending any commands."""
     import logging
+
     log = logging.getLogger(__name__)
     from .discovery import discover
     from .errors import CleverSwitchError
+
     try:
         setup = discover(cfg)
-        log.info("Keyboard: %s dev=0x%02X feat=%d via %s",
-                 setup.keyboard.name, setup.keyboard.devnumber,
-                 setup.keyboard.change_host_feat_idx, setup.keyboard.transport.kind)
-        log.info("Mouse:    %s dev=0x%02X feat=%d via %s",
-                 setup.mouse.name, setup.mouse.devnumber,
-                 setup.mouse.change_host_feat_idx, setup.mouse.transport.kind)
+        log.info(
+            "Keyboard: %s dev=0x%02X feat=%d via %s",
+            setup.keyboard.name,
+            setup.keyboard.devnumber,
+            setup.keyboard.change_host_feat_idx,
+            setup.keyboard.transport.kind,
+        )
+        log.info(
+            "Mouse:    %s dev=0x%02X feat=%d via %s",
+            setup.mouse.name,
+            setup.mouse.devnumber,
+            setup.mouse.change_host_feat_idx,
+            setup.mouse.transport.kind,
+        )
         for t in setup.unique_transports():
             t.close()
     except CleverSwitchError as e:
         log.error("Discovery failed: %s", e)
         import sys
+
         sys.exit(1)
 
 
@@ -79,8 +89,7 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument("-c", "--config", metavar="FILE", help="path to config YAML file")
     p.add_argument("-v", "--verbose", action="store_true", help="force DEBUG logging")
-    p.add_argument("--dry-run", action="store_true",
-                   help="discover devices and print info, then exit")
+    p.add_argument("--dry-run", action="store_true", help="discover devices and print info, then exit")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return p.parse_args()
 

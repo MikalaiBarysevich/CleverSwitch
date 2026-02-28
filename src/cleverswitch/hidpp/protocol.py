@@ -17,7 +17,9 @@ from .constants import (
     CHANGE_HOST_FN_SET,
     DEVICE_RECEIVER,
     FEATURE_ROOT,
+    HOST_SWITCH_CIDS,
     MAP_FLAG_DIVERTED,
+    MAP_FLAG_PERSISTENTLY_DIVERTED,
     MSG_DJ_LEN,
     MSG_LONG_LEN,
     MSG_SHORT_LEN,
@@ -28,8 +30,6 @@ from .constants import (
     REPORT_LONG,
     REPORT_SHORT,
     SW_ID,
-    MAP_FLAG_PERSISTENTLY_DIVERTED,
-    HOST_SWITCH_CIDS
 )
 from .transport import HIDTransport
 
@@ -44,6 +44,7 @@ _MSG_LENGTHS = {
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
+
 
 def _pack_params(params: tuple) -> bytes:
     if not params:
@@ -72,13 +73,14 @@ def _is_relevant(raw: bytes) -> bool:
 
 # ── Request / reply ───────────────────────────────────────────────────────────
 
+
 def request(
-        transport: HIDTransport,
-        devnumber: int,
-        request_id: int,
-        *params,
-        long: bool = False,
-        timeout: float = 4.0,
+    transport: HIDTransport,
+    devnumber: int,
+    request_id: int,
+    *params,
+    long: bool = False,
+    timeout: float = 4.0,
 ) -> bytes | None:
     """Send a HID++ request and return the reply payload.
 
@@ -110,15 +112,16 @@ def request(
         transport.write(msg)
     except Exception as e:
         from ..errors import TransportError
+
         raise TransportError(f"write failed: {e}") from e
 
     deadline = time() + timeout
     while time() < deadline:
-        remaining_ms = max(1, int((deadline - time()) * 1000))
         try:
             raw = transport.read()
         except Exception as e:
             from ..errors import TransportError
+
             raise TransportError(f"read failed: {e}") from e
 
         if not raw or not _is_relevant(raw):
@@ -159,11 +162,12 @@ def request(
 
 # ── HID++ 2.0 feature operations ─────────────────────────────────────────────
 
+
 def resolve_feature_index(
-        transport: HIDTransport,
-        devnumber: int,
-        feature_code: int,
-        long: bool = False,
+    transport: HIDTransport,
+    devnumber: int,
+    feature_code: int,
+    long: bool = False,
 ) -> int | None:
     """Look up the feature table index for *feature_code* on the given device.
 
@@ -173,9 +177,14 @@ def resolve_feature_index(
     # ROOT feature is at index 0; GetFeature is function 0x00
     request_id = (FEATURE_ROOT << 8) | 0x00
     reply = request(
-        transport, devnumber, request_id,
-        feature_code >> 8, feature_code & 0xFF, 0x00,
-        long=long, timeout=2.0,
+        transport,
+        devnumber,
+        request_id,
+        feature_code >> 8,
+        feature_code & 0xFF,
+        0x00,
+        long=long,
+        timeout=2.0,
     )
     if reply and reply[0] != 0x00:
         return reply[0]
@@ -183,10 +192,10 @@ def resolve_feature_index(
 
 
 def get_change_host_info(
-        transport: HIDTransport,
-        devnumber: int,
-        feature_idx: int,
-        long: bool = False,
+    transport: HIDTransport,
+    devnumber: int,
+    feature_idx: int,
+    long: bool = False,
 ) -> tuple[int, int] | None:
     """Return (num_hosts, current_host) for the given device. Returns None on failure."""
     request_id = (feature_idx << 8) | (CHANGE_HOST_FN_GET & 0xF0)
@@ -197,14 +206,14 @@ def get_change_host_info(
 
 
 def send_change_host(
-        transport: HIDTransport,
-        devnumber: int,
-        feature_idx: int,
-        target_host: int,
-        long: bool = False,
+    transport: HIDTransport,
+    devnumber: int,
+    feature_idx: int,
+    target_host: int,
+    long: bool = False,
 ) -> None:
     """Switch *devnumber* to *target_host* (0-based). Fire-and-forget — no reply expected."""
-    request_id = ((feature_idx << 8) | (CHANGE_HOST_FN_SET & 0xF0) | SW_ID)
+    request_id = (feature_idx << 8) | (CHANGE_HOST_FN_SET & 0xF0) | SW_ID
     params = struct.pack("B", target_host)
     msg = _build_msg(devnumber, request_id, params, long)
     if log.isEnabledFor(logging.DEBUG):
@@ -213,10 +222,12 @@ def send_change_host(
         transport.write(msg)
     except Exception as e:
         from ..errors import TransportError
+
         raise TransportError(f"send_change_host write failed: {e}") from e
 
 
 # ── HID++ 1.0 register access ─────────────────────────────────────────────────
+
 
 def read_pairing_wpid(transport: HIDTransport, slot: int, receiver_kind: str) -> int | None:
     """Read the wireless PID of the device in *slot* (1-6) from a receiver.
@@ -237,8 +248,12 @@ def read_pairing_wpid(transport: HIDTransport, slot: int, receiver_kind: str) ->
     register_id = 0x8100 | (REG_RECEIVER_INFO & 0x2FF)
 
     pair_info = request(
-        transport, DEVICE_RECEIVER, register_id,
-        sub_reg, 0x00, 0x00,
+        transport,
+        DEVICE_RECEIVER,
+        register_id,
+        sub_reg,
+        0x00,
+        0x00,
         timeout=1.0,
     )
     if not pair_info or len(pair_info) < 5:
@@ -257,12 +272,12 @@ def read_pairing_wpid(transport: HIDTransport, slot: int, receiver_kind: str) ->
 
 
 def set_cid_divert(
-        transport: HIDTransport,
-        devnumber: int,
-        feat_idx: int,
-        cid: int,
-        diverted: bool,
-        long: bool = False,
+    transport: HIDTransport,
+    devnumber: int,
+    feat_idx: int,
+    cid: int,
+    diverted: bool,
+    long: bool = False,
 ) -> bool:
     """Set or clear the temporary DIVERTED flag for *cid* via setCidReporting (fn 0x30).
 
@@ -282,9 +297,11 @@ def set_cid_divert(
 
 # ── Notification / message parsing ────────────────────────────────────────────
 
+
 @dataclass
 class FeatureEvent:
     """A HID++ 2.0 feature notification (unsolicited event from device)."""
+
     devnumber: int
     feature_idx: int  # = sub_id byte; matches the feature's resolved index
     function: int  # upper nibble of address byte (event function code)
@@ -294,6 +311,7 @@ class FeatureEvent:
 @dataclass
 class HostChangeEvent:
     """Diverted Easy-Switch event from device."""
+
     devnumber: int
     target_host: int  # device cid
 
@@ -312,18 +330,18 @@ def parse_message(divert_feat_idx: int, raw: bytes) -> FeatureEvent | HostChange
     data = raw[4:]
 
     if (
-            report_id == REPORT_LONG
-            and address == 0x00
-            and divert_feat_idx == sub_id
-            and data[1] in HOST_SWITCH_CIDS.keys()
+        report_id == REPORT_LONG
+        and address == 0x00
+        and divert_feat_idx == sub_id
+        and data[1] in HOST_SWITCH_CIDS.keys()
     ):
         return HostChangeEvent(devnumber, HOST_SWITCH_CIDS[data[1]])
 
     if (
-            report_id in (REPORT_SHORT, REPORT_LONG)
-            and sub_id < 0x80
-            and (address & 0x0F) == 0x00
-            and not (sub_id == 0x00 and address == 0x00)
+        report_id in (REPORT_SHORT, REPORT_LONG)
+        and sub_id < 0x80
+        and (address & 0x0F) == 0x00
+        and not (sub_id == 0x00 and address == 0x00)
     ):
         return FeatureEvent(devnumber, sub_id, address & 0xF0, data)
 

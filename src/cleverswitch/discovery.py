@@ -32,6 +32,7 @@ log = logging.getLogger(__name__)
 @dataclasses.dataclass
 class DeviceContext:
     """Everything needed to talk to one device."""
+
     transport: HIDTransport
     devnumber: int  # 1-6 for receiver-paired, 0xFF for Bluetooth direct
     change_host_feat_idx: int
@@ -47,6 +48,7 @@ class DeviceContext:
 @dataclasses.dataclass
 class Setup:
     """Resolved device contexts for keyboard and mouse."""
+
     keyboard: DeviceContext
     mouse: DeviceContext
 
@@ -59,6 +61,7 @@ class Setup:
 
 
 # ── Public entry point ────────────────────────────────────────────────────────
+
 
 def discover(cfg: Config) -> Setup:
     """Scan all connection types and return a Setup for the configured devices.
@@ -82,13 +85,16 @@ def discover(cfg: Config) -> Setup:
     setup = Setup(keyboard=contexts["keyboard"], mouse=contexts["mouse"])
     log.info(
         "Ready — keyboard: dev=%d feat=%d | mouse: dev=%d feat=%d",
-        setup.keyboard.devnumber, setup.keyboard.change_host_feat_idx,
-        setup.mouse.devnumber, setup.mouse.change_host_feat_idx,
+        setup.keyboard.devnumber,
+        setup.keyboard.change_host_feat_idx,
+        setup.mouse.devnumber,
+        setup.mouse.change_host_feat_idx,
     )
     return setup
 
 
 # ── Receiver scanning ─────────────────────────────────────────────────────────
+
 
 def _scan_receivers(cfg: Config, contexts: dict[str, DeviceContext]) -> None:
     """Scan Bolt/Unifying receivers for configured devices."""
@@ -113,9 +119,9 @@ def _scan_receivers(cfg: Config, contexts: dict[str, DeviceContext]) -> None:
 
 
 def _scan_one_receiver(
-        transport: HIDTransport,
-        cfg: Config,
-        contexts: dict[str, DeviceContext],
+    transport: HIDTransport,
+    cfg: Config,
+    contexts: dict[str, DeviceContext],
 ) -> None:
     """Scan all pairing slots in one receiver. Populates *contexts* in-place."""
     max_slot = 6
@@ -154,6 +160,7 @@ def _role_for_wpid(wpid: int, cfg: Config) -> str | None:
 
 # ── Bluetooth scanning ────────────────────────────────────────────────────────
 
+
 def _scan_bluetooth(cfg: Config, contexts: dict[str, DeviceContext]) -> None:
     """Scan for Logitech Bluetooth HID++ devices."""
     bt_devices = find_bluetooth_transports()
@@ -191,13 +198,14 @@ def _role_for_btid(btid: int, cfg: Config) -> str | None:
 
 # ── Context creation ──────────────────────────────────────────────────────────
 
+
 def _make_context(
-        transport: HIDTransport,
-        devnumber: int,
-        long_msg: bool,
-        role: str,
-        name: str,
-        wpid: int | None,
+    transport: HIDTransport,
+    devnumber: int,
+    long_msg: bool,
+    role: str,
+    name: str,
+    wpid: int | None,
 ) -> DeviceContext | None:
     """Resolve CHANGE_HOST feature index and build a DeviceContext.
 
@@ -208,11 +216,18 @@ def _make_context(
     if feat_idx is None:
         log.warning(
             "%s (dev=0x%02X, %s) does not support CHANGE_HOST (0x1814) — skipping",
-            name, devnumber, transport.kind,
+            name,
+            devnumber,
+            transport.kind,
         )
         return None
-    log.debug("%s (dev=0x%02X, %s) found CHANGE_HOST (0x1814) idx — %s",
-              name, devnumber, transport.kind, feat_idx)
+    log.debug(
+        "%s (dev=0x%02X, %s) found CHANGE_HOST (0x1814) idx — %s",
+        name,
+        devnumber,
+        transport.kind,
+        feat_idx,
+    )
 
     feat_idx_rep = None
     if role == "keyboard":
@@ -220,12 +235,19 @@ def _make_context(
         log.debug("feat_idx_rep=%s", feat_idx_rep)
         if feat_idx_rep is None:
             log.warning(
-                "%s (dev=0x%02X, %s) does not support FEATURE_REPROG_CONTROLS_V4 (0x1B04) — skipping",
-                name, devnumber, transport.kind,
+                "%s (dev=0x%02X, %s) does not support FEATURE_REPROG_CONTROLS_V4 (0x1B04) - skipping",
+                name,
+                devnumber,
+                transport.kind,
             )
             return None
-        log.debug("%s (dev=0x%02X, %s) found FEATURE_REPROG_CONTROLS_V4 (0x1B04) idx — %s",
-                  name, devnumber, transport.kind, feat_idx_rep)
+        log.debug(
+            "%s (dev=0x%02X, %s) found FEATURE_REPROG_CONTROLS_V4 (0x1B04) idx — %s",
+            name,
+            devnumber,
+            transport.kind,
+            feat_idx_rep,
+        )
 
     log.info("%s found: transport=%s dev=0x%02X", name, transport.kind, devnumber)
 
