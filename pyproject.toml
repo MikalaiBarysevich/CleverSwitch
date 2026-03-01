@@ -16,6 +16,7 @@ dependencies = [
 dev = [
     "pytest >= 7.0",
     "pytest-mock >= 3.10",
+    "pytest-cov >= 4.0",
 ]
 
 [project.scripts]
@@ -23,6 +24,17 @@ cleverswitch = "cleverswitch.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--tb=short --cov --cov-fail-under=90"
+
+[tool.coverage.run]
+source = ["src/cleverswitch"]
+omit = [
+    "src/cleverswitch/hidpp/transport.py",  # hardware I/O — not unit-testable
+    "src/cleverswitch/__main__.py",          # entry-point runner — not unit-testable
+]
 
 [tool.ruff]
 line-length = 120
