@@ -10,14 +10,7 @@ from typing import Any
 import yaml
 
 from .errors import ConfigError
-from .hidpp.constants import (
-    BOLT_PID,
-    MX_KEYS_BTID,
-    MX_KEYS_WPID,
-    MX_MASTER_3_BTID,
-    MX_MASTER_3_WPID,
-    UNIFYING_PIDS,
-)
+from .hidpp.constants import BOLT_PID, UNIFYING_PIDS
 
 _DEFAULT_CONFIG_PATH = Path("~/.config/cleverswitch/config.yaml").expanduser()
 
@@ -27,14 +20,6 @@ class ReceiverConfig:
     vendor_id: int = 0x046D
     product_id: int = BOLT_PID
     path: str | None = None  # force a specific HID path
-
-
-@dataclasses.dataclass(frozen=True)
-class DeviceConfig:
-    name: str
-    wpid: int | None = None  # wireless PID (receiver-paired)
-    btid: int | None = None  # Bluetooth product ID (direct BT)
-    device_index: int | None = None  # skip auto-detection if set
 
 
 @dataclasses.dataclass(frozen=True)
@@ -61,28 +46,16 @@ class Settings:
 @dataclasses.dataclass(frozen=True)
 class Config:
     receiver: ReceiverConfig
-    keyboard: DeviceConfig
-    mouse: DeviceConfig
     hooks: HooksConfig
     settings: Settings
 
 
-# ── Default config (works for MX Keys + MX Master 3 on any receiver) ──────────
+# ── Default config ────────────────────────────────────────────────────────────
 
 
 def default_config() -> Config:
     return Config(
         receiver=ReceiverConfig(),
-        keyboard=DeviceConfig(
-            name="MX Keys",
-            wpid=MX_KEYS_WPID,
-            btid=MX_KEYS_BTID,
-        ),
-        mouse=DeviceConfig(
-            name="MX Master 3",
-            wpid=MX_MASTER_3_WPID,
-            btid=MX_MASTER_3_BTID,
-        ),
         hooks=HooksConfig(),
         settings=Settings(),
     )
@@ -124,10 +97,6 @@ def _parse(raw: dict[str, Any]) -> Config:
         path=r.get("path"),
     )
 
-    # ── devices ───────────────────────────────────────────────────────────────
-    keyboard = _parse_device(raw.get("devices", {}).get("keyboard", {}), defaults.keyboard)
-    mouse = _parse_device(raw.get("devices", {}).get("mouse", {}), defaults.mouse)
-
     # ── hooks ─────────────────────────────────────────────────────────────────
     h = raw.get("hooks", {})
     hooks = HooksConfig(
@@ -145,17 +114,8 @@ def _parse(raw: dict[str, Any]) -> Config:
         log_level=str(s.get("log_level", defaults.settings.log_level)).upper(),
     )
 
-    _validate(receiver, keyboard, mouse, settings)
-    return Config(receiver=receiver, keyboard=keyboard, mouse=mouse, hooks=hooks, settings=settings)
-
-
-def _parse_device(d: dict, default: DeviceConfig) -> DeviceConfig:
-    return DeviceConfig(
-        name=str(d.get("name", default.name)),
-        wpid=_hex_or_int(d["wpid"]) if "wpid" in d else default.wpid,
-        btid=_hex_or_int(d["btid"]) if "btid" in d else default.btid,
-        device_index=int(d["device_index"]) if "device_index" in d else default.device_index,
-    )
+    _validate(receiver, settings)
+    return Config(receiver=receiver, hooks=hooks, settings=settings)
 
 
 def _parse_hooks(entries: list) -> list[HookEntry]:
@@ -173,17 +133,13 @@ def _parse_hooks(entries: list) -> list[HookEntry]:
     return result
 
 
-def _validate(receiver: ReceiverConfig, keyboard: DeviceConfig, mouse: DeviceConfig, settings: Settings) -> None:
+def _validate(receiver: ReceiverConfig, settings: Settings) -> None:
     valid_pids = (BOLT_PID,) + UNIFYING_PIDS
     if receiver.product_id not in valid_pids:
         raise ConfigError(
             f"receiver.product_id 0x{receiver.product_id:04X} is not a known Bolt/Unifying PID. Expected one of: "
             + ", ".join(f"0x{p:04X}" for p in valid_pids)
         )
-    if not keyboard.wpid and not keyboard.btid:
-        raise ConfigError("keyboard must have at least one of wpid or btid")
-    if not mouse.wpid and not mouse.btid:
-        raise ConfigError("mouse must have at least one of wpid or btid")
     if settings.log_level not in ("DEBUG", "INFO", "WARNING", "ERROR"):
         raise ConfigError(f"Invalid log_level: {settings.log_level!r}")
 

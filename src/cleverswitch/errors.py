@@ -7,12 +7,11 @@ class ReceiverNotFound(CleverSwitchError):
 
 
 class DeviceNotFound(CleverSwitchError):
-    """Raised when a configured device (keyboard or mouse) cannot be located."""
+    """Raised when a device (keyboard or mouse) cannot be located."""
 
-    def __init__(self, role: str, wpid: int | None = None):
+    def __init__(self, role: str):
         self.role = role
-        self.wpid = wpid
-        super().__init__(f"{role} not found" + (f" (wpid=0x{wpid:04X})" if wpid else ""))
+        super().__init__(f"{role} not found")
 
 
 class FeatureNotSupported(CleverSwitchError):

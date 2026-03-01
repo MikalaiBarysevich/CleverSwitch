@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from cleverswitch.config import Config, DeviceConfig, HooksConfig, ReceiverConfig, Settings
-from cleverswitch.hidpp.constants import BOLT_PID, MX_KEYS_BTID, MX_KEYS_WPID, MX_MASTER_3_BTID, MX_MASTER_3_WPID
+from cleverswitch.config import Config, HooksConfig, ReceiverConfig, Settings
+from cleverswitch.hidpp.constants import BOLT_PID
 
 
 class FakeTransport:
@@ -55,11 +55,9 @@ def make_fake_transport():
 
 @pytest.fixture
 def default_cfg() -> Config:
-    """Minimal valid Config using default MX Keys + MX Master 3 identifiers."""
+    """Minimal valid Config with all defaults."""
     return Config(
         receiver=ReceiverConfig(),
-        keyboard=DeviceConfig(name="MX Keys", wpid=MX_KEYS_WPID, btid=MX_KEYS_BTID),
-        mouse=DeviceConfig(name="MX Master 3", wpid=MX_MASTER_3_WPID, btid=MX_MASTER_3_BTID),
         hooks=HooksConfig(),
         settings=Settings(),
     )

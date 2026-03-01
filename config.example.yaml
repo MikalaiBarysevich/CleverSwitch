@@ -9,20 +9,6 @@ receiver:
   product_id: 0xC548      # Bolt receiver product ID (do not change)
   # path: "/dev/hidraw3"  # optional: force a specific device path (Linux)
 
-# Device identification by wireless PID (product ID reported when paired)
-# These values are fixed for MX Keys and MX Master 3 — do not change.
-devices:
-  keyboard:
-    name: "MX Keys"
-    wpid: 0x408A
-    # device_index: 1     # optional: skip auto-detection for faster startup
-                          # Use only if your device index never changes
-
-  mouse:
-    name: "MX Master 3"
-    wpid: 0x4082
-    # device_index: 2     # optional: skip auto-detection for faster startup
-
 # Hook scripts (all optional)
 # Scripts are called asynchronously and never block the switch relay.
 # Each script receives event details via environment variables:

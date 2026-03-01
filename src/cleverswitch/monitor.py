@@ -37,9 +37,17 @@ def run(cfg: Config, shutdown: threading.Event) -> None:
     while not shutdown.is_set():
         attempt += 1
         try:
-            setup = discover(cfg)
-        except (DeviceNotFound, FeatureNotSupported, ReceiverNotFound) as e:
+            setup = discover()
+        except (FeatureNotSupported, ReceiverNotFound) as e:
             _log_retry(e, cfg.settings.retry_interval_s)
+            shutdown.wait(cfg.settings.retry_interval_s)
+            if 0 < cfg.settings.max_retries <= attempt:
+                log.error("Max retries (%d) exceeded. Giving up.", cfg.settings.max_retries)
+                return
+            continue
+
+        if setup is None:
+            _log_retry(DeviceNotFound("devices"), cfg.settings.retry_interval_s)
             shutdown.wait(cfg.settings.retry_interval_s)
             if 0 < cfg.settings.max_retries <= attempt:
                 log.error("Max retries (%d) exceeded. Giving up.", cfg.settings.max_retries)
@@ -63,8 +71,8 @@ def run(cfg: Config, shutdown: threading.Event) -> None:
 
 def _monitor_loop(setup: Setup, cfg: Config, shutdown: threading.Event) -> None:
     """Block-read from the keyboard's transport until shutdown or transport error."""
-    kbd = setup.keyboard
-    mouse = setup.mouse
+    kbd = next(device for device in setup.devices if device.role == "keyboard")
+    devices = setup.devices
 
     log.info("Monitoring — waiting for Easy-Switch press on %s…", kbd.name)
 
@@ -83,35 +91,27 @@ def _monitor_loop(setup: Setup, cfg: Config, shutdown: threading.Event) -> None:
 
         if isinstance(event, HostChangeEvent) and event.devnumber == kbd.devnumber:
             target_host = event.target_host
-            log.info(
-                "%s switched to host %d",
-                kbd.name,
-                target_host + 1,
-            )
-            _switch(kbd, target_host)
-            _switch(mouse, target_host)
-            # hook_runner.fire_switch(cfg.hooks, kbd.name, "keyboard", target_host, prev_host)
-            # hook_runner.fire_switch(cfg.hooks, mouse.name, "mouse", target_host, prev_host)
+
+            for device in devices:
+                log.info(
+                    "'%s' switched to host %d",
+                    device.name,
+                    target_host + 1,
+                )
+                _switch(device, target_host)
+                # hook_runner.fire_switch(cfg.hooks, kbd.name, "keyboard", target_host, prev_host)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _role_for_devnumber(devnumber: int, setup: Setup) -> str | None:
-    if devnumber == setup.keyboard.devnumber:
-        return "keyboard"
-    if devnumber == setup.mouse.devnumber:
-        return "mouse"
-    return None
-
-
 def _fire_startup_hooks(setup: Setup, cfg: Config) -> None:
-    for ctx in (setup.keyboard, setup.mouse):
+    for ctx in setup.devices:
         hook_runner.fire_connect(cfg.hooks, ctx.name, ctx.role)
 
 
 def _close_setup(setup: Setup) -> None:
-    for ctx in (setup.keyboard, setup.mouse):
+    for ctx in setup.devices:
         if ctx.reprog_feat_idx is not None and ctx.diverted_cids:
             for cid in ctx.diverted_cids:
                 try:
@@ -126,8 +126,8 @@ def _close_setup(setup: Setup) -> None:
                     log.debug("Undiverted CID 0x%04X on %s", cid, ctx.name)
                 except Exception as e:
                     log.debug("Failed to undivert CID 0x%04X on %s: %s", cid, ctx.name, e)
-    for transport in setup.unique_transports():
-        transport.close()
+    for device in setup.devices:
+        device.transport.close()
 
 
 def _log_retry(error: Exception, interval: int) -> None:

@@ -21,7 +21,6 @@ from cleverswitch.monitor import (
     _fire_startup_hooks,
     _log_retry,
     _monitor_loop,
-    _role_for_devnumber,
     _switch,
     run,
 )
@@ -52,38 +51,11 @@ def _host_change_raw(devnumber: int, feat_idx: int, cid_byte: int) -> bytes:
 @pytest.fixture
 def setup(fake_transport):
     return Setup(
-        keyboard=_make_ctx(fake_transport, "keyboard", devnumber=1),
-        mouse=_make_ctx(fake_transport, "mouse", devnumber=2),
+        devices=[
+            _make_ctx(fake_transport, "keyboard", devnumber=1),
+            _make_ctx(fake_transport, "mouse", devnumber=2),
+        ]
     )
-#
-#
-# ── _role_for_devnumber() ─────────────────────────────────────────────────────
-#
-#
-def test_role_for_devnumber_returns_keyboard_for_keyboard_device_number(setup):
-    assert _role_for_devnumber(1, setup) == "keyboard"
-#
-#
-def test_role_for_devnumber_returns_mouse_for_mouse_device_number(setup):
-    assert _role_for_devnumber(2, setup) == "mouse"
-#
-#
-def test_role_for_devnumber_returns_none_for_unknown_device_number(setup):
-    assert _role_for_devnumber(99, setup) is None
-#
-#
-def test_role_for_devnumber_distinguishes_between_keyboard_and_mouse_when_they_share_transport(
-    make_fake_transport,
-):
-    # Both devices on the same receiver → devnumber is the only differentiator
-    shared_transport = make_fake_transport()
-    setup = Setup(
-        keyboard=_make_ctx(shared_transport, "keyboard", devnumber=3),
-        mouse=_make_ctx(shared_transport, "mouse", devnumber=5),
-    )
-    assert _role_for_devnumber(3, setup) == "keyboard"
-    assert _role_for_devnumber(5, setup) == "mouse"
-    assert _role_for_devnumber(1, setup) is None
 #
 #
 # ── _fire_startup_hooks() ─────────────────────────────────────────────────────
@@ -118,14 +90,16 @@ def test_log_retry_emits_warning_with_retry_interval(caplog):
 #
 def test_divert_all_es_keys_calls_set_cid_divert_for_each_host_switch_cid(mocker, setup):
     mock_divert = mocker.patch("cleverswitch.monitor.set_cid_divert")
-    _divert_all_es_keys(setup.keyboard)
+    kbd = next(d for d in setup.devices if d.role == "keyboard")
+    _divert_all_es_keys(kbd)
     assert mock_divert.call_count == len(HOST_SWITCH_CIDS)
 #
 #
 def test_divert_all_es_keys_sets_diverted_true(mocker, setup):
     calls = []
     mocker.patch("cleverswitch.monitor.set_cid_divert", side_effect=lambda *a, **kw: calls.append(a))
-    _divert_all_es_keys(setup.keyboard)
+    kbd = next(d for d in setup.devices if d.role == "keyboard")
+    _divert_all_es_keys(kbd)
     # Fifth positional arg is diverted=True
     assert all(args[4] is True for args in calls)
 #
@@ -135,13 +109,14 @@ def test_divert_all_es_keys_sets_diverted_true(mocker, setup):
 #
 def test_switch_calls_send_change_host_with_correct_target_host(mocker, setup):
     mock_send = mocker.patch("cleverswitch.monitor.send_change_host")
-    _switch(setup.keyboard, target_host=2)
+    kbd = next(d for d in setup.devices if d.role == "keyboard")
+    _switch(kbd, target_host=2)
     mock_send.assert_called_once_with(
-        setup.keyboard.transport,
-        setup.keyboard.devnumber,
-        setup.keyboard.change_host_feat_idx,
+        kbd.transport,
+        kbd.devnumber,
+        kbd.change_host_feat_idx,
         2,
-        long=setup.keyboard.long_msg,
+        long=kbd.long_msg,
     )
 #
 #
@@ -153,7 +128,7 @@ def test_close_setup_closes_all_unique_transports(mocker, make_fake_transport):
     t1, t2 = make_fake_transport(), make_fake_transport()
     kbd = _make_ctx(t1, "keyboard", devnumber=1)
     mouse = _make_ctx(t2, "mouse", devnumber=2)
-    setup = Setup(keyboard=kbd, mouse=mouse)
+    setup = Setup(devices=[kbd, mouse])
     _close_setup(setup)
     assert t1.closed and t2.closed
 #
@@ -165,7 +140,7 @@ def test_close_setup_calls_set_cid_divert_for_each_diverted_cid(mocker, make_fak
     kbd.reprog_feat_idx = 3
     kbd.diverted_cids = [0x00D1, 0x00D2]
     mouse = _make_ctx(t, "mouse", devnumber=2)
-    setup = Setup(keyboard=kbd, mouse=mouse)
+    setup = Setup(devices=[kbd, mouse])
     _close_setup(setup)
     assert mock_divert.call_count == 2
 #
@@ -177,7 +152,7 @@ def test_close_setup_handles_exception_during_undivert(mocker, make_fake_transpo
     kbd.reprog_feat_idx = 3
     kbd.diverted_cids = [0x00D1]
     mouse = _make_ctx(t, "mouse", devnumber=2)
-    setup = Setup(keyboard=kbd, mouse=mouse)
+    setup = Setup(devices=[kbd, mouse])
     # Should not raise; exception is caught internally
     _close_setup(setup)
     assert t.closed
@@ -191,7 +166,7 @@ def test_monitor_loop_exits_when_shutdown_is_set_on_second_check(mocker, make_fa
     t = make_fake_transport()
     kbd = _make_ctx(t, "keyboard", devnumber=1, divert_feat_idx=5)
     mouse = _make_ctx(t, "mouse", devnumber=2, divert_feat_idx=5)
-    setup = Setup(keyboard=kbd, mouse=mouse)
+    setup = Setup(devices=[kbd, mouse])
 #
     mocker.patch("cleverswitch.monitor._divert_all_es_keys")
     shutdown = threading.Event()
@@ -213,7 +188,7 @@ def test_monitor_loop_dispatches_host_change_event_to_both_devices(mocker, make_
     t = make_fake_transport()
     kbd = _make_ctx(t, "keyboard", devnumber=1, divert_feat_idx=feat_idx)
     mouse = _make_ctx(t, "mouse", devnumber=2, divert_feat_idx=feat_idx)
-    setup = Setup(keyboard=kbd, mouse=mouse)
+    setup = Setup(devices=[kbd, mouse])
 #
     raw = _host_change_raw(devnumber=1, feat_idx=feat_idx, cid_byte=cid_byte)
     t._responses.append(raw)
@@ -246,18 +221,15 @@ def test_run_exits_immediately_when_shutdown_is_already_set(mocker, default_cfg)
     mock_discover.assert_not_called()
 #
 #
-def test_run_stops_after_max_retries_on_device_not_found(mocker, make_fake_transport):
-    from cleverswitch.config import Config, DeviceConfig, HooksConfig, ReceiverConfig, Settings
-    from cleverswitch.hidpp.constants import MX_KEYS_BTID, MX_KEYS_WPID, MX_MASTER_3_BTID, MX_MASTER_3_WPID
+def test_run_stops_after_max_retries_when_devices_not_found(mocker, make_fake_transport):
+    from cleverswitch.config import Config, HooksConfig, ReceiverConfig, Settings
 #
     cfg = Config(
         receiver=ReceiverConfig(),
-        keyboard=DeviceConfig(name="K", wpid=MX_KEYS_WPID, btid=MX_KEYS_BTID),
-        mouse=DeviceConfig(name="M", wpid=MX_MASTER_3_WPID, btid=MX_MASTER_3_BTID),
         hooks=HooksConfig(),
         settings=Settings(max_retries=1, retry_interval_s=0),
     )
-    mocker.patch("cleverswitch.monitor.discover", side_effect=DeviceNotFound("keyboard"))
+    mocker.patch("cleverswitch.monitor.discover", return_value=None)
     shutdown = threading.Event()
     mocker.patch.object(shutdown, "wait")  # instant wait
     run(cfg, shutdown)
@@ -265,32 +237,29 @@ def test_run_stops_after_max_retries_on_device_not_found(mocker, make_fake_trans
 #
 #
 def test_run_reconnects_after_transport_error(mocker, make_fake_transport, default_cfg):
-    # First discover succeeds; _monitor_loop raises TransportError; second discover raises
-    # DeviceNotFound to exit after reconnect attempt.
+    # First discover succeeds; _monitor_loop raises TransportError; second discover returns None
+    # to exit after reconnect attempt.
     t = make_fake_transport()
     kbd = _make_ctx(t, "keyboard", devnumber=1)
     mouse = _make_ctx(t, "mouse", devnumber=2)
-    fake_setup = Setup(keyboard=kbd, mouse=mouse)
+    fake_setup = Setup(devices=[kbd, mouse])
 #
-    from cleverswitch.config import Config, DeviceConfig, HooksConfig, ReceiverConfig, Settings
+    from cleverswitch.config import Config, HooksConfig, ReceiverConfig, Settings
     from cleverswitch.errors import TransportError
-    from cleverswitch.hidpp.constants import MX_KEYS_BTID, MX_KEYS_WPID, MX_MASTER_3_BTID, MX_MASTER_3_WPID
 #
     cfg = Config(
         receiver=ReceiverConfig(),
-        keyboard=DeviceConfig(name="K", wpid=MX_KEYS_WPID, btid=MX_KEYS_BTID),
-        mouse=DeviceConfig(name="M", wpid=MX_MASTER_3_WPID, btid=MX_MASTER_3_BTID),
         hooks=HooksConfig(),
         settings=Settings(max_retries=1, retry_interval_s=0),
     )
 #
     discover_calls = [0]
 #
-    def fake_discover(c):
+    def fake_discover():
         discover_calls[0] += 1
         if discover_calls[0] == 1:
             return fake_setup
-        raise DeviceNotFound("keyboard")
+        return None
 #
     mocker.patch("cleverswitch.monitor.discover", side_effect=fake_discover)
     mocker.patch("cleverswitch.monitor._fire_startup_hooks")

@@ -191,6 +191,60 @@ def resolve_feature_index(
     return None
 
 
+def get_device_name(
+    transport: HIDTransport,
+    devnumber: int,
+    feat_idx: int,
+    long: bool = False,
+) -> str | None:
+    """Call x0005 getDeviceNameCount [fn 0] then getDeviceName [fn 1] to read the full name.
+
+    Chunk size per call is determined by the device's transport packet:
+      HPPLong: 16 characters, HPPShort: 3 characters.
+    Returns the marketing name (e.g. 'MX Keys'), or None on failure.
+    """
+    # fn [0]: getDeviceNameCount — returns total name length (no terminating zero)
+    reply = request(transport, devnumber, (feat_idx << 8) | 0x00, long=long, timeout=2.0)
+    if not reply:
+        return None
+    name_len = reply[0]
+    if name_len == 0:
+        return None
+
+    # fn [1]: getDeviceName(charIndex) — returns chunk starting at charIndex
+    chars: list[int] = []
+    while len(chars) < name_len:
+        reply = request(transport, devnumber, (feat_idx << 8) | 0x10, len(chars), long=long, timeout=2.0)
+        if not reply:
+            break
+        remaining = name_len - len(chars)
+        chunk = reply[:remaining]
+        if not chunk:
+            break
+        chars.extend(chunk)
+
+    return bytes(chars).decode("utf-8", errors="replace") if chars else None
+
+
+def get_device_type(
+    transport: HIDTransport,
+    devnumber: int,
+    feat_idx: int,
+    long: bool = False,
+) -> int | None:
+    """Call x0005 getDeviceType() [function 2] and return the deviceType byte.
+
+    Per x0005 spec: function [2] uses request_id = (feat_idx << 8) | 0x20.
+    Returns the deviceType integer (0=Keyboard, 3=Mouse, 4=Trackpad, 5=Trackball),
+    or None on failure.
+    """
+    request_id = (feat_idx << 8) | 0x20  # function [2]
+    reply = request(transport, devnumber, request_id, long=long, timeout=2.0)
+    if reply:
+        return reply[0]
+    return None
+
+
 def get_change_host_info(
     transport: HIDTransport,
     devnumber: int,

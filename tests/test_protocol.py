@@ -35,6 +35,7 @@ from cleverswitch.hidpp.protocol import (
     _is_relevant,
     _pack_params,
     get_change_host_info,
+    get_device_name,
     parse_message,
     read_pairing_wpid,
     request,
@@ -432,3 +433,60 @@ def test_set_cid_divert_returns_false_when_request_fails(mocker, fake_transport)
     mocker.patch("cleverswitch.hidpp.protocol.request", return_value=None)
     result = set_cid_divert(fake_transport, devnumber=1, feat_idx=3, cid=0x00D1, diverted=True)
     assert result is False
+#
+#
+# ── get_device_name() ─────────────────────────────────────────────────────────
+#
+#
+def test_get_device_name_returns_name_from_single_chunk(mocker, fake_transport):
+    # Arrange: nameCount=7, getDeviceName returns all 7 chars in one long reply
+    mocker.patch(
+        "cleverswitch.hidpp.protocol.request",
+        side_effect=[
+            b"\x07",                          # getDeviceNameCount → nameLen=7
+            b"MX Keys" + b"\x00" * 9,         # getDeviceName(0) → 16-byte chunk
+        ],
+    )
+    result = get_device_name(fake_transport, devnumber=1, feat_idx=2)
+    assert result == "MX Keys"
+#
+#
+def test_get_device_name_assembles_name_from_multiple_chunks(mocker, fake_transport):
+    # Arrange: nameCount=11, device returns 3 chars per short-message call
+    mocker.patch(
+        "cleverswitch.hidpp.protocol.request",
+        side_effect=[
+            b"\x0b",        # getDeviceNameCount → nameLen=11 ("MX Master 3")
+            b"MX ",         # getDeviceName(0)  → chars 0-2
+            b"Mas",         # getDeviceName(3)  → chars 3-5
+            b"ter",         # getDeviceName(6)  → chars 6-8
+            b" 3\x00",      # getDeviceName(9)  → chars 9-10 + padding
+        ],
+    )
+    result = get_device_name(fake_transport, devnumber=1, feat_idx=2)
+    assert result == "MX Master 3"
+#
+#
+def test_get_device_name_returns_none_when_namecount_request_fails(mocker, fake_transport):
+    mocker.patch("cleverswitch.hidpp.protocol.request", return_value=None)
+    assert get_device_name(fake_transport, devnumber=1, feat_idx=2) is None
+#
+#
+def test_get_device_name_returns_none_when_namecount_is_zero(mocker, fake_transport):
+    mocker.patch("cleverswitch.hidpp.protocol.request", return_value=b"\x00")
+    assert get_device_name(fake_transport, devnumber=1, feat_idx=2) is None
+#
+#
+def test_get_device_name_returns_partial_name_when_chunk_request_fails(mocker, fake_transport):
+    # First chunk returns 3 chars, second call fails
+    mocker.patch(
+        "cleverswitch.hidpp.protocol.request",
+        side_effect=[
+            b"\x07",    # nameLen=7
+            b"MX ",     # chars 0-2
+            None,       # chars 3+ → failure
+        ],
+    )
+    # Partial result is still returned
+    result = get_device_name(fake_transport, devnumber=1, feat_idx=2)
+    assert result == "MX "

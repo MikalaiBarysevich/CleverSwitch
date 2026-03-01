@@ -3,7 +3,7 @@
 Tests cover:
   - load()         — file not found, invalid YAML, valid file, default fallback
   - _parse()       — mapping raw YAML dicts → Config dataclasses
-  - _validate()    — rejection of invalid PIDs, missing IDs, bad log levels
+  - _validate()    — rejection of invalid PIDs, bad log levels
   - _hex_or_int()  — hex-string and integer coercion
   - _parse_hooks() — string / dict hook entries, tilde expansion
 """
@@ -17,7 +17,6 @@ import pytest
 
 from cleverswitch.config import (
     Config,
-    DeviceConfig,
     HooksConfig,
     ReceiverConfig,
     Settings,
@@ -29,22 +28,10 @@ from cleverswitch.config import (
     load,
 )
 from cleverswitch.errors import ConfigError
-from cleverswitch.hidpp.constants import BOLT_PID, MX_KEYS_WPID, MX_MASTER_3_WPID, UNIFYING_PIDS
+from cleverswitch.hidpp.constants import BOLT_PID, UNIFYING_PIDS
 
 
 # ── default_config ────────────────────────────────────────────────────────────
-
-
-def test_default_config_targets_mx_keys_as_keyboard():
-    cfg = default_config()
-    assert cfg.keyboard.name == "MX Keys"
-    assert cfg.keyboard.wpid == MX_KEYS_WPID
-
-
-def test_default_config_targets_mx_master_3_as_mouse():
-    cfg = default_config()
-    assert cfg.mouse.name == "MX Master 3"
-    assert cfg.mouse.wpid == MX_MASTER_3_WPID
 
 
 def test_default_config_uses_bolt_receiver_by_default():
@@ -92,7 +79,6 @@ def test_load_returns_default_config_when_no_default_path_exists(mocker):
     mocker.patch("cleverswitch.config._DEFAULT_CONFIG_PATH", Path("/nonexistent/cleverswitch/config.yaml"))
     cfg = load(path=None)
     assert isinstance(cfg, Config)
-    assert cfg.keyboard.name == "MX Keys"
 
 
 # ── _parse ────────────────────────────────────────────────────────────────────
@@ -101,8 +87,6 @@ def test_load_returns_default_config_when_no_default_path_exists(mocker):
 def test_parse_empty_dict_falls_back_to_all_defaults():
     cfg = _parse({})
     defaults = default_config()
-    assert cfg.keyboard.wpid == defaults.keyboard.wpid
-    assert cfg.mouse.wpid == defaults.mouse.wpid
     assert cfg.settings.log_level == defaults.settings.log_level
 
 
@@ -114,18 +98,6 @@ def test_parse_normalises_log_level_to_uppercase():
 def test_parse_accepts_hex_string_for_receiver_vendor_id():
     cfg = _parse({"receiver": {"vendor_id": "0x046D"}})
     assert cfg.receiver.vendor_id == 0x046D
-
-
-def test_parse_accepts_hex_string_for_device_wpid():
-    raw = {"devices": {"keyboard": {"name": "Test KB", "wpid": "0x408A"}, "mouse": {}}}
-    cfg = _parse(raw)
-    assert cfg.keyboard.wpid == 0x408A
-
-
-def test_parse_accepts_integer_device_index():
-    raw = {"devices": {"keyboard": {"device_index": 3}, "mouse": {}}}
-    cfg = _parse(raw)
-    assert cfg.keyboard.device_index == 3
 
 
 def test_parse_populates_on_switch_hooks_from_mixed_entries():
@@ -154,46 +126,30 @@ def _receiver(pid: int = BOLT_PID) -> ReceiverConfig:
     return ReceiverConfig(product_id=pid)
 
 
-def _device(wpid: int | None = MX_KEYS_WPID, btid: int | None = None) -> DeviceConfig:
-    return DeviceConfig(name="Test", wpid=wpid, btid=btid)
-
-
 def _settings(log_level: str = "INFO") -> Settings:
     return Settings(log_level=log_level)
 
 
 def test_validate_raises_for_unknown_receiver_product_id():
     with pytest.raises(ConfigError, match="not a known Bolt/Unifying PID"):
-        _validate(_receiver(0xFFFF), _device(), _device(), _settings())
+        _validate(_receiver(0xFFFF), _settings())
 
 
 @pytest.mark.parametrize("unifying_pid", UNIFYING_PIDS)
 def test_validate_accepts_all_known_unifying_receiver_pids(unifying_pid):
     # Should not raise for any of the known Unifying PIDs
-    _validate(_receiver(unifying_pid), _device(), _device(), _settings())
-
-
-def test_validate_raises_when_keyboard_has_neither_wpid_nor_btid():
-    kbd = DeviceConfig(name="Test", wpid=None, btid=None)
-    with pytest.raises(ConfigError, match="keyboard must have"):
-        _validate(_receiver(), kbd, _device(), _settings())
-
-
-def test_validate_raises_when_mouse_has_neither_wpid_nor_btid():
-    mouse = DeviceConfig(name="Test", wpid=None, btid=None)
-    with pytest.raises(ConfigError, match="mouse must have"):
-        _validate(_receiver(), _device(), mouse, _settings())
+    _validate(_receiver(unifying_pid), _settings())
 
 
 def test_validate_raises_for_invalid_log_level():
     with pytest.raises(ConfigError, match="Invalid log_level"):
-        _validate(_receiver(), _device(), _device(), _settings("VERBOSE"))
+        _validate(_receiver(), _settings("VERBOSE"))
 
 
 @pytest.mark.parametrize("level", ["DEBUG", "INFO", "WARNING", "ERROR"])
 def test_validate_accepts_all_valid_log_levels(level):
     # Should not raise for any standard log level
-    _validate(_receiver(), _device(), _device(), _settings(level))
+    _validate(_receiver(), _settings(level))
 
 
 # ── _hex_or_int ───────────────────────────────────────────────────────────────
