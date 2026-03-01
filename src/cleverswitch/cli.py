@@ -32,7 +32,7 @@ def main() -> None:
 
     if args.dry_run:
         log.info("Dry-run mode: discovery only, no commands will be sent")
-        _dry_run(cfg)
+        _dry_run()
         return
 
     # Graceful shutdown on Ctrl-C / SIGTERM
@@ -49,7 +49,7 @@ def main() -> None:
     log.info("CleverSwitch stopped")
 
 
-def _dry_run(cfg) -> None:
+def _dry_run() -> None:
     """Discover devices, print info, then exit without sending any commands."""
     import logging
 
@@ -58,34 +58,34 @@ def _dry_run(cfg) -> None:
     from .errors import CleverSwitchError
 
     try:
-        setup = discover(cfg)
-        log.info(
-            "Keyboard: %s dev=0x%02X feat=%d via %s",
-            setup.keyboard.name,
-            setup.keyboard.devnumber,
-            setup.keyboard.change_host_feat_idx,
-            setup.keyboard.transport.kind,
-        )
-        log.info(
-            "Mouse:    %s dev=0x%02X feat=%d via %s",
-            setup.mouse.name,
-            setup.mouse.devnumber,
-            setup.mouse.change_host_feat_idx,
-            setup.mouse.transport.kind,
-        )
-        for t in setup.unique_transports():
-            t.close()
+        setup = discover()
     except CleverSwitchError as e:
         log.error("Discovery failed: %s", e)
         import sys
 
         sys.exit(1)
 
+    if setup is None:
+        log.error("Discovery failed: devices not found")
+        import sys
+
+        sys.exit(1)
+
+    for device in setup.devices:
+        log.info(
+            "%s: dev=0x%02X via %s",
+            device.name,
+            device.devnumber,
+            device.transport.kind,
+        )
+    for device in setup.devices:
+        device.transport.close()
+
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="cleverswitch",
-        description="Synchronize host switching between Logitech MX Keys and MX Master 3",
+        description="Synchronize host switching between Logitech devices",
     )
     p.add_argument("-c", "--config", metavar="FILE", help="path to config YAML file")
     p.add_argument("-v", "--verbose", action="store_true", help="force DEBUG logging")

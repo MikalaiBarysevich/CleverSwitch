@@ -56,7 +56,6 @@ if platform.system() == "Darwin":
 from .constants import (
     ALL_RECEIVER_PIDS,
     BOLT_PID,
-    BT_PRODUCT_IDS,
     HID_INTERFACE,
     HIDPP_USAGE_PAGE,
     LOGITECH_VENDOR_ID,
@@ -135,15 +134,29 @@ def find_receiver_transports() -> list[HIDTransport]:
 
 
 def find_bluetooth_transports() -> list[tuple[HIDTransport, int]]:
-    """Return (transport, btid) for every known Logitech BT device found."""
+    """Return (transport, pid) for every non-receiver Logitech HID++ device found.
+
+    Enumerates all Logitech USB/BT products, filters by HID++ usage page (0xFF00)
+    to identify direct-connect (Bluetooth / USB direct) HID++ devices, and skips
+    known receiver PIDs.
+    """
     found = []
-    for btid in BT_PRODUCT_IDS:
-        for info in hid.enumerate(LOGITECH_VENDOR_ID, btid):
-            path = info["path"]
-            try:
-                t = HIDTransport(path, "bluetooth", btid)
-                found.append((t, btid))
-                log.info("Found Bluetooth device btid=0x%04X path=%s", btid, path)
-            except OSError as e:
-                log.warning("Cannot open BT device 0x%04X at %s: %s", btid, path, e)
+    receiver_pids = set(ALL_RECEIVER_PIDS)
+    seen_paths: set[bytes] = set()
+    for info in hid.enumerate(LOGITECH_VENDOR_ID, 0):  # 0 = all product IDs
+        pid = info["product_id"]
+        if pid in receiver_pids:
+            continue
+        if info.get("usage_page") != HIDPP_USAGE_PAGE:
+            continue
+        path = info["path"]
+        if path in seen_paths:
+            continue
+        seen_paths.add(path)
+        try:
+            t = HIDTransport(path, "bluetooth", pid)
+            found.append((t, pid))
+            log.info("Found direct device pid=0x%04X path=%s", pid, path)
+        except OSError as e:
+            log.warning("Cannot open device 0x%04X at %s: %s", pid, path, e)
     return found

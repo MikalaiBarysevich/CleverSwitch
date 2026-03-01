@@ -76,17 +76,16 @@ def test_main_exits_with_code_1_and_prints_error_on_config_error(mocker, monkeyp
     assert "bad log_level" in capsys.readouterr().err
 
 
-def test_main_calls_dry_run_and_returns_when_dry_run_flag_is_set(mocker, monkeypatch, default_cfg):
+def test_main_calls_dry_run_and_returns_when_dry_run_flag_is_set(mocker, monkeypatch):
     # Arrange
     monkeypatch.setattr(sys, "argv", ["cleverswitch", "--dry-run"])
-    mocker.patch("cleverswitch.cli.cfg_module.load", return_value=default_cfg)
     mocker.patch("cleverswitch.cli._setup_logging")
     mocker.patch("cleverswitch.cli.platform_setup.check")
     mock_dry_run = mocker.patch("cleverswitch.cli._dry_run")
     # Act
     main()
     # Assert: _dry_run was called with the loaded config; monitor.run was not
-    mock_dry_run.assert_called_once_with(default_cfg)
+    mock_dry_run.assert_called_once()
 
 
 def test_main_does_not_call_monitor_run_in_dry_run_mode(mocker, monkeypatch, default_cfg):
@@ -129,7 +128,7 @@ def test_main_exits_with_code_1_on_clever_switch_error_from_run(mocker, monkeypa
 # ── _dry_run() ────────────────────────────────────────────────────────────────
 
 
-def test_dry_run_logs_device_info_when_discovery_succeeds(mocker, default_cfg, make_fake_transport, caplog):
+def test_dry_run_logs_device_info_when_discovery_succeeds(mocker, make_fake_transport, caplog):
     from cleverswitch.discovery import DeviceContext, Setup
 
     t = make_fake_transport()
@@ -143,17 +142,17 @@ def test_dry_run_logs_device_info_when_discovery_succeeds(mocker, default_cfg, m
         divert_feat_idx=None, long_msg=False,
         role="mouse", name="MX Master 3", wpid=0x4082,
     )
-    setup = Setup(keyboard=kbd, mouse=mouse)
+    setup = Setup(devices=[kbd, mouse])
     mocker.patch("cleverswitch.discovery.discover", return_value=setup)
 
     with caplog.at_level(logging.INFO, logger="cleverswitch.cli"):
-        _dry_run(default_cfg)
+        _dry_run()
 
     assert "MX Keys" in caplog.text
     assert "MX Master 3" in caplog.text
 
 
-def test_dry_run_closes_transports_after_logging(mocker, default_cfg, make_fake_transport):
+def test_dry_run_closes_transports_after_logging(mocker, make_fake_transport):
     from cleverswitch.discovery import DeviceContext, Setup
 
     t = make_fake_transport()
@@ -167,17 +166,17 @@ def test_dry_run_closes_transports_after_logging(mocker, default_cfg, make_fake_
         divert_feat_idx=None, long_msg=False,
         role="mouse", name="MX Master 3", wpid=0x4082,
     )
-    setup = Setup(keyboard=kbd, mouse=mouse)
+    setup = Setup(devices=[kbd, mouse])
     mocker.patch("cleverswitch.discovery.discover", return_value=setup)
 
-    _dry_run(default_cfg)
+    _dry_run()
 
     assert t.closed
 
 
-def test_dry_run_exits_with_code_1_when_discovery_fails(mocker, default_cfg):
+def test_dry_run_exits_with_code_1_when_discovery_fails(mocker):
     mocker.patch("cleverswitch.discovery.discover", side_effect=CleverSwitchError("no device"))
 
     with pytest.raises(SystemExit) as exc:
-        _dry_run(default_cfg)
+        _dry_run()
     assert exc.value.code == 1

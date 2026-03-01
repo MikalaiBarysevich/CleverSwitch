@@ -19,17 +19,6 @@ HID_INTERFACE = 2
 # On Windows/macOS interface numbers are unreliable; filter by usage_page instead
 HIDPP_USAGE_PAGE = 0xFF00
 
-# Known device wireless PIDs (when paired to a receiver)
-MX_KEYS_WPID = 0x408A
-MX_MASTER_3_WPID = 0x4082
-
-# Known device Bluetooth product IDs (when connected directly via BT)
-MX_KEYS_BTID = 0xB35B
-MX_MASTER_3_BTID = 0xB023
-
-# All Logitech Bluetooth product IDs we care about
-BT_PRODUCT_IDS = (MX_KEYS_BTID, MX_MASTER_3_BTID)
-
 # ── HID++ report IDs and message sizes ───────────────────────────────────────
 
 REPORT_SHORT = 0x10  # 7 bytes total
@@ -53,9 +42,16 @@ SW_ID = 0x08
 # ── HID++ 2.0 feature codes ───────────────────────────────────────────────────
 
 FEATURE_ROOT = 0x0000  # Look up feature index by code; also used for ping
+FEATURE_DEVICE_TYPE_AND_NAME = 0x0005  # x0005: getDeviceType(), getDeviceName()
 FEATURE_CHANGE_HOST = 0x1814
 FEATURE_HOSTS_INFO = 0x1815
 FEATURE_REPROG_CONTROLS_V4 = 0x1B04  # Reprogrammable keys / button diversion
+
+# x0005 getDeviceType() return values
+DEVICE_TYPE_KEYBOARD = 0
+DEVICE_TYPE_MOUSE = 3
+DEVICE_TYPE_TRACKPAD = 4  # treat as mouse-class
+DEVICE_TYPE_TRACKBALL = 5  # treat as mouse-class
 
 # Host-Switch Channel CID codes → 0-based host index
 HOST_SWITCH_CIDS = {0x00D1: 0, 0x00D2: 1, 0x00D3: 2}

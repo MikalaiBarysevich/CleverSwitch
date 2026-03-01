@@ -41,29 +41,14 @@ def test_device_not_found_message_includes_role():
     assert "keyboard" in str(exc)
 
 
-def test_device_not_found_message_includes_hex_wpid_when_provided():
-    exc = DeviceNotFound("mouse", wpid=0x4082)
-    assert "0x4082".upper() in str(exc).upper()
-
-
-def test_device_not_found_message_omits_wpid_when_not_provided():
+def test_device_not_found_message_omits_wpid():
     exc = DeviceNotFound("keyboard")
     assert "wpid" not in str(exc)
 
 
 def test_device_not_found_stores_role_attribute():
-    exc = DeviceNotFound("keyboard", wpid=0x408A)
+    exc = DeviceNotFound("keyboard")
     assert exc.role == "keyboard"
-
-
-def test_device_not_found_stores_wpid_attribute():
-    exc = DeviceNotFound("keyboard", wpid=0x408A)
-    assert exc.wpid == 0x408A
-
-
-def test_device_not_found_wpid_defaults_to_none():
-    exc = DeviceNotFound("mouse")
-    assert exc.wpid is None
 
 
 # ── FeatureNotSupported ───────────────────────────────────────────────────────
