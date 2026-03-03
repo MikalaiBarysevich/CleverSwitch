@@ -10,8 +10,9 @@ import threading
 
 from . import __version__, platform_setup
 from . import config as cfg_module
+from .discovery import discover
 from .errors import CleverSwitchError, ConfigError
-from .monitor import run
+from .hidpp.transport import enumerate_hid_devices
 
 
 def main() -> None:
@@ -41,7 +42,13 @@ def main() -> None:
     signal.signal(signal.SIGTERM, lambda *_: shutdown.set())
 
     try:
-        run(cfg, shutdown)
+        discovery_thread = threading.Thread(
+            target=discover,
+            args=(shutdown,),
+        )
+
+        discovery_thread.start()
+        discovery_thread.join()
     except CleverSwitchError as e:
         log.error("%s", e)
         sys.exit(1)
@@ -50,36 +57,14 @@ def main() -> None:
 
 
 def _dry_run() -> None:
-    """Discover devices, print info, then exit without sending any commands."""
-    import logging
-
+    """Enumerate receivers and print info, then exit without sending any commands."""
     log = logging.getLogger(__name__)
-    from .discovery import discover
-    from .errors import CleverSwitchError
-
-    try:
-        setup = discover()
-    except CleverSwitchError as e:
-        log.error("Discovery failed: %s", e)
-        import sys
-
-        sys.exit(1)
-
-    if setup is None:
-        log.error("Discovery failed: devices not found")
-        import sys
-
-        sys.exit(1)
-
-    for device in setup.devices:
-        log.info(
-            "%s: dev=0x%02X via %s",
-            device.name,
-            device.devnumber,
-            device.transport.kind,
-        )
-    for device in setup.devices:
-        device.transport.close()
+    devices = enumerate_hid_devices()
+    if not devices:
+        log.info("No Logitech receivers found")
+        return
+    for device in devices:
+        log.info("Found receiver: path=%s pid=0x%04X", device.path, device.pid)
 
 
 def _parse_args() -> argparse.Namespace:

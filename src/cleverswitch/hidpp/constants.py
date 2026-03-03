@@ -44,7 +44,6 @@ SW_ID = 0x08
 FEATURE_ROOT = 0x0000  # Look up feature index by code; also used for ping
 FEATURE_DEVICE_TYPE_AND_NAME = 0x0005  # x0005: getDeviceType(), getDeviceName()
 FEATURE_CHANGE_HOST = 0x1814
-FEATURE_HOSTS_INFO = 0x1815
 FEATURE_REPROG_CONTROLS_V4 = 0x1B04  # Reprogrammable keys / button diversion
 
 # x0005 getDeviceType() return values
@@ -64,7 +63,6 @@ MAP_FLAG_DIVERTED = 0x01  # temporarily divert (cleared on device reset)
 MAP_FLAG_PERSISTENTLY_DIVERTED = 0x04  # persistently divert (cleared on device reset)
 
 # CHANGE_HOST function codes (upper nibble of the function/address byte)
-CHANGE_HOST_FN_GET = 0x00  # GetHostCount — returns (num_hosts, current_host)
 CHANGE_HOST_FN_SET = 0x10  # SetCurrentHost — switches to target; no reply
 
 # ── HID++ 1.0 register access ─────────────────────────────────────────────────
@@ -77,13 +75,5 @@ REG_RECEIVER_INFO = 0x2B5
 REG_PAIRING_INFO_UNIFYING = 0x20  # 0x20 + (slot - 1),  slots 1-6
 REG_PAIRING_INFO_BOLT = 0x50  # 0x50 + slot,         slots 1-6
 
-# ── DJ notification sub-IDs ───────────────────────────────────────────────────
-
-DJ_DEVICE_UNPAIRING = 0x40
-DJ_DEVICE_PAIRING = 0x41  # connection status notification (REPORT_DJ or REPORT_SHORT)
-DJ_HOST_CHANGE = 0x42  # device switched host; address = 0-based target host index
-
-# Flags byte (data[0]) of a DJ_DEVICE_PAIRING notification
-DJ_FLAG_DISCONNECTED = 0x40  # bit 6: 1 = disconnected (link not established)
-DJ_FLAG_ENCRYPTED = 0x20  # bit 5: 1 = link encrypted
-DJ_PROTO_BOLT = 0x10  # address byte value that indicates Bolt protocol
+HID_DEVICE_PAIRING = 0x41
+DJ_DEVICE_PAIRING = 0x42
