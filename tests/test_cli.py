@@ -58,7 +58,6 @@ def test_setup_logging_uses_provided_level_when_not_verbose(mocker):
 def test_setup_logging_overrides_to_debug_when_verbose_is_true(mocker):
     mock_basic = mocker.patch("cleverswitch.cli.logging.basicConfig")
     _setup_logging("INFO", verbose=True)
-    # verbose flag forces DEBUG regardless of the provided level
     assert mock_basic.call_args[1]["level"] == logging.DEBUG
 
 
@@ -66,117 +65,89 @@ def test_setup_logging_overrides_to_debug_when_verbose_is_true(mocker):
 
 
 def test_main_exits_with_code_1_and_prints_error_on_config_error(mocker, monkeypatch, capsys):
-    # Arrange
     monkeypatch.setattr(sys, "argv", ["cleverswitch"])
     mocker.patch("cleverswitch.cli.cfg_module.load", side_effect=ConfigError("bad log_level"))
-    # Act / Assert
     with pytest.raises(SystemExit) as exc:
         main()
     assert exc.value.code == 1
     assert "bad log_level" in capsys.readouterr().err
 
 
-def test_main_calls_dry_run_and_returns_when_dry_run_flag_is_set(mocker, monkeypatch):
-    # Arrange
+def test_main_calls_dry_run_and_returns_when_dry_run_flag_is_set(mocker, monkeypatch, default_cfg):
     monkeypatch.setattr(sys, "argv", ["cleverswitch", "--dry-run"])
+    mocker.patch("cleverswitch.cli.cfg_module.load", return_value=default_cfg)
     mocker.patch("cleverswitch.cli._setup_logging")
     mocker.patch("cleverswitch.cli.platform_setup.check")
     mock_dry_run = mocker.patch("cleverswitch.cli._dry_run")
-    # Act
+
     main()
-    # Assert: _dry_run was called with the loaded config; monitor.run was not
+
     mock_dry_run.assert_called_once()
 
 
-def test_main_does_not_call_monitor_run_in_dry_run_mode(mocker, monkeypatch, default_cfg):
+def test_main_does_not_start_discovery_thread_in_dry_run_mode(mocker, monkeypatch, default_cfg):
     monkeypatch.setattr(sys, "argv", ["cleverswitch", "--dry-run"])
     mocker.patch("cleverswitch.cli.cfg_module.load", return_value=default_cfg)
     mocker.patch("cleverswitch.cli._setup_logging")
     mocker.patch("cleverswitch.cli.platform_setup.check")
     mocker.patch("cleverswitch.cli._dry_run")
-    mock_run = mocker.patch("cleverswitch.cli.run")
+    mock_thread = mocker.patch("cleverswitch.cli.threading.Thread")
 
     main()
 
-    mock_run.assert_not_called()
+    mock_thread.assert_not_called()
 
 
-def test_main_calls_run_in_normal_mode(mocker, monkeypatch, default_cfg):
+def test_main_starts_discovery_thread_in_normal_mode(mocker, monkeypatch, default_cfg):
     monkeypatch.setattr(sys, "argv", ["cleverswitch"])
     mocker.patch("cleverswitch.cli.cfg_module.load", return_value=default_cfg)
     mocker.patch("cleverswitch.cli._setup_logging")
     mocker.patch("cleverswitch.cli.platform_setup.check")
-    mock_run = mocker.patch("cleverswitch.cli.run")
+    mock_thread_cls = mocker.patch("cleverswitch.cli.threading.Thread")
+    mock_thread = mock_thread_cls.return_value
 
     main()
 
-    mock_run.assert_called_once()
-
-
-def test_main_exits_with_code_1_on_clever_switch_error_from_run(mocker, monkeypatch, default_cfg):
-    monkeypatch.setattr(sys, "argv", ["cleverswitch"])
-    mocker.patch("cleverswitch.cli.cfg_module.load", return_value=default_cfg)
-    mocker.patch("cleverswitch.cli._setup_logging")
-    mocker.patch("cleverswitch.cli.platform_setup.check")
-    mocker.patch("cleverswitch.cli.run", side_effect=CleverSwitchError("fatal"))
-
-    with pytest.raises(SystemExit) as exc:
-        main()
-    assert exc.value.code == 1
+    mock_thread.start.assert_called_once()
+    mock_thread.join.assert_called_once()
 
 
 # ── _dry_run() ────────────────────────────────────────────────────────────────
 
 
-def test_dry_run_logs_device_info_when_discovery_succeeds(mocker, make_fake_transport, caplog):
-    from cleverswitch.discovery import DeviceContext, Setup
+def test_dry_run_logs_found_receivers(mocker, caplog):
+    from cleverswitch.hidpp.transport import HidDeviceInfo
 
-    t = make_fake_transport()
-    kbd = DeviceContext(
-        transport=t, devnumber=1, change_host_feat_idx=2,
-        divert_feat_idx=None, long_msg=False,
-        role="keyboard", name="MX Keys", wpid=0x408A,
-    )
-    mouse = DeviceContext(
-        transport=t, devnumber=2, change_host_feat_idx=3,
-        divert_feat_idx=None, long_msg=False,
-        role="mouse", name="MX Master 3", wpid=0x4082,
-    )
-    setup = Setup(devices=[kbd, mouse])
-    mocker.patch("cleverswitch.discovery.discover", return_value=setup)
+    devices = [
+        HidDeviceInfo(path=b"/dev/hidraw0", vid=0x046D, pid=0xC548, usage_page=0xFF00, usage=1),
+    ]
+    mocker.patch("cleverswitch.cli.enumerate_hid_devices", return_value=devices)
 
     with caplog.at_level(logging.INFO, logger="cleverswitch.cli"):
         _dry_run()
 
-    assert "MX Keys" in caplog.text
-    assert "MX Master 3" in caplog.text
+    assert "0xC548" in caplog.text or "hidraw0" in caplog.text
 
 
-def test_dry_run_closes_transports_after_logging(mocker, make_fake_transport):
-    from cleverswitch.discovery import DeviceContext, Setup
+def test_dry_run_logs_multiple_receivers(mocker, caplog):
+    from cleverswitch.hidpp.transport import HidDeviceInfo
 
-    t = make_fake_transport()
-    kbd = DeviceContext(
-        transport=t, devnumber=1, change_host_feat_idx=2,
-        divert_feat_idx=None, long_msg=False,
-        role="keyboard", name="MX Keys", wpid=0x408A,
-    )
-    mouse = DeviceContext(
-        transport=t, devnumber=2, change_host_feat_idx=3,
-        divert_feat_idx=None, long_msg=False,
-        role="mouse", name="MX Master 3", wpid=0x4082,
-    )
-    setup = Setup(devices=[kbd, mouse])
-    mocker.patch("cleverswitch.discovery.discover", return_value=setup)
+    devices = [
+        HidDeviceInfo(path=b"/dev/hidraw0", vid=0x046D, pid=0xC548, usage_page=0xFF00, usage=1),
+        HidDeviceInfo(path=b"/dev/hidraw1", vid=0x046D, pid=0xC52B, usage_page=0xFF00, usage=1),
+    ]
+    mocker.patch("cleverswitch.cli.enumerate_hid_devices", return_value=devices)
 
-    _dry_run()
-
-    assert t.closed
-
-
-def test_dry_run_exits_with_code_1_when_discovery_fails(mocker):
-    mocker.patch("cleverswitch.discovery.discover", side_effect=CleverSwitchError("no device"))
-
-    with pytest.raises(SystemExit) as exc:
+    with caplog.at_level(logging.INFO, logger="cleverswitch.cli"):
         _dry_run()
-    assert exc.value.code == 1
+
+    assert caplog.text.count("Found receiver") == 2
+
+
+def test_dry_run_logs_no_devices_message_when_list_is_empty(mocker, caplog):
+    mocker.patch("cleverswitch.cli.enumerate_hid_devices", return_value=[])
+
+    with caplog.at_level(logging.INFO, logger="cleverswitch.cli"):
+        _dry_run()
+
+    assert "No Logitech receivers found" in caplog.text

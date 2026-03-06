@@ -9,15 +9,13 @@ from __future__ import annotations
 
 import logging
 import struct
-from dataclasses import dataclass
 from time import time
 
+from ..errors import TransportError
 from .constants import (
-    CHANGE_HOST_FN_GET,
     CHANGE_HOST_FN_SET,
     DEVICE_RECEIVER,
     FEATURE_ROOT,
-    HOST_SWITCH_CIDS,
     MAP_FLAG_DIVERTED,
     MAP_FLAG_PERSISTENTLY_DIVERTED,
     MSG_DJ_LEN,
@@ -80,7 +78,7 @@ def request(
     request_id: int,
     *params,
     long: bool = False,
-    timeout: float = 4.0,
+    timeout: int = 500,
 ) -> bytes | None:
     """Send a HID++ request and return the reply payload.
 
@@ -111,17 +109,13 @@ def request(
     try:
         transport.write(msg)
     except Exception as e:
-        from ..errors import TransportError
-
         raise TransportError(f"write failed: {e}") from e
 
-    deadline = time() + timeout
+    deadline = time() + timeout / 1000
     while time() < deadline:
         try:
-            raw = transport.read()
+            raw = transport.read(timeout)
         except Exception as e:
-            from ..errors import TransportError
-
             raise TransportError(f"read failed: {e}") from e
 
         if not raw or not _is_relevant(raw):
@@ -160,6 +154,30 @@ def request(
     return None
 
 
+def request_write_only(
+    transport: HIDTransport,
+    devnumber: int,
+    request_id: int,
+    *params,
+    long: bool = False,
+) -> None:
+    # Add SW_ID for device requests and HID++ 2.0 receiver requests
+    is_receiver_register = devnumber == DEVICE_RECEIVER and request_id >= 0x8000
+    if not is_receiver_register:
+        request_id = (request_id & 0xFFF0) | SW_ID
+
+    params_bytes = _pack_params(params)
+    msg = _build_msg(devnumber, request_id, params_bytes, long)
+
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug("-> dev=0x%02X [%s]", devnumber, msg.hex())
+
+    try:
+        transport.write_exclusive(msg)
+    except Exception as e:
+        raise TransportError(f"write failed: {e}") from e
+
+
 # ── HID++ 2.0 feature operations ─────────────────────────────────────────────
 
 
@@ -184,7 +202,7 @@ def resolve_feature_index(
         feature_code & 0xFF,
         0x00,
         long=long,
-        timeout=2.0,
+        timeout=500,
     )
     if reply and reply[0] != 0x00:
         return reply[0]
@@ -204,7 +222,7 @@ def get_device_name(
     Returns the marketing name (e.g. 'MX Keys'), or None on failure.
     """
     # fn [0]: getDeviceNameCount — returns total name length (no terminating zero)
-    reply = request(transport, devnumber, (feat_idx << 8) | 0x00, long=long, timeout=2.0)
+    reply = request(transport, devnumber, (feat_idx << 8) | 0x00, long=long, timeout=500)
     if not reply:
         return None
     name_len = reply[0]
@@ -214,7 +232,7 @@ def get_device_name(
     # fn [1]: getDeviceName(charIndex) — returns chunk starting at charIndex
     chars: list[int] = []
     while len(chars) < name_len:
-        reply = request(transport, devnumber, (feat_idx << 8) | 0x10, len(chars), long=long, timeout=2.0)
+        reply = request(transport, devnumber, (feat_idx << 8) | 0x10, len(chars), long=long, timeout=500)
         if not reply:
             break
         remaining = name_len - len(chars)
@@ -239,23 +257,9 @@ def get_device_type(
     or None on failure.
     """
     request_id = (feat_idx << 8) | 0x20  # function [2]
-    reply = request(transport, devnumber, request_id, long=long, timeout=2.0)
+    reply = request(transport, devnumber, request_id, long=long, timeout=500)
     if reply:
         return reply[0]
-    return None
-
-
-def get_change_host_info(
-    transport: HIDTransport,
-    devnumber: int,
-    feature_idx: int,
-    long: bool = False,
-) -> tuple[int, int] | None:
-    """Return (num_hosts, current_host) for the given device. Returns None on failure."""
-    request_id = (feature_idx << 8) | (CHANGE_HOST_FN_GET & 0xF0)
-    reply = request(transport, devnumber, request_id, long=long, timeout=2.0)
-    if reply and len(reply) >= 2:
-        return reply[0], reply[1]
     return None
 
 
@@ -273,7 +277,7 @@ def send_change_host(
     if log.isEnabledFor(logging.DEBUG):
         log.debug("send_change_host -> dev=0x%02X host=%d [%s]", devnumber, target_host, msg.hex())
     try:
-        transport.write(msg)
+        transport.write_exclusive(msg)
     except Exception as e:
         from ..errors import TransportError
 
@@ -308,7 +312,7 @@ def read_pairing_wpid(transport: HIDTransport, slot: int, receiver_kind: str) ->
         sub_reg,
         0x00,
         0x00,
-        timeout=1.0,
+        timeout=500,
     )
     if not pair_info or len(pair_info) < 5:
         return None
@@ -332,71 +336,17 @@ def set_cid_divert(
     cid: int,
     diverted: bool,
     long: bool = False,
-) -> bool:
+) -> None:
     """Set or clear the temporary DIVERTED flag for *cid* via setCidReporting (fn 0x30).
 
     Returns True if the device replied (success), False on timeout/error.
     Payload layout: CID (2 bytes BE) + bfield (1 byte) + remap (2 bytes BE, always 0).
     """
     bfield = 0
-    if diverted:
-        flags = [MAP_FLAG_DIVERTED, MAP_FLAG_PERSISTENTLY_DIVERTED]
-        for flag in flags:
-            bfield |= flag
-            bfield |= flag << 1
+    flags = [MAP_FLAG_DIVERTED, MAP_FLAG_PERSISTENTLY_DIVERTED]
+    for flag in flags:
+        bfield |= flag << 1  # valid/mask bit — always set
+        if diverted:
+            bfield |= flag  # action bit — only when diverting
     params = struct.pack("!HBH", cid, bfield, 0)
-    reply = request(transport, devnumber, (feat_idx << 8) | 0x30, params, long=long, timeout=2.0)
-    return reply is not None
-
-
-# ── Notification / message parsing ────────────────────────────────────────────
-
-
-@dataclass
-class FeatureEvent:
-    """A HID++ 2.0 feature notification (unsolicited event from device)."""
-
-    devnumber: int
-    feature_idx: int  # = sub_id byte; matches the feature's resolved index
-    function: int  # upper nibble of address byte (event function code)
-    data: bytes  # payload starting at byte 4 of the raw message
-
-
-@dataclass
-class HostChangeEvent:
-    """Diverted Easy-Switch event from device."""
-
-    devnumber: int
-    target_host: int  # device cid
-
-
-def parse_message(divert_feat_idx: int, raw: bytes) -> FeatureEvent | HostChangeEvent | None:
-    """Parse a raw HID++ packet into a structured event, or None if irrelevant."""
-    if not raw or len(raw) < 4:
-        return None
-
-    log.debug("Attempt to parse raw data=: %s", raw)
-
-    report_id = raw[0]
-    devnumber = raw[1]
-    sub_id = raw[2]
-    address = raw[3]
-    data = raw[4:]
-
-    if (
-        report_id == REPORT_LONG
-        and address == 0x00
-        and divert_feat_idx == sub_id
-        and data[1] in HOST_SWITCH_CIDS.keys()
-    ):
-        return HostChangeEvent(devnumber, HOST_SWITCH_CIDS[data[1]])
-
-    if (
-        report_id in (REPORT_SHORT, REPORT_LONG)
-        and sub_id < 0x80
-        and (address & 0x0F) == 0x00
-        and not (sub_id == 0x00 and address == 0x00)
-    ):
-        return FeatureEvent(devnumber, sub_id, address & 0xF0, data)
-
-    return None
+    request_write_only(transport, devnumber, (feat_idx << 8) | 0x30, params, long=long)
