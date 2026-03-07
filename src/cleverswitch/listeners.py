@@ -97,14 +97,14 @@ class PathListener(Thread):
     def add_new_product(self, slot) -> None:
         if slot in self._products:
             return
-        log.debug("Receiver slot %d: wpid=0x%04X", slot, 1)
-        info = _query_device_info(self._transport, slot, long=False)
+        log.debug("Receiver slot %d", slot)
+        info = _query_device_info(self._transport, slot)
 
         if not info:
             return
 
         role, name = info
-        product = _make_logi_product(self._transport, slot, long_msg=False, role=role, name=name)
+        product = _make_logi_product(self._transport, slot, role=role, name=name)
         if product:
             self._products[slot] = product
 
@@ -137,7 +137,7 @@ def parse_message(raw: bytes) -> BaseEvent | None:
 def _divert_all_es_keys(transport: HIDTransport, product: LogiProduct) -> None:
     for cid in HOST_SWITCH_CIDS:
         try:
-            set_cid_divert(transport, product.slot, product.divert_feat_idx, cid, True, True)
+            set_cid_divert(transport, product.slot, product.divert_feat_idx, cid, True)
         except TransportError as e:
             log.warning("Failed to divert CID 0x%04X on %s: %s", cid, product.name, e)
 
@@ -145,26 +145,26 @@ def _divert_all_es_keys(transport: HIDTransport, product: LogiProduct) -> None:
 def _undivert_all_es_keys(transport: HIDTransport, product: LogiProduct) -> None:
     for cid in HOST_SWITCH_CIDS:
         try:
-            set_cid_divert(transport, product.slot, product.divert_feat_idx, cid, False, True)
+            set_cid_divert(transport, product.slot, product.divert_feat_idx, cid, False)
         except Exception:
             pass
 
 
-def _query_device_info(transport: HIDTransport, devnumber: int, long: bool = False) -> tuple[str, str] | None:
+def _query_device_info(transport: HIDTransport, devnumber: int) -> tuple[str, str] | None:
     """Query role and marketing name via x0005 DEVICE_TYPE_AND_NAME.
 
     Returns (role, name) where role is 'keyboard' or 'mouse'.
     Falls back to role as name if getDeviceName fails.
     Returns None if the feature is absent or device type is unrecognised.
     """
-    feat_idx = resolve_feature_index(transport, devnumber, FEATURE_DEVICE_TYPE_AND_NAME, long=long)
+    feat_idx = resolve_feature_index(transport, devnumber, FEATURE_DEVICE_TYPE_AND_NAME)
     if feat_idx is None:
         return None
-    device_type = get_device_type(transport, devnumber, feat_idx, long=long)
+    device_type = get_device_type(transport, devnumber, feat_idx)
     role = _device_type_to_role(device_type)
     if role is None:
         return None
-    name = get_device_name(transport, devnumber, feat_idx, long=long) or role
+    name = get_device_name(transport, devnumber, feat_idx) or role
     return role, name
 
 

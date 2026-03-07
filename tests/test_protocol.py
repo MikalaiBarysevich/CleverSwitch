@@ -2,11 +2,11 @@
 
 Covers the pure, hardware-free layer of protocol.py:
   - _pack_params         — packing request parameters into bytes
-  - _build_msg           — assembling short vs. long HID++ messages
+  - _build_msg           — assembling long HID++ messages
   - _is_relevant         — filtering raw reads by report-ID and length
   - request              — request/reply with FakeTransport
   - resolve_feature_index, send_change_host,
-    read_pairing_wpid, set_cid_divert, get_device_name
+    set_cid_divert, get_device_name
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ import pytest
 
 from cleverswitch.errors import TransportError
 from cleverswitch.hidpp.constants import (
-    DEVICE_RECEIVER,
     MSG_DJ_LEN,
     MSG_LONG_LEN,
     MSG_SHORT_LEN,
@@ -32,7 +31,6 @@ from cleverswitch.hidpp.protocol import (
     _pack_params,
     get_device_name,
     get_device_type,
-    read_pairing_wpid,
     request,
     resolve_feature_index,
     send_change_host,
@@ -64,25 +62,18 @@ def test_pack_params_concatenates_mixed_int_and_bytes():
 # ── _build_msg ─────────────────────────────────────────────────────────────────
 
 
-def test_build_msg_produces_7_byte_short_message_for_small_payload():
+def test_build_msg_always_produces_20_byte_long_message():
     msg = _build_msg(devnumber=1, request_id=0x0010, params=b"\x01")
-    assert len(msg) == MSG_SHORT_LEN
-    assert msg[0] == REPORT_SHORT
+    assert len(msg) == MSG_LONG_LEN
+    assert msg[0] == REPORT_LONG
     assert msg[1] == 1
 
 
-def test_build_msg_produces_20_byte_long_message_when_forced():
-    msg = _build_msg(devnumber=2, request_id=0x0010, params=b"\x01", long=True)
+def test_build_msg_pads_small_payload_to_long():
+    msg = _build_msg(devnumber=2, request_id=0x0010, params=b"")
     assert len(msg) == MSG_LONG_LEN
     assert msg[0] == REPORT_LONG
     assert msg[1] == 2
-
-
-def test_build_msg_promotes_to_long_when_payload_exceeds_short_limit():
-    # request_id (2 bytes) + 4 bytes params = 6 bytes > MSG_SHORT_LEN - 2 = 5
-    msg = _build_msg(devnumber=1, request_id=0x0010, params=b"\x01\x02\x03\x04")
-    assert len(msg) == MSG_LONG_LEN
-    assert msg[0] == REPORT_LONG
 
 
 def test_build_msg_embeds_request_id_big_endian_at_bytes_2_and_3():
@@ -130,22 +121,23 @@ def test_is_relevant_returns_false_when_length_mismatches_report_id():
 # ── request() ─────────────────────────────────────────────────────────────────
 
 
-def _make_short_reply(devnumber: int, request_id: int, payload: bytes = b"\x00\x00\x00") -> bytes:
-    """Build a 7-byte REPORT_SHORT reply whose rdata[:2] matches request_id."""
-    return struct.pack("!BB", REPORT_SHORT, devnumber) + struct.pack("!H", request_id) + payload[:3]
+def _make_long_reply(devnumber: int, request_id: int, payload: bytes = b"\x00" * 16) -> bytes:
+    """Build a 20-byte REPORT_LONG reply whose rdata[:2] matches request_id."""
+    data = struct.pack("!H", request_id) + payload[:16]
+    return struct.pack("!BB18s", REPORT_LONG, devnumber, data)
 
 
-def test_request_returns_payload_on_successful_short_reply(make_fake_transport):
+def test_request_returns_payload_on_successful_reply(make_fake_transport):
     effective_id = (0x0100 & 0xFFF0) | SW_ID  # 0x0108
-    reply = _make_short_reply(1, effective_id, b"\xAA\xBB\xCC")
+    reply = _make_long_reply(1, effective_id, b"\xAA\xBB\xCC")
     t = make_fake_transport(responses=[reply])
     result = request(t, devnumber=1, request_id=0x0100)
-    assert result == b"\xAA\xBB\xCC"
+    assert result[:3] == b"\xAA\xBB\xCC"
 
 
 def test_request_writes_message_to_transport(make_fake_transport):
     effective_id = (0x0100 & 0xFFF0) | SW_ID
-    reply = _make_short_reply(1, effective_id, b"\x00\x00\x00")
+    reply = _make_long_reply(1, effective_id)
     t = make_fake_transport(responses=[reply])
     request(t, devnumber=1, request_id=0x0100)
     assert len(t.written) == 1
@@ -191,19 +183,11 @@ def test_request_returns_none_on_hidpp2_error_reply(make_fake_transport):
 
 def test_request_skips_reply_from_wrong_device_and_returns_none_on_timeout(mocker, make_fake_transport):
     effective_id = (0x0100 & 0xFFF0) | SW_ID
-    wrong_reply = _make_short_reply(99, effective_id, b"\x00\x00\x00")
+    wrong_reply = _make_long_reply(99, effective_id)
     t = make_fake_transport(responses=[wrong_reply])
     mocker.patch("cleverswitch.hidpp.protocol.time", side_effect=[0.0, 0.5, 0.5, 100.0])
     result = request(t, devnumber=1, request_id=0x0100)
     assert result is None
-
-
-def test_request_does_not_add_sw_id_for_receiver_register(make_fake_transport):
-    reply = _make_short_reply(DEVICE_RECEIVER, 0x8100, b"\x00\x00\x00")
-    t = make_fake_transport(responses=[reply])
-    request(t, devnumber=DEVICE_RECEIVER, request_id=0x8100)
-    assert t.written[0][2] == 0x81
-    assert t.written[0][3] == 0x00
 
 
 # ── resolve_feature_index() ──────────────────────────────────────────────────
@@ -251,41 +235,10 @@ def test_send_change_host_writes_message_to_transport(fake_transport):
 
 
 def test_send_change_host_raises_transport_error_on_write_failure(mocker, fake_transport):
-    mocker.patch.object(fake_transport, "write_exclusive", side_effect=OSError("gone"))
+    mocker.patch.object(fake_transport, "write", side_effect=OSError("gone"))
     with pytest.raises(TransportError, match="send_change_host write failed"):
         send_change_host(fake_transport, devnumber=1, feature_idx=4, target_host=2)
 
-
-# ── read_pairing_wpid() ───────────────────────────────────────────────────────
-
-
-def test_read_pairing_wpid_returns_wpid_for_bolt_receiver(mocker, fake_transport):
-    # Bolt byte order: pair_info[3] then pair_info[2] → wpid
-    pair_info = bytes([0x50, 0x00, 0x8A, 0x40, 0x00])
-    mocker.patch("cleverswitch.hidpp.protocol.request", return_value=pair_info)
-    result = read_pairing_wpid(fake_transport, slot=1, receiver_kind="bolt")
-    assert result == 0x408A
-
-
-def test_read_pairing_wpid_returns_wpid_for_unifying_receiver(mocker, fake_transport):
-    # Unifying byte order: pair_info[3], pair_info[4] → wpid
-    pair_info = bytes([0x20, 0x00, 0x00, 0x40, 0x82])
-    mocker.patch("cleverswitch.hidpp.protocol.request", return_value=pair_info)
-    result = read_pairing_wpid(fake_transport, slot=1, receiver_kind="unifying")
-    assert result == 0x4082
-
-
-def test_read_pairing_wpid_returns_none_when_pair_info_is_none(mocker, fake_transport):
-    mocker.patch("cleverswitch.hidpp.protocol.request", return_value=None)
-    result = read_pairing_wpid(fake_transport, slot=1, receiver_kind="bolt")
-    assert result is None
-
-
-def test_read_pairing_wpid_returns_none_when_wpid_is_zero(mocker, fake_transport):
-    pair_info = bytes([0x50, 0x00, 0x00, 0x00, 0x00])
-    mocker.patch("cleverswitch.hidpp.protocol.request", return_value=pair_info)
-    result = read_pairing_wpid(fake_transport, slot=1, receiver_kind="bolt")
-    assert result is None
 
 
 # ── set_cid_divert() ──────────────────────────────────────────────────────────

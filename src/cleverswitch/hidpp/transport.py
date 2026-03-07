@@ -23,7 +23,8 @@ from cleverswitch.hidpp.constants import ALL_RECEIVER_PIDS
 
 from ..errors import TransportError
 from .constants import (
-    HIDPP_USAGE_PAGE,
+    HIDPP_USAGE_LONG,
+    HIDPP_USAGE_PAGES,
     LOGITECH_VENDOR_ID,
     MAX_READ_SIZE,
 )
@@ -168,15 +169,10 @@ def _hid_err(dev: int | None = None) -> str:
 _IS_LINUX = _SYSTEM == "Linux"
 _IS_WINDOWS = _SYSTEM == "Windows"
 
-# HID++ usage pages across transport types
-_HIDPP_USAGE_PAGES = frozenset((HIDPP_USAGE_PAGE,))
-
 
 def _is_hidpp_interface(info: dict) -> bool:
     """True if this enumeration entry is the HID++ interface."""
-    # if _IS_LINUX:
-    #     return info["interface_number"] == HID_INTERFACE
-    return info["usage_page"] in _HIDPP_USAGE_PAGES
+    return info["usage_page"] in HIDPP_USAGE_PAGES
 
 
 def enumerate_hid_devices(vendor_id: int = LOGITECH_VENDOR_ID, product_id: int = 0) -> list[HidDeviceInfo]:
@@ -185,21 +181,38 @@ def enumerate_hid_devices(vendor_id: int = LOGITECH_VENDOR_ID, product_id: int =
     result: dict[bytes, HidDeviceInfo] = {}
     node = head
     while node:
-        d = node.contents
-        node = d.next
-        if d.product_id not in ALL_RECEIVER_PIDS or d.path in result:
-            continue
-        if d.usage_page not in _HIDPP_USAGE_PAGES:
+        hid_device_content = node.contents
+        node = hid_device_content.next
+        path = hid_device_content.path
+        usage_page = hid_device_content.usage_page
+        pid = hid_device_content.product_id
+        log.debug(f"Found hid device with path={path}, pid={pid}, usage_page={usage_page}")
+        if pid not in ALL_RECEIVER_PIDS:
+            log.debug(f"Not a receiver. Skipping path={path}, pid={pid}, usage_page={usage_page}")
             continue
 
-        result[d.path] = HidDeviceInfo(
-            d.path,
-            d.vendor_id,
-            d.product_id,
-            d.usage_page,
-            d.usage,
+        if path in result:
+            log.debug(f"Already processed path={path}, pid={pid}, usage_page={usage_page}")
+            continue
+
+        if usage_page not in HIDPP_USAGE_PAGES:
+            log.debug(f"Usage page is not supported. Skipping path={path}, pid={pid}, usage_page={usage_page}")
+            continue
+
+        usage = hid_device_content.usage
+        if usage != HIDPP_USAGE_LONG:
+            log.debug(f"Usage 0x{usage:04X} not supported. Skipping path={path}, pid={pid}")
+            continue
+
+        result[path] = HidDeviceInfo(
+            path,
+            hid_device_content.vendor_id,
+            pid,
+            usage_page,
+            usage,
         )
     _lib.hid_free_enumeration(head)
+    log.debug(f"All suitable hid devices={result}")
     return list(result.values())
 
 
@@ -228,8 +241,6 @@ class HIDTransport:
         self.kind = kind
         self.pid = pid
         self._dev: int | None = _lib.hid_open_path(path)
-        self._read: int | None = _lib.hid_open_path(path)
-        self._write: int | None = _lib.hid_open_path(path)
         if not self._dev:
             raise OSError(_hid_err())
         log.debug("Opened %s pid=0x%04X %s", kind, pid, path)
@@ -256,34 +267,10 @@ class HIDTransport:
             raise TransportError(f"hid_read_timeout failed: {_hid_err(self._dev)}")
         return bytes(buf[:n]) if n > 0 else None
 
-    def read_exclusive(self, timeout: int = 500) -> bytes | None:
-        """Block for up to *timeout* ms waiting for one HID packet.
-
-        timeout=0  → non-blocking (return None immediately if no data)
-        timeout=-1 → block until data arrives
-        timeout>0  → wait at most *timeout* ms
-
-        Returns None on timeout. Raises TransportError on device error.
-        """
-
-        buf = (ctypes.c_ubyte * MAX_READ_SIZE)()
-        n = _lib.hid_read_timeout(self._read, buf, MAX_READ_SIZE, timeout)
-        if n < 0:
-            log.info(f"hid_read_timeout exclusive failed: {_hid_err(self._dev)}")
-            raise TransportError(f"hid_read_timeout exclusive failed: {_hid_err(self._dev)}")
-        return bytes(buf[:n]) if n > 0 else None
-
     def write(self, msg: bytes) -> None:
         """Write one HID packet (first byte must be the report ID)."""
         buf = (ctypes.c_ubyte * len(msg))(*msg)
         n = _lib.hid_write(self._dev, buf, len(msg))
-        if n < 0:
-            raise TransportError(f"hid_write failed: {_hid_err(self._dev)}")
-
-    def write_exclusive(self, msg: bytes) -> None:
-
-        buf = (ctypes.c_ubyte * len(msg))(*msg)
-        n = _lib.hid_write(self._write, buf, len(msg))
         if n < 0:
             raise TransportError(f"hid_write failed: {_hid_err(self._dev)}")
 

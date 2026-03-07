@@ -14,16 +14,12 @@ from time import time
 from ..errors import TransportError
 from .constants import (
     CHANGE_HOST_FN_SET,
-    DEVICE_RECEIVER,
     FEATURE_ROOT,
     MAP_FLAG_DIVERTED,
     MAP_FLAG_PERSISTENTLY_DIVERTED,
     MSG_DJ_LEN,
     MSG_LONG_LEN,
     MSG_SHORT_LEN,
-    REG_PAIRING_INFO_BOLT,
-    REG_PAIRING_INFO_UNIFYING,
-    REG_RECEIVER_INFO,
     REPORT_DJ,
     REPORT_LONG,
     REPORT_SHORT,
@@ -56,12 +52,15 @@ def _pack_params(params: tuple) -> bytes:
     return b"".join(parts)
 
 
-def _build_msg(devnumber: int, request_id: int, params: bytes, long: bool = False) -> bytes:
-    """Assemble a complete HID++ message including report ID prefix."""
+def _build_msg(devnumber: int, request_id: int, params: bytes) -> bytes:
+    """Assemble a complete HID++ long message (report 0x11, 20 bytes).
+
+    Always uses long format — HID++ 2.0 responses are always long, and on
+    Windows each report type is a separate HID collection. Sending long
+    ensures request and response use the same collection handle.
+    """
     data = struct.pack("!H", request_id) + params
-    if long or len(data) > MSG_SHORT_LEN - 2:
-        return struct.pack("!BB18s", REPORT_LONG, devnumber, data)
-    return struct.pack("!BB5s", REPORT_SHORT, devnumber, data)
+    return struct.pack("!BB18s", REPORT_LONG, devnumber, data)
 
 
 def _is_relevant(raw: bytes) -> bool:
@@ -77,7 +76,6 @@ def request(
     devnumber: int,
     request_id: int,
     *params,
-    long: bool = False,
     timeout: int = 500,
 ) -> bytes | None:
     """Send a HID++ request and return the reply payload.
@@ -87,21 +85,14 @@ def request(
     Returns None on timeout, error, or no reply expected.
 
     Protocol notes:
-    - For HID++ 2.0 device requests (devnumber != 0xFF or request_id < 0x8000):
-        SW_ID is OR'd into the low nibble of request_id so we can tell our
-        replies apart from notifications (which have sw_id == 0).
-    - For HID++ 1.0 register reads to the receiver (devnumber == 0xFF,
-        request_id >= 0x8000): SW_ID is NOT added (it would corrupt the register
-        number). Register 0x83B5 replies additionally must match the first param.
+    - SW_ID is OR'd into the low nibble of request_id so we can tell our
+      replies apart from notifications (which have sw_id == 0).
     """
-    # Add SW_ID for device requests and HID++ 2.0 receiver requests
-    is_receiver_register = devnumber == DEVICE_RECEIVER and request_id >= 0x8000
-    if not is_receiver_register:
-        request_id = (request_id & 0xFFF0) | SW_ID
+    request_id = (request_id & 0xFFF0) | SW_ID
 
     params_bytes = _pack_params(params)
     request_data = struct.pack("!H", request_id) + params_bytes
-    msg = _build_msg(devnumber, request_id, params_bytes, long)
+    msg = _build_msg(devnumber, request_id, params_bytes)
 
     if log.isEnabledFor(logging.DEBUG):
         log.debug("-> dev=0x%02X [%s]", devnumber, msg.hex())
@@ -143,11 +134,6 @@ def request(
 
         # Successful reply: first 2 bytes of payload match our request_id
         if rdata[:2] == request_data[:2]:
-            # Register 0xB5 replies also need the sub-register to match
-            if is_receiver_register and request_id == 0x83B5:
-                if rdata[2:3] == params_bytes[:1]:
-                    return rdata[2:]  # strip (sub_id, reg); return from sub_reg onward
-                continue  # sub-register mismatch — not our reply
             return rdata[2:]
 
     log.debug("Timeout (%.1fs) on request 0x%04X from device 0x%02X", timeout, request_id, devnumber)
@@ -159,21 +145,17 @@ def request_write_only(
     devnumber: int,
     request_id: int,
     *params,
-    long: bool = False,
 ) -> None:
-    # Add SW_ID for device requests and HID++ 2.0 receiver requests
-    is_receiver_register = devnumber == DEVICE_RECEIVER and request_id >= 0x8000
-    if not is_receiver_register:
-        request_id = (request_id & 0xFFF0) | SW_ID
+    request_id = (request_id & 0xFFF0) | SW_ID
 
     params_bytes = _pack_params(params)
-    msg = _build_msg(devnumber, request_id, params_bytes, long)
+    msg = _build_msg(devnumber, request_id, params_bytes)
 
     if log.isEnabledFor(logging.DEBUG):
         log.debug("-> dev=0x%02X [%s]", devnumber, msg.hex())
 
     try:
-        transport.write_exclusive(msg)
+        transport.write(msg)
     except Exception as e:
         raise TransportError(f"write failed: {e}") from e
 
@@ -185,7 +167,6 @@ def resolve_feature_index(
     transport: HIDTransport,
     devnumber: int,
     feature_code: int,
-    long: bool = False,
 ) -> int | None:
     """Look up the feature table index for *feature_code* on the given device.
 
@@ -201,7 +182,6 @@ def resolve_feature_index(
         feature_code >> 8,
         feature_code & 0xFF,
         0x00,
-        long=long,
         timeout=500,
     )
     if reply and reply[0] != 0x00:
@@ -213,16 +193,14 @@ def get_device_name(
     transport: HIDTransport,
     devnumber: int,
     feat_idx: int,
-    long: bool = False,
 ) -> str | None:
     """Call x0005 getDeviceNameCount [fn 0] then getDeviceName [fn 1] to read the full name.
 
-    Chunk size per call is determined by the device's transport packet:
-      HPPLong: 16 characters, HPPShort: 3 characters.
+    Always uses long messages, so each chunk returns up to 16 characters.
     Returns the marketing name (e.g. 'MX Keys'), or None on failure.
     """
     # fn [0]: getDeviceNameCount — returns total name length (no terminating zero)
-    reply = request(transport, devnumber, (feat_idx << 8) | 0x00, long=long, timeout=500)
+    reply = request(transport, devnumber, (feat_idx << 8) | 0x00, timeout=500)
     if not reply:
         return None
     name_len = reply[0]
@@ -232,7 +210,7 @@ def get_device_name(
     # fn [1]: getDeviceName(charIndex) — returns chunk starting at charIndex
     chars: list[int] = []
     while len(chars) < name_len:
-        reply = request(transport, devnumber, (feat_idx << 8) | 0x10, len(chars), long=long, timeout=500)
+        reply = request(transport, devnumber, (feat_idx << 8) | 0x10, len(chars), timeout=500)
         if not reply:
             break
         remaining = name_len - len(chars)
@@ -248,7 +226,6 @@ def get_device_type(
     transport: HIDTransport,
     devnumber: int,
     feat_idx: int,
-    long: bool = False,
 ) -> int | None:
     """Call x0005 getDeviceType() [function 2] and return the deviceType byte.
 
@@ -257,7 +234,7 @@ def get_device_type(
     or None on failure.
     """
     request_id = (feat_idx << 8) | 0x20  # function [2]
-    reply = request(transport, devnumber, request_id, long=long, timeout=500)
+    reply = request(transport, devnumber, request_id, timeout=500)
     if reply:
         return reply[0]
     return None
@@ -268,65 +245,19 @@ def send_change_host(
     devnumber: int,
     feature_idx: int,
     target_host: int,
-    long: bool = False,
 ) -> None:
     """Switch *devnumber* to *target_host* (0-based). Fire-and-forget — no reply expected."""
     request_id = (feature_idx << 8) | (CHANGE_HOST_FN_SET & 0xF0) | SW_ID
     params = struct.pack("B", target_host)
-    msg = _build_msg(devnumber, request_id, params, long)
+    msg = _build_msg(devnumber, request_id, params)
     if log.isEnabledFor(logging.DEBUG):
         log.debug("send_change_host -> dev=0x%02X host=%d [%s]", devnumber, target_host, msg.hex())
     try:
-        transport.write_exclusive(msg)
+        transport.write(msg)
     except Exception as e:
         from ..errors import TransportError
 
         raise TransportError(f"send_change_host write failed: {e}") from e
-
-
-# ── HID++ 1.0 register access ─────────────────────────────────────────────────
-
-
-def read_pairing_wpid(transport: HIDTransport, slot: int, receiver_kind: str) -> int | None:
-    """Read the wireless PID of the device in *slot* (1-6) from a receiver.
-
-    Uses HID++ 1.0 register 0x2B5 (RECEIVER_INFO).
-    Byte layout differs between Bolt and Unifying:
-      - Unifying: pair_info[3:5]           → wpid bytes (big-endian)
-      - Bolt:     pair_info[3:4]+[2:3]     → wpid bytes (different ordering)
-
-    Returns the wpid as an int (e.g. 0x408A), or None if the slot is empty.
-    """
-    if receiver_kind == "bolt":
-        sub_reg = REG_PAIRING_INFO_BOLT + slot
-    else:
-        sub_reg = REG_PAIRING_INFO_UNIFYING + (slot - 1)
-
-    # request_id for long register read: 0x8100 | (0x2B5 & 0x2FF) = 0x83B5
-    register_id = 0x8100 | (REG_RECEIVER_INFO & 0x2FF)
-
-    pair_info = request(
-        transport,
-        DEVICE_RECEIVER,
-        register_id,
-        sub_reg,
-        0x00,
-        0x00,
-        timeout=500,
-    )
-    if not pair_info or len(pair_info) < 5:
-        return None
-
-    # pair_info[0] = sub_reg echo, pair_info[1..] = data bytes
-    if receiver_kind == "bolt":
-        # Bolt byte order: pair_info[3] then pair_info[2]
-        wpid_bytes = bytes([pair_info[3], pair_info[2]])
-    else:
-        # Unifying byte order: pair_info[3], pair_info[4]
-        wpid_bytes = pair_info[3:5]
-
-    wpid = int(wpid_bytes.hex(), 16)
-    return wpid if wpid != 0 else None
 
 
 def set_cid_divert(
@@ -335,11 +266,9 @@ def set_cid_divert(
     feat_idx: int,
     cid: int,
     diverted: bool,
-    long: bool = False,
 ) -> None:
     """Set or clear the temporary DIVERTED flag for *cid* via setCidReporting (fn 0x30).
 
-    Returns True if the device replied (success), False on timeout/error.
     Payload layout: CID (2 bytes BE) + bfield (1 byte) + remap (2 bytes BE, always 0).
     """
     bfield = 0
@@ -349,4 +278,4 @@ def set_cid_divert(
         if diverted:
             bfield |= flag  # action bit — only when diverting
     params = struct.pack("!HBH", cid, bfield, 0)
-    request_write_only(transport, devnumber, (feat_idx << 8) | 0x30, params, long=long)
+    request_write_only(transport, devnumber, (feat_idx << 8) | 0x30, params)
