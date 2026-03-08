@@ -30,9 +30,6 @@ class FakeTransport:
     def write(self, data: bytes) -> None:
         self.written.append(bytes(data))
 
-    def write_exclusive(self, data: bytes) -> None:
-        self.written.append(bytes(data))
-
     def read(self, timeout: int = 500) -> bytes | None:
         return self._responses.pop(0) if self._responses else None
 

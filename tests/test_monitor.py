@@ -255,5 +255,4 @@ def test_switch_calls_send_change_host_with_correct_args(mocker, fake_transport)
         product.slot,
         product.change_host_feat_idx,
         2,
-        long=True,
     )

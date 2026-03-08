@@ -14,10 +14,9 @@ BOLT_PID = 0xC548
 UNIFYING_PIDS = (0xC52B, 0xC532)
 ALL_RECEIVER_PIDS = (BOLT_PID,) + UNIFYING_PIDS
 
-# The HID++ interface on receivers is always interface 2
-HID_INTERFACE = 2
-# On Windows/macOS interface numbers are unreliable; filter by usage_page instead
-HIDPP_USAGE_PAGE = 0xFF00
+HIDPP_USAGE_PAGES = [0xFF00]
+HIDPP_USAGE_SHORT = 0x0001  # Short HID++ (report 0x10, 7 bytes) — Linux/macOS single entry
+HIDPP_USAGE_LONG = 0x0002  # Long HID++ (report 0x11, 20 bytes) — Windows long collection
 
 # ── HID++ report IDs and message sizes ───────────────────────────────────────
 
@@ -65,15 +64,6 @@ MAP_FLAG_PERSISTENTLY_DIVERTED = 0x04  # persistently divert (cleared on device 
 # CHANGE_HOST function codes (upper nibble of the function/address byte)
 CHANGE_HOST_FN_SET = 0x10  # SetCurrentHost — switches to target; no reply
 
-# ── HID++ 1.0 register access ─────────────────────────────────────────────────
-
-# Register read request_id: 0x8100 | (register & 0x2FF)
-# For register 0x2B5 (RECEIVER_INFO): request_id = 0x83B5
-REG_RECEIVER_INFO = 0x2B5
-
-# Sub-register offsets within RECEIVER_INFO
-REG_PAIRING_INFO_UNIFYING = 0x20  # 0x20 + (slot - 1),  slots 1-6
-REG_PAIRING_INFO_BOLT = 0x50  # 0x50 + slot,         slots 1-6
 
 HID_DEVICE_PAIRING = 0x41
 DJ_DEVICE_PAIRING = 0x42

@@ -105,7 +105,7 @@ class HostChangeProcessor(Processor):
 def _divert_all_es_keys(transport: HIDTransport, product: LogiProduct) -> None:
     for cid in HOST_SWITCH_CIDS:
         try:
-            set_cid_divert(transport, product.slot, product.divert_feat_idx, cid, True, True)
+            set_cid_divert(transport, product.slot, product.divert_feat_idx, cid, True)
         except TransportError as e:
             log.warning("Failed to divert CID 0x%04X on %s: %s", cid, product.name, e)
 
@@ -116,5 +116,4 @@ def _switch(transport: HIDTransport, device: LogiProduct, target_host: int) -> N
         device.slot,
         device.change_host_feat_idx,
         target_host,
-        long=True,
     )

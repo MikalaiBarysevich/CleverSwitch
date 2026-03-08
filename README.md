@@ -33,6 +33,7 @@ TBD
 ### Windows
 
 No special setup required. Run from a regular (non-admin) terminal.
+If no device found check driver in driver manager. Need to be default hid windows driver
 
 ## Configuration
 
@@ -40,7 +41,7 @@ TBD
 
 ## Hook scripts
 
-CleverSwitch can call external scripts on events:
+CleverSwitch can call external scripts on events: 
 
 | Event           | When                                    |
 |-----------------|-----------------------------------------|
