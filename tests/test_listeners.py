@@ -23,7 +23,6 @@ from cleverswitch.hidpp.constants import (
     DEVICE_TYPE_TRACKBALL,
     DEVICE_TYPE_TRACKPAD,
     DJ_DEVICE_PAIRING,
-    HID_DEVICE_PAIRING,
     HOST_SWITCH_CIDS,
     MSG_DJ_LEN,
     REPORT_DJ,
@@ -39,7 +38,7 @@ from cleverswitch.listeners import (
     _undivert_all_es_keys,
     parse_message,
 )
-from cleverswitch.model import DjConnectionEvent, HidConnectionEvent, HostChangeEvent, LogiProduct
+from cleverswitch.model import ConnectionEvent, HostChangeEvent, LogiProduct
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -158,26 +157,22 @@ def test_parse_message_returns_none_for_unknown_cid_in_long_msg():
     assert not isinstance(parse_message(raw), HostChangeEvent)
 
 
-def test_parse_message_returns_dj_connection_event_connected():
+def test_parse_message_returns_connection_event_for_dj_pairing_connected():
     raw = _dj_msg(slot=2, feature_id=DJ_DEVICE_PAIRING, address=0x00)
     event = parse_message(raw)
-    assert isinstance(event, DjConnectionEvent)
+    assert isinstance(event, ConnectionEvent)
     assert event.slot == 2
-    assert event.connection_status == 0x00
 
 
-def test_parse_message_returns_dj_connection_event_disconnected():
+def test_parse_message_returns_none_for_dj_pairing_disconnected():
     raw = _dj_msg(slot=3, feature_id=DJ_DEVICE_PAIRING, address=0x40)
-    event = parse_message(raw)
-    assert isinstance(event, DjConnectionEvent)
-    assert event.slot == 3
-    assert event.connection_status == 0x40
+    assert parse_message(raw) is None
 
 
-def test_parse_message_returns_hid_connection_event():
-    raw = bytes([REPORT_SHORT, 1, HID_DEVICE_PAIRING, 0x00, 0x00, 0x00, 0x00])
+def test_parse_message_returns_connection_event_for_x1d4b_reconnection():
+    raw = _long_msg(slot=1, sub_id=0x04, address=0x00, data=bytes([0x01]) + bytes(15))
     event = parse_message(raw)
-    assert isinstance(event, HidConnectionEvent)
+    assert isinstance(event, ConnectionEvent)
     assert event.slot == 1
 
 
@@ -198,6 +193,7 @@ def test_divert_all_es_keys_calls_set_cid_divert_for_each_host_switch_cid(mocker
 
 def test_divert_all_es_keys_does_not_raise_on_transport_error(mocker, fake_transport):
     from cleverswitch.errors import TransportError
+
     mocker.patch("cleverswitch.listeners.set_cid_divert", side_effect=TransportError("gone"))
     product = LogiProduct(slot=1, change_host_feat_idx=2, divert_feat_idx=3, role="keyboard", name="KB")
     _divert_all_es_keys(fake_transport, product)  # must not raise
