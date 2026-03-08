@@ -4,7 +4,6 @@ from threading import Thread
 
 from cleverswitch.errors import TransportError
 from cleverswitch.event_processors import ConnectionProcessor, HostChangeProcessor
-from cleverswitch.factory import _make_logi_product
 from cleverswitch.hidpp.constants import (
     BOLT_PID,
     DEVICE_TYPE_KEYBOARD,
@@ -13,22 +12,21 @@ from cleverswitch.hidpp.constants import (
     DEVICE_TYPE_TRACKPAD,
     DJ_DEVICE_PAIRING,
     FEATURE_DEVICE_TYPE_AND_NAME,
-    HID_DEVICE_PAIRING,
     HOST_SWITCH_CIDS,
     REPORT_DJ,
     REPORT_LONG,
-    REPORT_SHORT,
 )
 from cleverswitch.hidpp.protocol import get_device_name, get_device_type, resolve_feature_index, set_cid_divert
 from cleverswitch.hidpp.transport import HidDeviceInfo, HIDTransport
 from cleverswitch.model import (
     BaseEvent,
-    DjConnectionEvent,
+    ConnectionEvent,
     EventProcessorArguments,
-    HidConnectionEvent,
     HostChangeEvent,
     LogiProduct,
 )
+
+from .factory import _make_logi_product
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +49,7 @@ class PathListener(Thread):
         for slot in range(1, 7):
             self.add_new_product(slot)
             if slot in self._products:
-                self.process_event(DjConnectionEvent(slot, 0))
+                self.process_event(ConnectionEvent(slot))
 
     def process_event(self, event):
         for processor in self._event_processors:
@@ -60,6 +58,7 @@ class PathListener(Thread):
                     products=self._products,
                     transport=self._transport,
                     event=event,
+                    shutdown=self._shutdown,
                 )
             )
 
@@ -69,7 +68,6 @@ class PathListener(Thread):
                 raw = self._transport.read(100)
 
                 if raw is None:
-                    # self._shutdown.wait(0.2)
                     continue
 
                 event = parse_message(raw)
@@ -78,10 +76,7 @@ class PathListener(Thread):
                 if event is None:
                     continue
 
-                if (
-                    isinstance(event, (DjConnectionEvent, HidConnectionEvent))
-                    and event.slot not in self._products.keys()
-                ):
+                if isinstance(event, ConnectionEvent) and event.slot not in self._products.keys():
                     log.info("adding product %d", event.slot)
                     self.add_new_product(event.slot)
 
@@ -119,17 +114,17 @@ def parse_message(raw: bytes) -> BaseEvent | None:
     report_id = raw[0]
     slot = raw[1]
     feature_id = raw[2]
-    address = raw[3]
+    address = raw[3]  # should be renamed
     target_host_cid = raw[5]
+
+    if report_id == REPORT_DJ and feature_id == DJ_DEVICE_PAIRING and address == 0x00:
+        return ConnectionEvent(slot)
+
+    if report_id == REPORT_LONG and feature_id == 0x04 and raw[4] == 0x01:
+        return ConnectionEvent(slot)
 
     if report_id == REPORT_LONG and address == 0x00 and target_host_cid and target_host_cid in HOST_SWITCH_CIDS.keys():
         return HostChangeEvent(slot, HOST_SWITCH_CIDS[target_host_cid])
-
-    if report_id == REPORT_DJ and feature_id == DJ_DEVICE_PAIRING:
-        return DjConnectionEvent(slot, address)
-
-    if report_id == REPORT_SHORT and feature_id == HID_DEVICE_PAIRING:
-        return HidConnectionEvent(slot)
 
     return None
 

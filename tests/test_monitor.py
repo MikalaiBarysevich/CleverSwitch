@@ -1,7 +1,7 @@
 """Unit tests for event processor logic.
 
 Covers:
-  - ConnectionProcessor — handles DjConnectionEvent and HidConnectionEvent
+  - ConnectionProcessor — handles ConnectionEvent, diverts ES keys
   - HostChangeProcessor — handles HostChangeEvent, calls _switch for each product
   - _divert_all_es_keys — calls set_cid_divert for each HOST_SWITCH_CID
   - _switch — calls send_change_host with correct arguments
@@ -9,13 +9,12 @@ Covers:
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 from cleverswitch.event_processors import (
-    BaseConnectionProcessor,
     ConnectionProcessor,
-    DjConnectionProcessor,
-    HidConnectionProcessor,
     HostChangeProcessor,
     Processor,
     _divert_all_es_keys,
@@ -23,9 +22,8 @@ from cleverswitch.event_processors import (
 )
 from cleverswitch.hidpp.constants import HOST_SWITCH_CIDS
 from cleverswitch.model import (
-    DjConnectionEvent,
     EventProcessorArguments,
-    HidConnectionEvent,
+    ConnectionEvent,
     HostChangeEvent,
     LogiProduct,
 )
@@ -45,38 +43,17 @@ def _make_product(role: str, slot: int, divert_feat_idx: int | None = None) -> L
 
 
 def _make_args(transport, products: dict, event) -> EventProcessorArguments:
-    return EventProcessorArguments(products=products, transport=transport, event=event)
+    return EventProcessorArguments(products=products, transport=transport, event=event, shutdown=threading.Event())
 
 
-# ── ConnectionProcessor — DjConnectionEvent ───────────────────────────────────
+# ── ConnectionProcessor ─────────────────────────────────────────────────────
 
 
-def test_connection_processor_sets_connected_true_on_dj_connect(mocker, fake_transport):
-    product = _make_product("keyboard", slot=1, divert_feat_idx=None)
-    products = {1: product}
-    args = _make_args(fake_transport, products, DjConnectionEvent(slot=1, connection_status=0))
-
-    ConnectionProcessor().process(args)
-
-    assert product.connected is True
-
-
-def test_connection_processor_sets_connected_false_on_dj_disconnect(mocker, fake_transport):
-    product = _make_product("keyboard", slot=1)
-    product.connected = True
-    products = {1: product}
-    args = _make_args(fake_transport, products, DjConnectionEvent(slot=1, connection_status=1))
-
-    ConnectionProcessor().process(args)
-
-    assert product.connected is False
-
-
-def test_connection_processor_diverts_keys_on_dj_connect_when_divert_feat_set(mocker, fake_transport):
+def test_connection_processor_diverts_keys_when_divert_feat_set(mocker, fake_transport):
     mock_divert = mocker.patch("cleverswitch.event_processors._divert_all_es_keys")
     product = _make_product("keyboard", slot=1, divert_feat_idx=3)
     products = {1: product}
-    args = _make_args(fake_transport, products, DjConnectionEvent(slot=1, connection_status=0))
+    args = _make_args(fake_transport, products, ConnectionEvent(slot=1))
 
     ConnectionProcessor().process(args)
 
@@ -87,45 +64,22 @@ def test_connection_processor_does_not_divert_when_no_divert_feat(mocker, fake_t
     mock_divert = mocker.patch("cleverswitch.event_processors._divert_all_es_keys")
     product = _make_product("mouse", slot=2, divert_feat_idx=None)
     products = {2: product}
-    args = _make_args(fake_transport, products, DjConnectionEvent(slot=2, connection_status=0))
+    args = _make_args(fake_transport, products, ConnectionEvent(slot=2))
 
     ConnectionProcessor().process(args)
 
     mock_divert.assert_not_called()
 
 
-def test_connection_processor_ignores_non_connection_events(fake_transport):
-    product = _make_product("keyboard", slot=1)
+def test_connection_processor_ignores_non_connection_events(mocker, fake_transport):
+    mock_divert = mocker.patch("cleverswitch.event_processors._divert_all_es_keys")
+    product = _make_product("keyboard", slot=1, divert_feat_idx=3)
     products = {1: product}
     args = _make_args(fake_transport, products, HostChangeEvent(slot=1, target_host=2))
 
-    ConnectionProcessor().process(args)  # should not raise or modify product
-    assert product.connected is False
-
-
-# ── ConnectionProcessor — HidConnectionEvent ──────────────────────────────────
-
-
-def test_connection_processor_toggles_connected_on_hid_event_when_disconnected(mocker, fake_transport):
-    product = _make_product("keyboard", slot=1)
-    product.connected = False
-    products = {1: product}
-    args = _make_args(fake_transport, products, HidConnectionEvent(slot=1))
-
     ConnectionProcessor().process(args)
 
-    assert product.connected is True
-
-
-def test_connection_processor_toggles_connected_off_on_hid_event_when_already_connected(mocker, fake_transport):
-    product = _make_product("keyboard", slot=1)
-    product.connected = True
-    products = {1: product}
-    args = _make_args(fake_transport, products, HidConnectionEvent(slot=1))
-
-    ConnectionProcessor().process(args)
-
-    assert product.connected is False
+    mock_divert.assert_not_called()
 
 
 # ── HostChangeProcessor ───────────────────────────────────────────────────────
@@ -158,7 +112,7 @@ def test_host_change_processor_passes_correct_target_host(mocker, fake_transport
 def test_host_change_processor_ignores_non_host_change_events(mocker, fake_transport):
     mock_switch = mocker.patch("cleverswitch.event_processors._switch")
     products = {1: _make_product("keyboard", slot=1)}
-    args = _make_args(fake_transport, products, DjConnectionEvent(slot=1, connection_status=0))
+    args = _make_args(fake_transport, products, ConnectionEvent(slot=1))
 
     HostChangeProcessor().process(args)
 
@@ -190,53 +144,12 @@ def test_divert_all_es_keys_passes_diverted_true(mocker, fake_transport):
     assert all(args[4] is True for args in calls)
 
 
-# ── DjConnectionProcessor / HidConnectionProcessor ───────────────────────────
-
-
-def test_dj_connection_processor_processes_dj_events(mocker, fake_transport):
-    mock_divert = mocker.patch("cleverswitch.event_processors._divert_all_es_keys")
-    product = _make_product("keyboard", slot=1, divert_feat_idx=3)
-    products = {1: product}
-    args = _make_args(fake_transport, products, DjConnectionEvent(slot=1, connection_status=0))
-
-    DjConnectionProcessor().process(args)
-
-    assert product.connected is True
-    mock_divert.assert_called_once()
-
-
-def test_dj_connection_processor_ignores_non_dj_events(fake_transport):
-    product = _make_product("keyboard", slot=1)
-    products = {1: product}
-    args = _make_args(fake_transport, products, HidConnectionEvent(slot=1))
-
-    DjConnectionProcessor().process(args)  # should not modify product
-
-
-def test_hid_connection_processor_processes_hid_events(mocker, fake_transport):
-    mock_divert = mocker.patch("cleverswitch.event_processors._divert_all_es_keys")
-    product = _make_product("keyboard", slot=1, divert_feat_idx=3)
-    product.connected = False
-    products = {1: product}
-    args = _make_args(fake_transport, products, HidConnectionEvent(slot=1))
-
-    HidConnectionProcessor().process(args)
-
-    assert product.connected is True
-    mock_divert.assert_called_once()
-
-
-def test_hid_connection_processor_ignores_non_hid_events(fake_transport):
-    product = _make_product("keyboard", slot=1)
-    products = {1: product}
-    args = _make_args(fake_transport, products, DjConnectionEvent(slot=1, connection_status=0))
-
-    HidConnectionProcessor().process(args)  # should not modify via HidConnectionProcessor
+# ── Processor base ───────────────────────────────────────────────────────────
 
 
 def test_processor_base_process_method_returns_none(fake_transport):
     product = _make_product("keyboard", slot=1)
-    args = _make_args(fake_transport, {1: product}, DjConnectionEvent(slot=1, connection_status=0))
+    args = _make_args(fake_transport, {1: product}, ConnectionEvent(slot=1))
     result = Processor().process(args)
     assert result is None
 

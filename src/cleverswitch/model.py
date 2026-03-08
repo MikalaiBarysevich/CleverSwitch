@@ -1,3 +1,4 @@
+import threading
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
@@ -17,12 +18,7 @@ class HostChangeEvent(BaseEvent):
 
 
 @dataclass
-class DjConnectionEvent(BaseEvent):
-    connection_status: int  # 0 - connected, 1 - disconnected
-
-
-@dataclass
-class HidConnectionEvent(BaseEvent):
+class ConnectionEvent(BaseEvent):
     slot: int
 
 
@@ -46,3 +42,4 @@ class EventProcessorArguments(Generic[T]):
     products: dict[int, LogiProduct]
     transport: HIDTransport
     event: T
+    shutdown: threading.Event
