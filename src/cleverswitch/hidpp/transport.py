@@ -260,12 +260,12 @@ class HIDTransport:
         Returns None on timeout. Raises TransportError on device error.
         """
         if self._dev is None:
-            log.info("read on closed transport")
+            log.warning("read on closed transport")
             raise TransportError("read on closed transport")
         buf = (ctypes.c_ubyte * MAX_READ_SIZE)()
         n = _lib.hid_read_timeout(self._dev, buf, MAX_READ_SIZE, timeout)
         if n < 0:
-            log.info(f"hid_read_timeout failed: {_hid_err(self._dev)}")
+            log.debug(f"hid_read_timeout failed: {_hid_err(self._dev)}")
 
             raise TransportError(f"hid_read_timeout failed: {_hid_err(self._dev)}")
         return bytes(buf[:n]) if n > 0 else None

@@ -94,7 +94,7 @@ def test_host_change_processor_calls_switch_for_each_product(mocker, fake_transp
 
     HostChangeProcessor().process(args)
 
-    assert mock_switch.call_count == 2
+    assert mock_switch.call_count == 2  # 1 call per product
 
 
 def test_host_change_processor_passes_correct_target_host(mocker, fake_transport):
@@ -106,7 +106,7 @@ def test_host_change_processor_passes_correct_target_host(mocker, fake_transport
 
     HostChangeProcessor().process(args)
 
-    assert calls == [1]
+    assert calls == [1]  # called once
 
 
 def test_host_change_processor_ignores_non_host_change_events(mocker, fake_transport):

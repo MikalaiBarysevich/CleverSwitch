@@ -1,0 +1,30 @@
+# This rule was added by CleverSwitch.
+#
+# Grants the logged-in user raw access to Logitech receiver hidraw devices
+# without requiring root privileges.
+#
+# Install:
+#   sudo cp 42-cleverswitch.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger
+#   Unplug and replug the receiver.
+
+ACTION == "remove", GOTO="cleverswitch_end"
+SUBSYSTEM != "hidraw", GOTO="cleverswitch_end"
+
+# USB-connected Logitech receivers and devices
+ATTRS{idVendor}=="046d", GOTO="cleverswitch_apply"
+
+GOTO="cleverswitch_end"
+
+LABEL="cleverswitch_apply"
+
+# Allow any seated user to access the receiver.
+# uaccess: modern ACL-enabled udev
+TAG+="uaccess"
+
+# Grant members of the "plugdev" group access to receiver (useful for SSH users)
+#MODE="0660", GROUP="plugdev"
+
+LABEL="cleverswitch_end"
+# vim: ft=udevrules

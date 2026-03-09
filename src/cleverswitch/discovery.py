@@ -21,31 +21,36 @@ log = logging.getLogger(__name__)
 
 
 def discover(shutdown: threading.Event) -> None:
-    """Background discovery loop. Runs until *shutdown* is set.
-
-    Caches transport handles and DeviceContexts across iterations so we
-    don't re-open devices every second. Evicts stale entries when a device
-    disappears from OS enumeration.
-    """
     log.info("Starting device discovery…")
 
-    listeners: list[PathListener] = []
-    known_paths = {}
+    listeners: dict[bytes, PathListener] = {}
 
     try:
         while not shutdown.is_set():
             devices = enumerate_hid_devices()
 
-            if known_paths != devices:
-                for device in devices:
-                    listener = PathListener(device, shutdown)
-                    listeners.append(listener)
-                    listener.start()
-                known_paths = devices
+            # Remove listeners for paths that disappeared
+            current_paths = {d.path for d in devices}
+            removed_paths = set()
+            for path, listener in listeners.items():
+                if path not in current_paths:
+                    removed_paths.add(path)
+                if not listener.is_alive():
+                    removed_paths.add(path)
 
-            shutdown.wait(5)
+            for path in removed_paths:
+                listeners.pop(path).stop()
+
+            # Add listeners for new paths
+            for device in devices:
+                if device.path not in listeners:
+                    listener = PathListener(device, shutdown)
+                    listeners[device.path] = listener
+                    listener.start()
+
+            shutdown.wait(0.5)
     except RuntimeError as error:
         log.error(f"Error occurred running discovery: {error}")
     finally:
-        for listener in listeners:
+        for listener in listeners.values():
             listener.join(0.5)

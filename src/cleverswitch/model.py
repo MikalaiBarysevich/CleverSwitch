@@ -23,6 +23,11 @@ class ConnectionEvent(BaseEvent):
 
 
 @dataclass
+class ExternalUndivertEvent(BaseEvent):
+    target_host_cid: int
+
+
+@dataclass
 class LogiProduct:
     """Everything needed to talk to one device."""
 
