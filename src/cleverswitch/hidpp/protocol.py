@@ -255,8 +255,6 @@ def send_change_host(
     try:
         transport.write(msg)
     except Exception as e:
-        from ..errors import TransportError
-
         raise TransportError(f"send_change_host write failed: {e}") from e
 
 

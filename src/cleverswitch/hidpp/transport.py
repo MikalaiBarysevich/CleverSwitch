@@ -19,10 +19,9 @@ import os
 import platform
 import sys
 
-from cleverswitch.hidpp.constants import ALL_RECEIVER_PIDS
-
 from ..errors import TransportError
 from .constants import (
+    ALL_RECEIVER_PIDS,
     HIDPP_USAGE_LONG,
     HIDPP_USAGE_PAGES,
     LOGITECH_VENDOR_ID,

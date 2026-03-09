@@ -2,7 +2,7 @@ import threading
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 
-from cleverswitch.hidpp.transport import HIDTransport
+from .hidpp.transport import HIDTransport
 
 
 @dataclass

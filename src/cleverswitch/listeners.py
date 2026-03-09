@@ -2,9 +2,10 @@ import logging
 import threading
 from threading import Thread
 
-from cleverswitch.errors import TransportError
-from cleverswitch.event_processors import ConnectionProcessor, HostChangeProcessor
-from cleverswitch.hidpp.constants import (
+from .errors import TransportError
+from .event_processors import ConnectionProcessor, HostChangeProcessor
+from .factory import _make_logi_product
+from .hidpp.constants import (
     BOLT_PID,
     DEVICE_TYPE_KEYBOARD,
     DEVICE_TYPE_MOUSE,
@@ -16,17 +17,15 @@ from cleverswitch.hidpp.constants import (
     REPORT_DJ,
     REPORT_LONG,
 )
-from cleverswitch.hidpp.protocol import get_device_name, get_device_type, resolve_feature_index, set_cid_divert
-from cleverswitch.hidpp.transport import HidDeviceInfo, HIDTransport
-from cleverswitch.model import (
+from .hidpp.protocol import get_device_name, get_device_type, resolve_feature_index, set_cid_divert
+from .hidpp.transport import HidDeviceInfo, HIDTransport
+from .model import (
     BaseEvent,
     ConnectionEvent,
     EventProcessorArguments,
     HostChangeEvent,
     LogiProduct,
 )
-
-from .factory import _make_logi_product
 
 log = logging.getLogger(__name__)
 

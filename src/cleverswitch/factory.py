@@ -1,7 +1,7 @@
-from cleverswitch.hidpp.constants import FEATURE_CHANGE_HOST, FEATURE_REPROG_CONTROLS_V4
-from cleverswitch.hidpp.protocol import resolve_feature_index
-from cleverswitch.hidpp.transport import HIDTransport, log
-from cleverswitch.model import LogiProduct
+from .hidpp.constants import FEATURE_CHANGE_HOST, FEATURE_REPROG_CONTROLS_V4
+from .hidpp.protocol import resolve_feature_index
+from .hidpp.transport import HIDTransport, log
+from .model import LogiProduct
 
 
 def _make_logi_product(
