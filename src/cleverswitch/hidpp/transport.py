@@ -59,6 +59,10 @@ if _SYSTEM == "Windows":
     _scripts_dir = os.path.join(sys.prefix, "Scripts")
     if os.path.isdir(_scripts_dir):
         os.add_dll_directory(_scripts_dir)
+    # PyInstaller bundles files into a temp _MEIPASS directory
+    _meipass = getattr(sys, "_MEIPASS", None)
+    if _meipass and os.path.isdir(_meipass):
+        os.add_dll_directory(_meipass)
 
 _lib: ctypes.CDLL | None = None
 for _name in _LIB_NAMES:
