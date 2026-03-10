@@ -22,7 +22,7 @@ def check() -> None:
 
 def _check_linux() -> None:
     """Warn if udev rules are not installed."""
-    rule_name = "99-cleverswitch.rules"
+    rule_name = "42-cleverswitch.rules"
     udev_dirs = [
         "/etc/udev/rules.d",
         "/run/udev/rules.d",
@@ -36,7 +36,7 @@ def _check_linux() -> None:
     log.warning(
         "udev rule not found — you may get a PermissionError when opening the receiver.\n"
         "  To fix:\n"
-        "    sudo cp udev/99-cleverswitch.rules /etc/udev/rules.d/\n"
+        "    sudo cp rules.d/42-cleverswitch.rules /etc/udev/rules.d/\n"
         "    sudo udevadm control --reload-rules && sudo udevadm trigger\n"
         "  Then unplug and replug the Bolt/Unifying receiver."
     )

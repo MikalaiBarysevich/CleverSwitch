@@ -28,6 +28,7 @@ from cleverswitch.hidpp.constants import (
     REPORT_DJ,
     REPORT_LONG,
     REPORT_SHORT,
+    SW_ID,
 )
 from cleverswitch.hidpp.transport import HidDeviceInfo
 from cleverswitch.listeners import (
@@ -38,7 +39,7 @@ from cleverswitch.listeners import (
     _undivert_all_es_keys,
     parse_message,
 )
-from cleverswitch.model import ConnectionEvent, HostChangeEvent, LogiProduct
+from cleverswitch.model import ConnectionEvent, ExternalUndivertEvent, HostChangeEvent, LogiProduct
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -54,8 +55,12 @@ def _dj_msg(slot: int, feature_id: int, address: int) -> bytes:
     return bytes([REPORT_DJ, slot]) + payload
 
 
-def _make_path_listener(mocker, device=None, shutdown=None):
-    """Instantiate PathListener with HIDTransport and _query_device_info mocked out."""
+def _make_path_listener(mocker, device=None, shutdown=None, init_transport=True):
+    """Instantiate PathListener with HIDTransport and _query_device_info mocked out.
+
+    By default calls init_transport() so listener._transport is set.
+    Pass init_transport=False to test __init__-only state.
+    """
     if device is None:
         device = HidDeviceInfo(path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=1)
     if shutdown is None:
@@ -66,6 +71,8 @@ def _make_path_listener(mocker, device=None, shutdown=None):
     mocker.patch("cleverswitch.listeners._query_device_info", return_value=None)
 
     listener = PathListener(device, shutdown)
+    if init_transport:
+        listener.init_transport()
     return listener, mock_transport
 
 
@@ -145,23 +152,24 @@ def test_parse_message_returns_none_for_message_shorter_than_4_bytes():
     ],
 )
 def test_parse_message_returns_host_change_event_for_each_easy_switch_cid(cid_byte, expected_host):
+    products = _kbd_products(slot=1, divert_feat_idx=5)
     raw = _long_msg(slot=1, sub_id=5, address=0x00, data=bytes([0x00, cid_byte]) + bytes(14))
-    event = parse_message(raw)
+    event = parse_message(raw, products)
     assert isinstance(event, HostChangeEvent)
     assert event.slot == 1
     assert event.target_host == expected_host
 
 
 def test_parse_message_returns_none_for_unknown_cid_in_long_msg():
+    products = _kbd_products(slot=1, divert_feat_idx=5)
     raw = _long_msg(slot=1, sub_id=5, address=0x00, data=bytes([0x00, 0xAA]) + bytes(14))
-    assert not isinstance(parse_message(raw), HostChangeEvent)
+    assert not isinstance(parse_message(raw, products), HostChangeEvent)
 
 
-def test_parse_message_returns_connection_event_for_dj_pairing_connected():
+def test_parse_message_returns_none_for_dj_pairing():
+    """DJ parsing is handled at receiver level; parse_message only handles REPORT_LONG."""
     raw = _dj_msg(slot=2, feature_id=DJ_DEVICE_PAIRING, address=0x00)
-    event = parse_message(raw)
-    assert isinstance(event, ConnectionEvent)
-    assert event.slot == 2
+    assert parse_message(raw) is None
 
 
 def test_parse_message_returns_none_for_dj_pairing_disconnected():
@@ -208,8 +216,9 @@ def test_undivert_all_es_keys_suppresses_all_exceptions(mocker, fake_transport):
 # ── PathListener ──────────────────────────────────────────────────────────────
 
 
-def test_path_listener_starts_with_empty_products_when_no_slots_respond(mocker):
-    listener, _ = _make_path_listener(mocker)
+def test_path_listener_starts_with_no_transport_and_empty_products(mocker):
+    listener, _ = _make_path_listener(mocker, init_transport=False)
+    assert listener._transport is None
     assert listener._products == {}
 
 
@@ -291,8 +300,11 @@ def test_path_listener_run_skips_undivert_for_products_without_divert_feat(mocke
 
 def test_path_listener_run_dispatches_parsed_event(mocker):
     listener, mock_transport = _make_path_listener(mocker)
+    # Add a product so parse_message can match the divert feature index
+    product = LogiProduct(slot=1, change_host_feat_idx=2, divert_feat_idx=5, role="keyboard", name="KB")
+    listener._products[1] = product
 
-    # Build a HostChangeEvent packet (slot=1, cid=0xD1 → host 0)
+    # Build a HostChangeEvent packet (slot=1, feat_idx=5, fn=0x00, cid=0xD1 → host 0)
     raw = _long_msg(slot=1, sub_id=5, address=0x00, data=bytes([0x00, 0xD1]) + bytes(14))
     call_count = [0]
 
@@ -309,3 +321,142 @@ def test_path_listener_run_dispatches_parsed_event(mocker):
     listener.run()
 
     assert mock_process.call_count >= 1
+
+
+# ── init_transport ───────────────────────────────────────────────────────────
+
+
+def test_init_transport_opens_transport_on_first_try(mocker):
+    listener, mock_transport = _make_path_listener(mocker, init_transport=False)
+
+    listener.init_transport()
+
+    assert listener._transport is mock_transport
+
+
+def test_init_transport_retries_on_oserror_and_succeeds(mocker):
+    device = HidDeviceInfo(path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=1)
+    shutdown = threading.Event()
+    mock_transport = mocker.MagicMock()
+    mock_ctor = mocker.patch(
+        "cleverswitch.listeners.HIDTransport", side_effect=[OSError("busy"), OSError("busy"), mock_transport]
+    )
+    mocker.patch("cleverswitch.listeners._query_device_info", return_value=None)
+
+    listener = PathListener(device, shutdown)
+    listener.init_transport()
+
+    assert listener._transport is mock_transport
+    assert mock_ctor.call_count == 3
+
+
+def test_init_transport_gives_up_after_3_failures(mocker):
+    device = HidDeviceInfo(path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=1)
+    shutdown = threading.Event()
+    mocker.patch("cleverswitch.listeners.HIDTransport", side_effect=OSError("gone"))
+    mocker.patch("cleverswitch.listeners._query_device_info", return_value=None)
+
+    listener = PathListener(device, shutdown)
+    listener.init_transport()
+
+    assert listener._transport is None
+
+
+def test_init_transport_skips_when_already_set(mocker):
+    listener, mock_transport = _make_path_listener(mocker)
+    mock_ctor = mocker.patch("cleverswitch.listeners.HIDTransport")
+
+    listener.init_transport()  # second call — should be no-op
+
+    mock_ctor.assert_not_called()
+    assert listener._transport is mock_transport
+
+
+def test_run_returns_early_when_transport_init_fails(mocker):
+    device = HidDeviceInfo(path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=1)
+    shutdown = threading.Event()
+    mocker.patch("cleverswitch.listeners.HIDTransport", side_effect=OSError("gone"))
+    mocker.patch("cleverswitch.listeners._query_device_info", return_value=None)
+
+    listener = PathListener(device, shutdown)
+    listener.run()  # should return without error
+
+    assert listener._transport is None
+    assert listener._products == {}
+
+
+def test_run_calls_detect_products(mocker):
+    listener, mock_transport = _make_path_listener(mocker)
+    mock_transport.read.return_value = None
+    mock_detect = mocker.patch.object(listener, "detect_products")
+    listener._shutdown.set()
+
+    listener.run()
+
+    mock_detect.assert_called_once()
+
+
+# ── external undivert detection (via parse_message with products) ────────────
+
+
+def _setCidReporting_response(slot: int, feat_idx: int, sw_id: int, cid: int) -> bytes:
+    """Build a REPORT_LONG setCidReporting response (fn=0x30) for testing."""
+    fn_sw = 0x30 | (sw_id & 0x0F)
+    cid_hi = (cid >> 8) & 0xFF
+    cid_lo = cid & 0xFF
+    payload = bytes([feat_idx, fn_sw, cid_hi, cid_lo]) + bytes(14)
+    return bytes([REPORT_LONG, slot]) + payload
+
+
+def _kbd_products(slot=1, divert_feat_idx=5):
+    product = LogiProduct(slot=slot, change_host_feat_idx=2, divert_feat_idx=divert_feat_idx, role="keyboard", name="KB")
+    return {slot: product}
+
+
+def test_parse_message_detects_solaar_undivert():
+    products = _kbd_products()
+    raw = _setCidReporting_response(slot=1, feat_idx=5, sw_id=0x02, cid=0x00D1)
+    event = parse_message(raw, products)
+    assert isinstance(event, ExternalUndivertEvent)
+    assert event.slot == 1
+    assert event.target_host_cid == 0xD1
+
+
+def test_parse_message_ignores_own_sw_id_undivert():
+    products = _kbd_products()
+    raw = _setCidReporting_response(slot=1, feat_idx=5, sw_id=SW_ID, cid=0x00D1)
+    assert parse_message(raw, products) is None
+
+
+def test_parse_message_ignores_notification_sw_id_0_undivert():
+    products = _kbd_products()
+    raw = _setCidReporting_response(slot=1, feat_idx=5, sw_id=0x00, cid=0x00D1)
+    assert parse_message(raw, products) is None
+
+
+def test_parse_message_ignores_non_easy_switch_cid_undivert():
+    products = _kbd_products()
+    raw = _setCidReporting_response(slot=1, feat_idx=5, sw_id=0x02, cid=0x00AA)
+    assert parse_message(raw, products) is None
+
+
+def test_parse_message_ignores_wrong_feature_index_undivert():
+    products = _kbd_products()
+    raw = _setCidReporting_response(slot=1, feat_idx=7, sw_id=0x02, cid=0x00D1)
+    assert parse_message(raw, products) is None
+
+
+def test_parse_message_ignores_unknown_slot_undivert():
+    raw = _setCidReporting_response(slot=3, feat_idx=5, sw_id=0x02, cid=0x00D1)
+    assert parse_message(raw, {}) is None
+
+
+def test_parse_message_ignores_product_without_divert_undivert():
+    products = _kbd_products(divert_feat_idx=None)
+    raw = _setCidReporting_response(slot=1, feat_idx=5, sw_id=0x02, cid=0x00D1)
+    assert parse_message(raw, products) is None
+
+
+def test_parse_message_without_products_skips_undivert_check():
+    raw = _setCidReporting_response(slot=1, feat_idx=5, sw_id=0x02, cid=0x00D1)
+    assert parse_message(raw) is None

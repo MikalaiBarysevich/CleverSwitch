@@ -17,14 +17,14 @@ def _make_logi_product(
     feat_idx = resolve_feature_index(transport, slot, FEATURE_CHANGE_HOST)
     if feat_idx is None:
         log.warning(
-            "%s (dev=0x%02X, %s) does not support CHANGE_HOST (0x1814) — skipping",
+            "%s (slot=0x%02X, %s) does not support CHANGE_HOST (0x1814) — skipping",
             name,
             slot,
             transport.kind,
         )
         return None
     log.debug(
-        "%s (dev=0x%02X, %s) found CHANGE_HOST (0x1814) idx — %s",
+        "%s (slot=0x%02X, %s) found CHANGE_HOST (0x1814) idx — %s",
         name,
         slot,
         transport.kind,
@@ -37,26 +37,21 @@ def _make_logi_product(
         log.debug("feat_idx_rep=%s", feat_idx_rep)
         if feat_idx_rep is None:
             log.warning(
-                "%s (dev=0x%02X, %s) does not support FEATURE_REPROG_CONTROLS_V4 (0x1B04) - skipping",
+                "%s (slot=0x%02X, %s) does not support FEATURE_REPROG_CONTROLS_V4 (0x1B04) - skipping",
                 name,
                 slot,
                 transport.kind,
             )
             return None
         log.debug(
-            "%s (dev=0x%02X, %s) found FEATURE_REPROG_CONTROLS_V4 (0x1B04) idx — %s",
+            "%s (slot=0x%02X, %s) found FEATURE_REPROG_CONTROLS_V4 (0x1B04) idx — %s",
             name,
             slot,
             transport.kind,
             feat_idx_rep,
         )
 
-    log.info(
-        "'%s' found: transport=%s, dev=0x%02X",
-        name,
-        transport.kind,
-        slot,
-    )
+    log.info("'%s' found", name)
 
     return LogiProduct(
         slot=slot,
