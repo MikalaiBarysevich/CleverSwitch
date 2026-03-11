@@ -6,6 +6,7 @@ When you press the Easy-Switch button on the keyboard, CleverSwitch detects it a
 - Runs alongside Logi Options+ or Solaar without conflicts.
 - Must be installed on every host you plan to switch from.
 - Currently supports connections via Logitech receivers only. You can switch _to_ a Bluetooth host, but not switch _back_ from Bluetooth.
+- Tested with `MX Keys` and `MX Master 3` on Linux, macOS, and Windows.
 
 > CleverSwitch does not override device firmware. It acts as a forwarder, which means there is a small delay
 > after reconnection. If you switch back immediately after arriving from another host, the devices may not
@@ -13,9 +14,9 @@ When you press the Easy-Switch button on the keyboard, CleverSwitch detects it a
 
 ## Installation
 
-### From Source
+### From Sources (the only Linux and macOS option for now)
 
-_Requires Python >=3.10 in path._
+_Requires Python >=3.10 on PATH._
 
 1. Clone the repository.
 2. Install from root:
@@ -57,19 +58,23 @@ Use `which cleverswitch` to find the path.
 
 ### Windows
 
-Download `cleverswitch.exe` from the [Releases](https://github.com/MikalaiBarysevich/CleverSwitch/releases) page.
+1. Download `cleverswitch.zip` from the [Releases](https://github.com/MikalaiBarysevich/CleverSwitch/releases) page.
+2. Extract the archive.
+3. Add the location of `cleverswitch.exe` to `PATH` (optional, but preferred).
+4. Execute `setup_startup_windows.bat` if you want to run the app at startup.
+   If step 3 is skipped, the script and executable must be in the same directory.
 
 ---
 
 ### Homebrew
 
-TBD
+Will be available later.
 
 ---
 
 ### Linux
 
-TBD
+Will be available later.
 
 ---
 
@@ -77,8 +82,8 @@ TBD
 
 ### Windows
 
-1. Place `setup_startup_windows.ps1` (included in the release zip) in the same directory as `cleverswitch.exe`.
-2. Right-click the script and select **Run with PowerShell**.
+1. If you skipped step 3 during installation (or installed from source), place `setup_startup_windows.bat` in the same directory as `cleverswitch.exe`.
+2. Run `setup_startup_windows.bat`.
 
 To verify, open Task Manager and look for `cleverswitch.exe` in the **Details** tab.
 
@@ -86,7 +91,7 @@ To verify, open Task Manager and look for `cleverswitch.exe` in the **Details** 
 
 #### Option 1 (preferred)
 
-Use your distro's autostart mechanism. Add `cleverswitch` as a login/autostart item.
+Use your distro's autostart mechanism (e.g., GNOME Tweaks, KDE Autostart). Add `cleverswitch` as a login/autostart item.
 
 #### Option 2
 
@@ -104,15 +109,6 @@ Run the setup script:
 
 If you've encountered an issue, please open a [new issue](https://github.com/MikalaiBarysevich/CleverSwitch/issues/new).
 
-To help me fix it faster, please include:
-
-    A brief description of the problem.
-
-    Steps to reproduce the behavior.
-
-    Your system environment (OS, version, etc.).
-
-
 ## Configuration
 
 Will be available in later releases.
@@ -124,10 +120,6 @@ Will be available in later releases.
 ## Relation to Solaar
 
 CleverSwitch is inspired by [Solaar](https://github.com/pwr-Solaar/Solaar) and uses the same HID++ 2.0 protocol knowledge, but is an independent, minimal implementation. It does not import or depend on Solaar.
-
-## License
-
-This project is licensed under the [GNU General Public License v3.0](LICENSE).
 
 ## Support the Project
 
