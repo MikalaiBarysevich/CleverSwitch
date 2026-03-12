@@ -68,7 +68,10 @@ Use `which cleverswitch` to find the path.
 
 ### Homebrew
 
-Will be available later.
+Will work on this once this rules for [Homebrew formulae](https://docs.brew.sh/Acceptable-Formulae#niche-or-self-submitted-stuff) will be satisfied:  
+
+> - be known (e.g. GitHub repositories should have >=30 forks, >=30 watchers or >=75 stars)
+> - be used by someone other than the author (e.g. someone other than the author submitted the pull request or opened an issue with us or them to add it to Homebrew)
 
 ---
 
