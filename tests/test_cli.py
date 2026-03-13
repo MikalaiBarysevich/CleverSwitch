@@ -119,7 +119,7 @@ def test_dry_run_logs_found_receivers(mocker, caplog):
     from cleverswitch.hidpp.transport import HidDeviceInfo
 
     devices = [
-        HidDeviceInfo(path=b"/dev/hidraw0", vid=0x046D, pid=0xC548, usage_page=0xFF00, usage=1),
+        HidDeviceInfo(path=b"/dev/hidraw0", vid=0x046D, pid=0xC548, usage_page=0xFF00, usage=1, connection_type="receiver"),
     ]
     mocker.patch("cleverswitch.cli.enumerate_hid_devices", return_value=devices)
 
@@ -133,8 +133,8 @@ def test_dry_run_logs_multiple_receivers(mocker, caplog):
     from cleverswitch.hidpp.transport import HidDeviceInfo
 
     devices = [
-        HidDeviceInfo(path=b"/dev/hidraw0", vid=0x046D, pid=0xC548, usage_page=0xFF00, usage=1),
-        HidDeviceInfo(path=b"/dev/hidraw1", vid=0x046D, pid=0xC52B, usage_page=0xFF00, usage=1),
+        HidDeviceInfo(path=b"/dev/hidraw0", vid=0x046D, pid=0xC548, usage_page=0xFF00, usage=1, connection_type="receiver"),
+        HidDeviceInfo(path=b"/dev/hidraw1", vid=0x046D, pid=0xC52B, usage_page=0xFF00, usage=1, connection_type="receiver"),
     ]
     mocker.patch("cleverswitch.cli.enumerate_hid_devices", return_value=devices)
 

@@ -1,6 +1,4 @@
-import threading
 from dataclasses import dataclass
-from typing import Generic, TypeVar
 
 from .hidpp.transport import HIDTransport
 
@@ -39,12 +37,13 @@ class LogiProduct:
     connected: bool = False
 
 
-T = TypeVar("T", bound="BaseEvent")
-
-
 @dataclass
-class EventProcessorArguments(Generic[T]):
-    products: dict[int, LogiProduct]
+class ProductEntry:
+    """Entry in the shared product registry — everything needed to send CHANGE_HOST."""
+
     transport: HIDTransport
-    event: T
-    shutdown: threading.Event
+    devnumber: int  # slot 1-6 for receiver, 0xFF for BT
+    change_host_feat_idx: int
+    divert_feat_idx: int | None
+    role: str
+    name: str

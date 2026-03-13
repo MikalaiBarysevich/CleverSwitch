@@ -3,10 +3,10 @@ import threading
 from threading import Thread
 
 from .errors import TransportError
-from .event_processors import ConnectionProcessor, ExternalUndivertProcessor, HostChangeProcessor
 from .factory import _make_logi_product
 from .hidpp.constants import (
     BOLT_PID,
+    DEVICE_RECEIVER,
     DEVICE_TYPE_KEYBOARD,
     DEVICE_TYPE_MOUSE,
     DEVICE_TYPE_TRACKBALL,
@@ -16,76 +16,118 @@ from .hidpp.constants import (
     REPORT_LONG,
     SW_ID,
 )
-from .hidpp.protocol import get_device_name, get_device_type, resolve_feature_index, set_cid_divert
+from .hidpp.protocol import get_device_name, get_device_type, resolve_feature_index, send_change_host, set_cid_divert
 from .hidpp.transport import HidDeviceInfo, HIDTransport
 from .model import (
     BaseEvent,
     ConnectionEvent,
-    EventProcessorArguments,
     ExternalUndivertEvent,
     HostChangeEvent,
     LogiProduct,
+    ProductEntry,
 )
 
 log = logging.getLogger(__name__)
 
 
-class PathListener(Thread):
-    def __init__(self, hid_device_info: HidDeviceInfo, shutdown: threading.Event) -> None:
+# ── Product registry ─────────────────────────────────────────────────────────
+
+# Key: (receiver_path, slot) for receiver devices, pid (int) for BT devices
+ProductKey = tuple[bytes, int] | int
+
+
+class ProductRegistry:
+    """Thread-safe registry of all known products across all connection types."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._products: dict[ProductKey, ProductEntry] = {}
+
+    def register(self, key: ProductKey, entry: ProductEntry) -> None:
+        with self._lock:
+            self._products[key] = entry
+
+    def unregister(self, key: ProductKey) -> None:
+        with self._lock:
+            self._products.pop(key, None)
+
+    def all_entries(self) -> list[ProductEntry]:
+        with self._lock:
+            return list(self._products.values())
+
+
+# ── Base listener ────────────────────────────────────────────────────────────
+
+
+class BaseListener(Thread):
+    """Common event loop: open transport, read packets, parse, dispatch."""
+
+    def __init__(self, hid_device_info: HidDeviceInfo, shutdown: threading.Event, registry: ProductRegistry) -> None:
         self._hid_device_info = hid_device_info
         self._shutdown = shutdown
+        self._registry = registry
         self._transport: HIDTransport | None = None
         self._products: dict[int, LogiProduct] = {}
-        self._event_processors = [
-            ConnectionProcessor(),
-            HostChangeProcessor(),
-            ExternalUndivertProcessor(),
-        ]
         self._stopped = False
-        super().__init__()
+        super().__init__(daemon=True)
 
     def run(self) -> None:
-        self.init_transport()
-
+        self._init_transport()
         if self._transport is None:
             return
-
-        self.detect_products()
-
+        self._detect_products()
         try:
-            while not self._shutdown.is_set() and not self._stopped:
-                raw = self._transport.read(100)
-
-                if raw is None:
-                    continue
-
-                event = parse_message(raw, self._products)
-                log.debug("parsed event=%s", event)
-
-                if event is None:
-                    continue
-
-                if isinstance(event, ConnectionEvent) and event.slot not in self._products.keys():
-                    log.debug("Adding product for slot=%d", event.slot)
-                    self.add_new_product(event.slot)
-
-                self.process_event(event)
-
-                self._shutdown.wait(0.2)
+            self._event_loop()
         except TransportError as e:
-            log.debug("Error occurred during processing event: %s", e)
+            log.debug("Transport error on %s: %s", self._hid_device_info.path, e)
         finally:
-            for product in self._products.values():
-                if product.divert_feat_idx is not None:
-                    _undivert_all_es_keys(self._transport, product)
+            self._cleanup()
+
+    def _event_loop(self) -> None:
+        while not self._shutdown.is_set() and not self._stopped:
+            raw = self._transport.read(100)
+            if raw is None:
+                continue
+            event = parse_message(raw, self._products)
+            log.debug("parsed event=%s", event)
+            if event is None:
+                continue
+            self._handle_event(event)
+            self._shutdown.wait(0.2)
+
+    def _handle_host_change(self, event: HostChangeEvent) -> None:
+        """Send CHANGE_HOST to ALL products in the registry."""
+        for entry in self._registry.all_entries():
+            log.debug("Sending host change event to: %s", entry.name)
+            try:
+                send_change_host(entry.transport, entry.devnumber, entry.change_host_feat_idx, event.target_host)
+            except Exception as e:
+                log.debug("Host switch failed for %s: %s", entry.name, e)
+
+    def _init_transport(self) -> None: ...
+
+    def _detect_products(self) -> None: ...
+
+    def _handle_event(self, event: BaseEvent) -> None: ...
+
+    def _cleanup(self) -> None:
+        if self._transport is not None:
             self._transport.close()
 
-    def init_transport(self) -> None:
+    def stop(self) -> None:
+        self._stopped = True
+
+
+# ── Receiver listener ────────────────────────────────────────────────────────
+
+
+class ReceiverListener(BaseListener):
+    """Handles a Bolt/Unifying receiver with devices in slots 1-6."""
+
+    def _init_transport(self) -> None:
         if self._transport is not None:
             return
-
         last_error = None
-
         for _i in range(3):
             try:
                 hid_device = self._hid_device_info
@@ -96,50 +138,134 @@ class PathListener(Thread):
                 last_error = e
                 log.debug(f"Error during transport init. Retry in 1 second. error={e}")
                 self._shutdown.wait(1)
-
         if self._transport is None:
             log.debug(f"Couldn't open transport. error={last_error}")
 
-    def detect_products(self) -> None:
-
+    def _detect_products(self) -> None:
         for slot in range(1, 7):
             if slot not in self._products:
-                self.add_new_product(slot)
+                self._add_product(slot)
                 if slot in self._products:
-                    self.process_event(ConnectionEvent(slot))
+                    self._handle_connection(ConnectionEvent(slot))
 
-    def process_event(self, event):
-        for processor in self._event_processors:
-            processor.process(
-                EventProcessorArguments(
-                    products=self._products,
-                    transport=self._transport,
-                    event=event,
-                    shutdown=self._shutdown,
-                )
-            )
+    def _handle_event(self, event: BaseEvent) -> None:
+        if isinstance(event, ConnectionEvent):
+            if event.slot not in self._products:
+                log.debug("Adding product for slot=%d", event.slot)
+                self._add_product(event.slot)
+            self._handle_connection(event)
+        elif isinstance(event, HostChangeEvent):
+            self._handle_host_change(event)
+        elif isinstance(event, ExternalUndivertEvent):
+            self._handle_external_undivert(event)
 
-    def add_new_product(self, slot) -> None:
+    def _handle_connection(self, event: ConnectionEvent) -> None:
+        product = self._products.get(event.slot)
+        if product is None:
+            return
+        log.debug(f"Product reconnected slot={product.slot} name={product.name}")
+        if product.divert_feat_idx is not None:
+            log.debug(f"Sending divert host switch keys request for slot={product.slot} name={product.name}")
+            _divert_all_es_keys(self._transport, product)
+
+    def _handle_external_undivert(self, event: ExternalUndivertEvent) -> None:
+        product = self._products.get(event.slot)
+        if product is None:
+            return
+        if product.divert_feat_idx is not None:
+            cid = hex(event.target_host_cid)
+            log.debug(f"Sending single divert request slot={product.slot} name={product.name} cid={cid}")
+            _divert_single_es_key(self._transport, product, event.target_host_cid)
+
+    def _add_product(self, slot: int) -> None:
         try:
             if slot in self._products:
                 return
             log.debug("Receiver slot %d", slot)
             info = _query_device_info(self._transport, slot)
-
             if not info:
                 return
-
             role, name = info
             product = _make_logi_product(self._transport, slot, role=role, name=name)
             if product:
                 self._products[slot] = product
+                entry = ProductEntry(
+                    self._transport,
+                    slot,
+                    product.change_host_feat_idx,
+                    product.divert_feat_idx,
+                    role,
+                    name,
+                )
+                self._registry.register((self._hid_device_info.path, slot), entry)
         except RuntimeError as e:
             log.debug("Error occurred during adding new product: %s", e)
             if slot in self._products:
                 self._products.pop(slot)
 
-    def stop(self):
-        self._stopped = True
+    def _cleanup(self) -> None:
+        for product in self._products.values():
+            if product.divert_feat_idx is not None:
+                _undivert_all_es_keys(self._transport, product)
+        for slot in self._products:
+            self._registry.unregister((self._hid_device_info.path, slot))
+        super()._cleanup()
+
+
+# ── BT listener ──────────────────────────────────────────────────────────────
+
+
+class BTListener(BaseListener):
+    """Handles a single Bluetooth-connected Logitech device."""
+
+    def _init_transport(self) -> None:
+        try:
+            self._transport = HIDTransport(self._hid_device_info.path, "bluetooth", self._hid_device_info.pid)
+        except OSError as e:
+            log.debug("Cannot open BT device 0x%04X: %s", self._hid_device_info.pid, e)
+
+    def _detect_products(self) -> None:
+        try:
+            info = _query_device_info(self._transport, DEVICE_RECEIVER)
+            if not info:
+                return
+            role, name = info
+            product = _make_logi_product(self._transport, DEVICE_RECEIVER, role=role, name=name)
+            if product:
+                self._products[DEVICE_RECEIVER] = product
+                self._registry.register(
+                    self._hid_device_info.pid,
+                    ProductEntry(
+                        self._transport,
+                        DEVICE_RECEIVER,
+                        product.change_host_feat_idx,
+                        product.divert_feat_idx,
+                        role,
+                        name,
+                    ),
+                )
+                if product.divert_feat_idx is not None:
+                    _divert_all_es_keys(self._transport, product)
+        except RuntimeError as e:
+            log.debug("Error probing BT device 0x%04X: %s", self._hid_device_info.pid, e)
+
+    def _handle_event(self, event: BaseEvent) -> None:
+        if isinstance(event, HostChangeEvent):
+            self._handle_host_change(event)
+        elif isinstance(event, ExternalUndivertEvent):
+            product = self._products.get(event.slot)
+            if product and product.divert_feat_idx is not None:
+                _divert_single_es_key(self._transport, product, event.target_host_cid)
+
+    def _cleanup(self) -> None:
+        for product in self._products.values():
+            if product.divert_feat_idx is not None:
+                _undivert_all_es_keys(self._transport, product)
+        self._registry.unregister(self._hid_device_info.pid)
+        super()._cleanup()
+
+
+# ── Message parsing ──────────────────────────────────────────────────────────
 
 
 def parse_message(raw: bytes, products: dict[int, LogiProduct] | None = None) -> BaseEvent | None:
@@ -191,12 +317,19 @@ def parse_message(raw: bytes, products: dict[int, LogiProduct] | None = None) ->
     return None
 
 
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+
 def _divert_all_es_keys(transport: HIDTransport, product: LogiProduct) -> None:
     for cid in HOST_SWITCH_CIDS:
-        try:
-            set_cid_divert(transport, product.slot, product.divert_feat_idx, cid, True)
-        except TransportError as e:
-            log.warning("Failed to divert CID 0x%04X on %s: %s", cid, product.name, e)
+        _divert_single_es_key(transport, product, cid)
+
+
+def _divert_single_es_key(transport: HIDTransport, product: LogiProduct, cid: int) -> None:
+    try:
+        set_cid_divert(transport, product.slot, product.divert_feat_idx, cid, True)
+    except TransportError as e:
+        log.warning("Failed to divert CID 0x%04X on %s: %s", cid, product.name, e)
 
 
 def _undivert_all_es_keys(transport: HIDTransport, product: LogiProduct) -> None:

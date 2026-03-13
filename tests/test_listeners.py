@@ -6,7 +6,9 @@ Covers:
   - _query_device_info   — feature resolution → (role, name) or None
   - _divert_all_es_keys  — calls set_cid_divert for each HOST_SWITCH_CID
   - _undivert_all_es_keys — same, but suppresses all exceptions
-  - PathListener         — per-receiver thread lifecycle
+  - ReceiverListener     — per-receiver thread lifecycle
+  - BTListener           — per-BT-device thread lifecycle
+  - ProductRegistry      — thread-safe product tracking
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import pytest
 
 from cleverswitch.hidpp.constants import (
     BOLT_PID,
+    DEVICE_RECEIVER,
     DEVICE_TYPE_KEYBOARD,
     DEVICE_TYPE_MOUSE,
     DEVICE_TYPE_TRACKBALL,
@@ -32,14 +35,16 @@ from cleverswitch.hidpp.constants import (
 )
 from cleverswitch.hidpp.transport import HidDeviceInfo
 from cleverswitch.listeners import (
-    PathListener,
+    BTListener,
+    ProductRegistry,
+    ReceiverListener,
     _device_type_to_role,
     _divert_all_es_keys,
     _query_device_info,
     _undivert_all_es_keys,
     parse_message,
 )
-from cleverswitch.model import ConnectionEvent, ExternalUndivertEvent, HostChangeEvent, LogiProduct
+from cleverswitch.model import ConnectionEvent, ExternalUndivertEvent, HostChangeEvent, LogiProduct, ProductEntry
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -55,25 +60,73 @@ def _dj_msg(slot: int, feature_id: int, address: int) -> bytes:
     return bytes([REPORT_DJ, slot]) + payload
 
 
-def _make_path_listener(mocker, device=None, shutdown=None, init_transport=True):
-    """Instantiate PathListener with HIDTransport and _query_device_info mocked out.
+def _receiver_device():
+    return HidDeviceInfo(path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=0x0002, connection_type="receiver")
 
-    By default calls init_transport() so listener._transport is set.
-    Pass init_transport=False to test __init__-only state.
-    """
+
+def _bt_device(pid=0xB023):
+    return HidDeviceInfo(path=b"/dev/hidraw1", vid=0x046D, pid=pid, usage_page=0xFF43, usage=0x0202, connection_type="bluetooth")
+
+
+def _make_receiver_listener(mocker, device=None, shutdown=None, registry=None, init_transport=True):
+    """Instantiate ReceiverListener with HIDTransport and _query_device_info mocked out."""
     if device is None:
-        device = HidDeviceInfo(path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=1)
+        device = _receiver_device()
     if shutdown is None:
         shutdown = threading.Event()
+    if registry is None:
+        registry = ProductRegistry()
 
     mock_transport = mocker.MagicMock()
     mocker.patch("cleverswitch.listeners.HIDTransport", return_value=mock_transport)
     mocker.patch("cleverswitch.listeners._query_device_info", return_value=None)
 
-    listener = PathListener(device, shutdown)
+    listener = ReceiverListener(device, shutdown, registry)
     if init_transport:
-        listener.init_transport()
+        listener._init_transport()
     return listener, mock_transport
+
+
+def _make_bt_listener(mocker, device=None, shutdown=None, registry=None, init_transport=True):
+    """Instantiate BTListener with HIDTransport and _query_device_info mocked out."""
+    if device is None:
+        device = _bt_device()
+    if shutdown is None:
+        shutdown = threading.Event()
+    if registry is None:
+        registry = ProductRegistry()
+
+    mock_transport = mocker.MagicMock()
+    mocker.patch("cleverswitch.listeners.HIDTransport", return_value=mock_transport)
+    mocker.patch("cleverswitch.listeners._query_device_info", return_value=None)
+
+    listener = BTListener(device, shutdown, registry)
+    if init_transport:
+        listener._init_transport()
+    return listener, mock_transport
+
+
+# ── ProductRegistry ──────────────────────────────────────────────────────────
+
+
+def test_registry_register_and_all_entries(fake_transport):
+    registry = ProductRegistry()
+    entry = ProductEntry(fake_transport, 1, 2, 3, "keyboard", "KB")
+    registry.register((b"/dev/hidraw0", 1), entry)
+    assert registry.all_entries() == [entry]
+
+
+def test_registry_unregister(fake_transport):
+    registry = ProductRegistry()
+    entry = ProductEntry(fake_transport, 1, 2, 3, "keyboard", "KB")
+    registry.register((b"/dev/hidraw0", 1), entry)
+    registry.unregister((b"/dev/hidraw0", 1))
+    assert registry.all_entries() == []
+
+
+def test_registry_unregister_nonexistent_key():
+    registry = ProductRegistry()
+    registry.unregister("nonexistent")  # must not raise
 
 
 # ── _device_type_to_role ──────────────────────────────────────────────────────
@@ -213,57 +266,59 @@ def test_undivert_all_es_keys_suppresses_all_exceptions(mocker, fake_transport):
     _undivert_all_es_keys(fake_transport, product)  # must not raise
 
 
-# ── PathListener ──────────────────────────────────────────────────────────────
+# ── ReceiverListener ──────────────────────────────────────────────────────────
 
 
-def test_path_listener_starts_with_no_transport_and_empty_products(mocker):
-    listener, _ = _make_path_listener(mocker, init_transport=False)
+def test_receiver_listener_starts_with_no_transport_and_empty_products(mocker):
+    listener, _ = _make_receiver_listener(mocker, init_transport=False)
     assert listener._transport is None
     assert listener._products == {}
 
 
-def test_path_listener_add_new_product_skips_existing_slot(mocker):
-    listener, _ = _make_path_listener(mocker)
+def test_receiver_listener_add_product_skips_existing_slot(mocker):
+    listener, _ = _make_receiver_listener(mocker)
     existing = LogiProduct(slot=1, change_host_feat_idx=2, divert_feat_idx=None, role="mouse", name="M")
     listener._products[1] = existing
 
-    listener.add_new_product(1)  # should be a no-op
+    listener._add_product(1)  # should be a no-op
 
     assert listener._products[1] is existing
 
 
-def test_path_listener_add_new_product_adds_product_on_success(mocker):
-    listener, mock_transport = _make_path_listener(mocker)
+def test_receiver_listener_add_product_adds_product_on_success(mocker):
+    registry = ProductRegistry()
+    listener, mock_transport = _make_receiver_listener(mocker, registry=registry)
     product = LogiProduct(slot=2, change_host_feat_idx=3, divert_feat_idx=None, role="mouse", name="M")
     mocker.patch("cleverswitch.listeners._query_device_info", return_value=("mouse", "M"))
     mocker.patch("cleverswitch.listeners._make_logi_product", return_value=product)
 
-    listener.add_new_product(2)
+    listener._add_product(2)
 
     assert 2 in listener._products
+    assert len(registry.all_entries()) == 1
 
 
-def test_path_listener_add_new_product_skips_when_query_returns_none(mocker):
-    listener, _ = _make_path_listener(mocker)
+def test_receiver_listener_add_product_skips_when_query_returns_none(mocker):
+    listener, _ = _make_receiver_listener(mocker)
     mocker.patch("cleverswitch.listeners._query_device_info", return_value=None)
 
-    listener.add_new_product(2)
+    listener._add_product(2)
 
     assert 2 not in listener._products
 
 
-def test_path_listener_add_new_product_skips_when_make_returns_none(mocker):
-    listener, _ = _make_path_listener(mocker)
+def test_receiver_listener_add_product_skips_when_make_returns_none(mocker):
+    listener, _ = _make_receiver_listener(mocker)
     mocker.patch("cleverswitch.listeners._query_device_info", return_value=("mouse", "M"))
     mocker.patch("cleverswitch.listeners._make_logi_product", return_value=None)
 
-    listener.add_new_product(2)
+    listener._add_product(2)
 
     assert 2 not in listener._products
 
 
-def test_path_listener_run_closes_transport_on_exit(mocker):
-    listener, mock_transport = _make_path_listener(mocker)
+def test_receiver_listener_run_closes_transport_on_exit(mocker):
+    listener, mock_transport = _make_receiver_listener(mocker)
     mock_transport.read.return_value = None
     listener._shutdown.set()
 
@@ -272,8 +327,8 @@ def test_path_listener_run_closes_transport_on_exit(mocker):
     mock_transport.close.assert_called_once()
 
 
-def test_path_listener_run_undiverts_products_with_divert_feat_on_exit(mocker):
-    listener, mock_transport = _make_path_listener(mocker)
+def test_receiver_listener_run_undiverts_products_with_divert_feat_on_exit(mocker):
+    listener, mock_transport = _make_receiver_listener(mocker)
     product = LogiProduct(slot=1, change_host_feat_idx=2, divert_feat_idx=3, role="keyboard", name="KB")
     listener._products[1] = product
     mock_transport.read.return_value = None
@@ -285,8 +340,8 @@ def test_path_listener_run_undiverts_products_with_divert_feat_on_exit(mocker):
     mock_undivert.assert_called_once_with(mock_transport, product)
 
 
-def test_path_listener_run_skips_undivert_for_products_without_divert_feat(mocker):
-    listener, mock_transport = _make_path_listener(mocker)
+def test_receiver_listener_run_skips_undivert_for_products_without_divert_feat(mocker):
+    listener, mock_transport = _make_receiver_listener(mocker)
     product = LogiProduct(slot=2, change_host_feat_idx=3, divert_feat_idx=None, role="mouse", name="M")
     listener._products[2] = product
     mock_transport.read.return_value = None
@@ -298,13 +353,11 @@ def test_path_listener_run_skips_undivert_for_products_without_divert_feat(mocke
     mock_undivert.assert_not_called()
 
 
-def test_path_listener_run_dispatches_parsed_event(mocker):
-    listener, mock_transport = _make_path_listener(mocker)
-    # Add a product so parse_message can match the divert feature index
+def test_receiver_listener_run_dispatches_parsed_event(mocker):
+    listener, mock_transport = _make_receiver_listener(mocker)
     product = LogiProduct(slot=1, change_host_feat_idx=2, divert_feat_idx=5, role="keyboard", name="KB")
     listener._products[1] = product
 
-    # Build a HostChangeEvent packet (slot=1, feat_idx=5, fn=0x00, cid=0xD1 → host 0)
     raw = _long_msg(slot=1, sub_id=5, address=0x00, data=bytes([0x00, 0xD1]) + bytes(14))
     call_count = [0]
 
@@ -316,84 +369,179 @@ def test_path_listener_run_dispatches_parsed_event(mocker):
         return None
 
     mock_transport.read = fake_read
-    mock_process = mocker.patch.object(listener, "process_event")
+    mock_handle = mocker.patch.object(listener, "_handle_event")
 
     listener.run()
 
-    assert mock_process.call_count >= 1
+    assert mock_handle.call_count >= 1
 
 
-# ── init_transport ───────────────────────────────────────────────────────────
+# ── ReceiverListener init_transport ──────────────────────────────────────────
 
 
-def test_init_transport_opens_transport_on_first_try(mocker):
-    listener, mock_transport = _make_path_listener(mocker, init_transport=False)
+def test_receiver_init_transport_opens_transport_on_first_try(mocker):
+    listener, mock_transport = _make_receiver_listener(mocker, init_transport=False)
 
-    listener.init_transport()
+    listener._init_transport()
 
     assert listener._transport is mock_transport
 
 
-def test_init_transport_retries_on_oserror_and_succeeds(mocker):
-    device = HidDeviceInfo(path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=1)
+def test_receiver_init_transport_retries_on_oserror_and_succeeds(mocker):
+    device = _receiver_device()
     shutdown = threading.Event()
+    registry = ProductRegistry()
     mock_transport = mocker.MagicMock()
     mock_ctor = mocker.patch(
         "cleverswitch.listeners.HIDTransport", side_effect=[OSError("busy"), OSError("busy"), mock_transport]
     )
     mocker.patch("cleverswitch.listeners._query_device_info", return_value=None)
 
-    listener = PathListener(device, shutdown)
-    listener.init_transport()
+    listener = ReceiverListener(device, shutdown, registry)
+    mocker.patch.object(listener._shutdown, "wait")
+    listener._init_transport()
 
     assert listener._transport is mock_transport
     assert mock_ctor.call_count == 3
 
 
-def test_init_transport_gives_up_after_3_failures(mocker):
-    device = HidDeviceInfo(path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=1)
+def test_receiver_init_transport_gives_up_after_3_failures(mocker):
+    device = _receiver_device()
     shutdown = threading.Event()
+    registry = ProductRegistry()
     mocker.patch("cleverswitch.listeners.HIDTransport", side_effect=OSError("gone"))
     mocker.patch("cleverswitch.listeners._query_device_info", return_value=None)
 
-    listener = PathListener(device, shutdown)
-    listener.init_transport()
+    listener = ReceiverListener(device, shutdown, registry)
+    mocker.patch.object(listener._shutdown, "wait")
+    listener._init_transport()
 
     assert listener._transport is None
 
 
-def test_init_transport_skips_when_already_set(mocker):
-    listener, mock_transport = _make_path_listener(mocker)
+def test_receiver_init_transport_skips_when_already_set(mocker):
+    listener, mock_transport = _make_receiver_listener(mocker)
     mock_ctor = mocker.patch("cleverswitch.listeners.HIDTransport")
 
-    listener.init_transport()  # second call — should be no-op
+    listener._init_transport()  # second call — should be no-op
 
     mock_ctor.assert_not_called()
     assert listener._transport is mock_transport
 
 
-def test_run_returns_early_when_transport_init_fails(mocker):
-    device = HidDeviceInfo(path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=1)
+def test_receiver_run_returns_early_when_transport_init_fails(mocker):
+    device = _receiver_device()
     shutdown = threading.Event()
+    registry = ProductRegistry()
     mocker.patch("cleverswitch.listeners.HIDTransport", side_effect=OSError("gone"))
     mocker.patch("cleverswitch.listeners._query_device_info", return_value=None)
 
-    listener = PathListener(device, shutdown)
-    listener.run()  # should return without error
+    listener = ReceiverListener(device, shutdown, registry)
+    mocker.patch.object(listener._shutdown, "wait")
+    listener.run()
 
     assert listener._transport is None
     assert listener._products == {}
 
 
-def test_run_calls_detect_products(mocker):
-    listener, mock_transport = _make_path_listener(mocker)
+def test_receiver_run_calls_detect_products(mocker):
+    listener, mock_transport = _make_receiver_listener(mocker)
     mock_transport.read.return_value = None
-    mock_detect = mocker.patch.object(listener, "detect_products")
+    mock_detect = mocker.patch.object(listener, "_detect_products")
     listener._shutdown.set()
 
     listener.run()
 
     mock_detect.assert_called_once()
+
+
+# ── ReceiverListener host change uses registry ───────────────────────────────
+
+
+def test_receiver_host_change_sends_to_all_registry_entries(mocker, fake_transport):
+    registry = ProductRegistry()
+    entry1 = ProductEntry(fake_transport, 1, 2, None, "keyboard", "KB")
+    entry2 = ProductEntry(fake_transport, 2, 3, None, "mouse", "M")
+    registry.register((b"/dev/hidraw0", 1), entry1)
+    registry.register((b"/dev/hidraw0", 2), entry2)
+
+    listener, mock_transport = _make_receiver_listener(mocker, registry=registry)
+    mock_send = mocker.patch("cleverswitch.listeners.send_change_host")
+
+    listener._handle_host_change(HostChangeEvent(slot=1, target_host=2))
+
+    assert mock_send.call_count == 2
+
+
+# ── BTListener ───────────────────────────────────────────────────────────────
+
+
+def test_bt_listener_detect_products_registers_in_registry(mocker):
+    registry = ProductRegistry()
+    listener, mock_transport = _make_bt_listener(mocker, registry=registry)
+    product = LogiProduct(slot=DEVICE_RECEIVER, change_host_feat_idx=3, divert_feat_idx=None, role="mouse", name="MX Anywhere")
+    mocker.patch("cleverswitch.listeners._query_device_info", return_value=("mouse", "MX Anywhere"))
+    mocker.patch("cleverswitch.listeners._make_logi_product", return_value=product)
+
+    listener._detect_products()
+
+    assert DEVICE_RECEIVER in listener._products
+    entries = registry.all_entries()
+    assert len(entries) == 1
+    assert entries[0].name == "MX Anywhere"
+
+
+def test_bt_listener_detect_products_diverts_keys_for_keyboard(mocker):
+    registry = ProductRegistry()
+    listener, mock_transport = _make_bt_listener(mocker, registry=registry)
+    product = LogiProduct(slot=DEVICE_RECEIVER, change_host_feat_idx=3, divert_feat_idx=5, role="keyboard", name="MX Keys")
+    mocker.patch("cleverswitch.listeners._query_device_info", return_value=("keyboard", "MX Keys"))
+    mocker.patch("cleverswitch.listeners._make_logi_product", return_value=product)
+    mock_divert = mocker.patch("cleverswitch.listeners._divert_all_es_keys")
+
+    listener._detect_products()
+
+    mock_divert.assert_called_once_with(mock_transport, product)
+
+
+def test_bt_listener_cleanup_unregisters_from_registry(mocker):
+    registry = ProductRegistry()
+    listener, mock_transport = _make_bt_listener(mocker, registry=registry)
+    product = LogiProduct(slot=DEVICE_RECEIVER, change_host_feat_idx=3, divert_feat_idx=None, role="mouse", name="M")
+    listener._products[DEVICE_RECEIVER] = product
+    registry.register(listener._hid_device_info.pid, ProductEntry(mock_transport, DEVICE_RECEIVER, 3, None, "mouse", "M"))
+
+    listener._cleanup()
+
+    assert registry.all_entries() == []
+    mock_transport.close.assert_called_once()
+
+
+def test_bt_listener_init_transport_single_attempt(mocker):
+    """BT listener does not retry — single attempt only."""
+    device = _bt_device()
+    shutdown = threading.Event()
+    registry = ProductRegistry()
+    mocker.patch("cleverswitch.listeners.HIDTransport", side_effect=OSError("no access"))
+    mocker.patch("cleverswitch.listeners._query_device_info", return_value=None)
+
+    listener = BTListener(device, shutdown, registry)
+    listener._init_transport()
+
+    assert listener._transport is None
+
+
+def test_bt_listener_run_returns_early_when_transport_init_fails(mocker):
+    device = _bt_device()
+    shutdown = threading.Event()
+    registry = ProductRegistry()
+    mocker.patch("cleverswitch.listeners.HIDTransport", side_effect=OSError("no access"))
+    mocker.patch("cleverswitch.listeners._query_device_info", return_value=None)
+
+    listener = BTListener(device, shutdown, registry)
+    listener.run()
+
+    assert listener._transport is None
 
 
 # ── external undivert detection (via parse_message with products) ────────────
