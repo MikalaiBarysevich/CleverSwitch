@@ -14,9 +14,11 @@ BOLT_PID = 0xC548
 UNIFYING_PIDS = (0xC52B, 0xC532)
 ALL_RECEIVER_PIDS = (BOLT_PID,) + UNIFYING_PIDS
 
-HIDPP_USAGE_PAGES = [0xFF00]
+HIDPP_USAGE_PAGES = [0xFF00, 0xFF43]  # 0xFF00 = receiver, 0xFF43 = Bluetooth direct
 HIDPP_USAGE_SHORT = 0x0001  # Short HID++ (report 0x10, 7 bytes) — Linux/macOS single entry
 HIDPP_USAGE_LONG = 0x0002  # Long HID++ (report 0x11, 20 bytes) — Windows long collection
+HIDPP_BT_USAGE_LONG = 0x0202  # Long HID++ over Bluetooth
+HIDPP_USAGES_LONG = [HIDPP_USAGE_LONG, HIDPP_BT_USAGE_LONG]
 
 # ── HID++ report IDs and message sizes ───────────────────────────────────────
 
