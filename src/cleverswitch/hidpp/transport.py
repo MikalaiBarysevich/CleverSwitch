@@ -22,8 +22,8 @@ import sys
 from ..errors import TransportError
 from .constants import (
     ALL_RECEIVER_PIDS,
-    HIDPP_USAGE_LONG,
     HIDPP_USAGE_PAGES,
+    HIDPP_USAGES_LONG,
     LOGITECH_VENDOR_ID,
     MAX_READ_SIZE,
 )
@@ -179,7 +179,7 @@ def _is_hidpp_interface(info: dict) -> bool:
 
 
 def enumerate_hid_devices(vendor_id: int = LOGITECH_VENDOR_ID, product_id: int = 0) -> list[HidDeviceInfo]:
-    """Call hid_enumerate and return plain dicts, freeing the linked list."""
+    """Call hid_enumerate and return HID++ capable devices (receivers + BT), freeing the linked list."""
     head = _lib.hid_enumerate(vendor_id, product_id)
     result: dict[bytes, HidDeviceInfo] = {}
     node = head
@@ -189,23 +189,22 @@ def enumerate_hid_devices(vendor_id: int = LOGITECH_VENDOR_ID, product_id: int =
         path = hid_device_content.path
         usage_page = hid_device_content.usage_page
         pid = hid_device_content.product_id
-        log.debug(f"Found hid device with path={path}, pid={pid}, usage_page={usage_page}")
-        if pid not in ALL_RECEIVER_PIDS:
-            log.debug(f"Not a receiver. Skipping path={path}, pid={pid}, usage_page={usage_page}")
-            continue
+        log.debug(f"Found hid device with path={path}, pid=0x{pid:04X}, usage_page=0x{usage_page:04X}")
 
         if path in result:
-            log.debug(f"Already processed path={path}, pid={pid}, usage_page={usage_page}")
+            log.debug(f"Already processed path={path}, pid=0x{pid:04X}")
             continue
 
         if usage_page not in HIDPP_USAGE_PAGES:
-            log.debug(f"Usage page is not supported. Skipping path={path}, pid={pid}, usage_page={usage_page}")
+            log.debug(f"Usage page not supported. Skipping path={path}, pid=0x{pid:04X}, usage_page=0x{usage_page:04X}")
             continue
 
         usage = hid_device_content.usage
-        if usage != HIDPP_USAGE_LONG:
-            log.debug(f"Usage 0x{usage:04X} not supported. Skipping path={path}, pid={pid}")
+        if usage not in HIDPP_USAGES_LONG:
+            log.debug(f"Usage 0x{usage:04X} not supported. Skipping path={path}, pid=0x{pid:04X}")
             continue
+
+        connection_type = "receiver" if pid in ALL_RECEIVER_PIDS else "bluetooth"
 
         result[path] = HidDeviceInfo(
             path,
@@ -213,6 +212,7 @@ def enumerate_hid_devices(vendor_id: int = LOGITECH_VENDOR_ID, product_id: int =
             pid,
             usage_page,
             usage,
+            connection_type,
         )
     _lib.hid_free_enumeration(head)
     log.debug(f"All suitable hid devices={result}")
@@ -226,6 +226,7 @@ class HidDeviceInfo:
     pid: int
     usage_page: int
     usage: int
+    connection_type: str  # "receiver" or "bluetooth"
 
 
 # ── HIDTransport ──────────────────────────────────────────────────────────────
