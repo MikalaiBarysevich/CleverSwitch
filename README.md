@@ -21,8 +21,8 @@ When you press the Easy-Switch button on the keyboard, CleverSwitch detects it a
 2. Open Terminal and navigate to the project folder.
 3. Run:
 ```bash
-chmod +x scripts/setup_mac.sh
-./scripts/setup_mac.sh
+chmod +x scripts/mac/setup.sh
+./scripts/mac/setup.sh
 ```
 
 The setup script will install Homebrew (if needed), Python, hidapi, and CleverSwitch itself.
@@ -47,9 +47,17 @@ Use `which cleverswitch` to find the path.
 
 ### Linux
 
-_Coming soon._
+1. Clone the repository (or download the sources archive from [Releases](https://github.com/MikalaiBarysevich/CleverSwitch/releases)).
+2. Open a terminal and navigate to the project folder.
+3. Run:
+```bash
+chmod +x scripts/linux/setup_linux.sh
+./scripts/linux/setup_linux.sh
+```
 
-### From Sources (The only linux option for now)
+The setup script will check for Python 3 and hidapi, install CleverSwitch, set up udev rules for non-root HID access, and optionally create an autostart entry.
+
+### From Sources
 
 _Requires Python >=3.10 on PATH._
 
@@ -87,8 +95,8 @@ Will be available once the [Homebrew formulae criteria](https://docs.brew.sh/Acc
 
 Handled by `setup_mac.sh` during installation. To set up separately:
 ```bash
-chmod +x scripts/setup_startup_mac.sh
-./scripts/setup_startup_mac.sh
+chmod +x scripts/mac/setup_startup.sh
+./scripts/mac/setup_startup.sh
 ```
 
 ### Windows
@@ -100,20 +108,27 @@ To verify, open Task Manager and look for `cleverswitch.exe` in the **Details** 
 
 ### Linux
 
-**Option 1 (preferred):** Use your distro's autostart mechanism (e.g., GNOME Tweaks, KDE Autostart). Add `cleverswitch` as a login/autostart item.
-
-**Option 2:** Use one of the methods listed [here](https://www.baeldung.com/linux/run-script-on-startup).
+Handled by `setup_linux.sh` during installation. To set up separately, use your distro's autostart mechanism (e.g., GNOME Tweaks, KDE Autostart) or see [other methods](https://www.baeldung.com/linux/run-script-on-startup).
 
 ## Uninstall
 
 ### macOS
 
 ```bash
-chmod +x scripts/uninstall_mac.sh
-./scripts/uninstall_mac.sh
+chmod +x scripts/mac/uninstall.sh
+./scripts/mac/uninstall.sh
 ```
 
 This stops and removes the launch agent (if configured) and uninstalls the CleverSwitch package.
+
+### Linux
+
+```bash
+chmod +x scripts/linux/uninstall_linux.sh
+./scripts/linux/uninstall_linux.sh
+```
+
+This removes the autostart entry, uninstalls the CleverSwitch package, and optionally removes udev rules.
 
 ### Windows
 

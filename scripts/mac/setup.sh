@@ -59,17 +59,7 @@ fi
 [ -x "$PYTHON" ] || error "Could not find Homebrew Python."
 info "Using Python: $PYTHON ($($PYTHON --version))"
 
-# ── Step 3: hidapi ───────────────────────────────────────────────────
-
-if brew list hidapi &>/dev/null; then
-    ok "hidapi is already installed via Homebrew."
-else
-    info "Installing hidapi via Homebrew..."
-    brew install hidapi
-    ok "hidapi installed."
-fi
-
-# ── Step 4: CleverSwitch ─────────────────────────────────────────────
+# ── Step 3: CleverSwitch ─────────────────────────────────────────────
 
 info "Installing CleverSwitch..."
 pip install .
@@ -79,7 +69,7 @@ BINARY_PATH="$(command -v "$APP_NAME" 2>/dev/null || true)"
 
 ok "CleverSwitch installed at: $BINARY_PATH"
 
-# ── Step 5: Launch at startup (optional) ─────────────────────────────
+# ── Step 4: Launch at startup (optional) ─────────────────────────────
 
 if ask_yes_no "Start CleverSwitch automatically on login?"; then
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
