@@ -344,6 +344,7 @@ def test_init_transport_retries_on_oserror_and_succeeds(mocker):
     mocker.patch("cleverswitch.listeners._query_device_info", return_value=None)
 
     listener = PathListener(device, shutdown)
+    mocker.patch.object(listener._shutdown, "wait")
     listener.init_transport()
 
     assert listener._transport is mock_transport
@@ -357,6 +358,7 @@ def test_init_transport_gives_up_after_3_failures(mocker):
     mocker.patch("cleverswitch.listeners._query_device_info", return_value=None)
 
     listener = PathListener(device, shutdown)
+    mocker.patch.object(listener._shutdown, "wait")
     listener.init_transport()
 
     assert listener._transport is None
@@ -379,6 +381,7 @@ def test_run_returns_early_when_transport_init_fails(mocker):
     mocker.patch("cleverswitch.listeners._query_device_info", return_value=None)
 
     listener = PathListener(device, shutdown)
+    mocker.patch.object(listener._shutdown, "wait")
     listener.run()  # should return without error
 
     assert listener._transport is None

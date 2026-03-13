@@ -16,7 +16,6 @@ from .constants import (
     CHANGE_HOST_FN_SET,
     FEATURE_ROOT,
     MAP_FLAG_DIVERTED,
-    MAP_FLAG_PERSISTENTLY_DIVERTED,
     MSG_DJ_LEN,
     MSG_LONG_LEN,
     MSG_SHORT_LEN,
@@ -267,13 +266,13 @@ def set_cid_divert(
 ) -> None:
     """Set or clear the temporary DIVERTED flag for *cid* via setCidReporting (fn 0x30).
 
+    Uses only MAP_FLAG_DIVERTED (not PERSISTENTLY_DIVERTED) — some devices
+    (e.g. MX Keys S) reject requests that include unsupported flags.
+
     Payload layout: CID (2 bytes BE) + bfield (1 byte) + remap (2 bytes BE, always 0).
     """
-    bfield = 0
-    flags = [MAP_FLAG_DIVERTED, MAP_FLAG_PERSISTENTLY_DIVERTED]
-    for flag in flags:
-        bfield |= flag << 1  # valid/mask bit — always set
-        if diverted:
-            bfield |= flag  # action bit — only when diverting
+    bfield = MAP_FLAG_DIVERTED << 1  # valid/mask bit — always set
+    if diverted:
+        bfield |= MAP_FLAG_DIVERTED  # action bit — only when diverting
     params = struct.pack("!HBH", cid, bfield, 0)
     request_write_only(transport, devnumber, (feat_idx << 8) | 0x30, params)
