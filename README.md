@@ -5,47 +5,30 @@ When you press the Easy-Switch button on the keyboard, CleverSwitch detects it a
 
 - Runs alongside Logi Options+ or Solaar without conflicts.
 - Must be installed on every host you plan to switch from.
-- Currently supports connections via Logitech receivers only. You can switch _to_ a Bluetooth host, but not switch _back_ from Bluetooth.
+- Currently supports connections via Logitech receivers and Bluetooth.
 - Tested with `MX Keys` and `MX Master 3` on Linux, macOS, and Windows.
 
 > CleverSwitch does not override device firmware. It acts as a forwarder, which means there is a small delay
 > after reconnection. If you switch back immediately after arriving from another host, the devices may not
 > switch together — CleverSwitch needs a moment to set everything up after reconnection.
+> Especially on Bluetooth. But it mostly depends on the BT version.
 
 ## Installation
 
-### From Sources (the only Linux and macOS option for now)
+### macOS
 
-_Requires Python >=3.10 on PATH._
-
-1. Clone the repository.
-2. Install from root:
-```bash
-pip install .
-```
+1. Clone the repository (or download the sources archive from [Releases](https://github.com/MikalaiBarysevich/CleverSwitch/releases)).
+2. Open Terminal and navigate to the project folder.
 3. Run:
 ```bash
-cleverswitch
+chmod +x scripts/setup_mac.sh
+./scripts/setup_mac.sh
 ```
 
-#### Windows
-
-The [hidapi DLL](https://github.com/libusb/hidapi/releases) must be downloaded manually and placed in a directory on your `PATH`.
-
-#### Linux
-
-Install udev rules to allow non-root HID access:
-
-```bash
-sudo cp rules.d/42-cleverswitch.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules && sudo udevadm trigger
-# Unplug and replug the receiver
-```
-
-#### macOS
+The setup script will install Homebrew (if needed), Python, hidapi, and CleverSwitch itself.
+It will also ask whether you want CleverSwitch to start automatically on login.
 
 On first run, macOS will prompt for **Input Monitoring** permission.
-
 If no prompt appears, grant it manually:
 
 1. Open **System Settings > Privacy & Security > Input Monitoring**.
@@ -54,63 +37,94 @@ If no prompt appears, grant it manually:
 
 Use `which cleverswitch` to find the path.
 
----
-
 ### Windows
 
 1. Download `cleverswitch.zip` from the [Releases](https://github.com/MikalaiBarysevich/CleverSwitch/releases) page.
 2. Extract the archive.
 3. Add the location of `cleverswitch.exe` to `PATH` (optional, but preferred).
-4. Execute `setup_startup_windows.bat` if you want to run the app at startup.
+4. Run `setup_startup_windows.bat` if you want the app to start automatically.
    If step 3 is skipped, the script and executable must be in the same directory.
-
----
-
-### Homebrew
-
-Will work on this once this rules for [Homebrew formulae](https://docs.brew.sh/Acceptable-Formulae#niche-or-self-submitted-stuff) will be satisfied:  
-
-> - be known (e.g. GitHub repositories should have >=30 forks, >=30 watchers or >=75 stars)
-> - be used by someone other than the author (e.g. someone other than the author submitted the pull request or opened an issue with us or them to add it to Homebrew)
-
----
 
 ### Linux
 
-Will be available later.
+_Coming soon._
 
----
+### From Sources (The only linux option for now)
+
+_Requires Python >=3.10 on PATH._
+
+1. Clone the repository.
+2. Install:
+```bash
+pip install .
+```
+3. Run:
+```bash
+cleverswitch
+```
+
+**Windows note:** The [hidapi DLL](https://github.com/libusb/hidapi/releases) must be downloaded manually and placed in a directory on your `PATH`.
+
+**Linux note:** Install udev rules to allow non-root HID access:
+```bash
+sudo cp rules.d/42-cleverswitch.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules && sudo udevadm trigger
+# Unplug and replug the receiver
+```
+
+**macOS note:** On first run, macOS will prompt for Input Monitoring permission (see macOS section above).
+
+### Homebrew
+
+Will be available once the [Homebrew formulae criteria](https://docs.brew.sh/Acceptable-Formulae#niche-or-self-submitted-stuff) are met:
+
+> - be known (e.g. GitHub repositories should have >=30 forks, >=30 watchers or >=75 stars)
+> - be used by someone other than the author
 
 ## Run on Startup
 
+### macOS
+
+Handled by `setup_mac.sh` during installation. To set up separately:
+```bash
+chmod +x scripts/setup_startup_mac.sh
+./scripts/setup_startup_mac.sh
+```
+
 ### Windows
 
-1. If you skipped step 3 during installation (or installed from source), place `setup_startup_windows.bat` in the same directory as `cleverswitch.exe`.
+1. Place `setup_startup_windows.bat` in the same directory as `cleverswitch.exe` (unless it's already on `PATH`).
 2. Run `setup_startup_windows.bat`.
 
 To verify, open Task Manager and look for `cleverswitch.exe` in the **Details** tab.
 
 ### Linux
 
-#### Option 1 (preferred)
+**Option 1 (preferred):** Use your distro's autostart mechanism (e.g., GNOME Tweaks, KDE Autostart). Add `cleverswitch` as a login/autostart item.
 
-Use your distro's autostart mechanism (e.g., GNOME Tweaks, KDE Autostart). Add `cleverswitch` as a login/autostart item.
+**Option 2:** Use one of the methods listed [here](https://www.baeldung.com/linux/run-script-on-startup).
 
-#### Option 2
-
-Use one of the methods listed [here](https://www.baeldung.com/linux/run-script-on-startup).
+## Uninstall
 
 ### macOS
 
-Run the setup script:
-
 ```bash
-./scripts/setup_startup_mac.sh
+chmod +x scripts/uninstall_mac.sh
+./scripts/uninstall_mac.sh
 ```
 
-## Found a Bug?
+This stops and removes the launch agent (if configured) and uninstalls the CleverSwitch package.
 
-If you've encountered an issue, please open a [new issue](https://github.com/MikalaiBarysevich/CleverSwitch/issues/new).
+### Windows
+
+1. Delete the `cleverswitch` folder.
+2. Remove the startup entry: open Task Manager > **Startup** tab, find `cleverswitch`, and disable/delete it.
+
+### From Sources
+
+```bash
+pip uninstall cleverswitch
+```
 
 ## Configuration
 
@@ -123,6 +137,10 @@ Will be available in later releases.
 ## Relation to Solaar
 
 CleverSwitch is inspired by [Solaar](https://github.com/pwr-Solaar/Solaar) and uses the same HID++ 2.0 protocol knowledge, but is an independent, minimal implementation. It does not import or depend on Solaar.
+
+## Found a Bug?
+
+Please open a [new issue](https://github.com/MikalaiBarysevich/CleverSwitch/issues/new).
 
 ## Support the Project
 
