@@ -5,9 +5,10 @@ from __future__ import annotations
 import threading
 
 from cleverswitch.config import default_config
-from cleverswitch.discovery import discover
+from cleverswitch.discovery import BTDeviceCache, discover
 from cleverswitch.hidpp.constants import BOLT_PID
 from cleverswitch.hidpp.transport import HidDeviceInfo
+from cleverswitch.model import CachedBTDevice
 
 _CFG = default_config()
 
@@ -153,3 +154,70 @@ def test_discover_removes_dead_listener_and_recreates(mocker):
     # First listener was dead, so a second was created
     assert call_count[0] == 2
     listeners[0].stop.assert_called_once()
+
+
+def test_discover_passes_bt_cache_to_bt_listener(mocker):
+    """discover() creates one BTDeviceCache and passes it to every BTListener."""
+    device = _bt_device()
+    mocker.patch("cleverswitch.discovery.enumerate_hid_devices", return_value=[device])
+
+    mock_listener = mocker.MagicMock()
+    mocker.patch("cleverswitch.discovery.ReceiverListener")
+    mock_bt_cls = mocker.patch("cleverswitch.discovery.BTListener", return_value=mock_listener)
+
+    shutdown = threading.Event()
+
+    def fake_wait(timeout):
+        shutdown.set()
+
+    shutdown.wait = fake_wait
+
+    discover(_CFG, shutdown)
+
+    call_kwargs = mock_bt_cls.call_args[1]
+    assert "bt_cache" in call_kwargs
+    assert isinstance(call_kwargs["bt_cache"], BTDeviceCache)
+
+
+# ── BTDeviceCache ─────────────────────────────────────────────────────────────
+
+
+def _make_cached_entry(pid=0xB023) -> CachedBTDevice:
+    return CachedBTDevice(
+        pid=pid,
+        role="keyboard",
+        name="MX Keys",
+        change_host_feat_idx=3,
+        divert_feat_idx=5,
+        hosts_info_feat_idx=None,
+    )
+
+
+def test_bt_device_cache_get_returns_none_when_empty():
+    cache = BTDeviceCache()
+    assert cache.get(0xB023) is None
+
+
+def test_bt_device_cache_put_then_get_returns_entry():
+    cache = BTDeviceCache()
+    entry = _make_cached_entry(pid=0xB023)
+    cache.put(entry)
+    assert cache.get(0xB023) is entry
+
+
+def test_bt_device_cache_get_returns_none_for_unknown_pid():
+    cache = BTDeviceCache()
+    entry = _make_cached_entry(pid=0xB023)
+    cache.put(entry)
+    assert cache.get(0xB024) is None
+
+
+def test_bt_device_cache_put_overwrites_existing_entry():
+    cache = BTDeviceCache()
+    first = _make_cached_entry(pid=0xB023)
+    cache.put(first)
+    second = CachedBTDevice(
+        pid=0xB023, role="mouse", name="MX Anywhere", change_host_feat_idx=4, divert_feat_idx=None, hosts_info_feat_idx=None
+    )
+    cache.put(second)
+    assert cache.get(0xB023) is second

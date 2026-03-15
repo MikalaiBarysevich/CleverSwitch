@@ -31,6 +31,7 @@ class HooksConfig:
 @dataclasses.dataclass(frozen=True)
 class Settings:
     read_timeout_ms: int = 2000
+    preferred_host: int | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -95,7 +96,19 @@ def _parse(raw: dict[str, Any], cli_args: argparse.Namespace) -> Config:
 
     # ── settings ──────────────────────────────────────────────────────────────
     s = raw.get("settings", {})
-    settings = Settings(read_timeout_ms=int(s.get("read_timeout_ms", defaults.settings.read_timeout_ms)))
+
+    raw_preferred_host = s.get("preferred_host")
+    preferred_host_internal = None
+    if raw_preferred_host is not None:
+        raw_preferred_host = int(raw_preferred_host)
+        if raw_preferred_host not in (1, 2, 3):
+            raise ConfigError(f"settings.preferred_host must be 1, 2, or 3, got {raw_preferred_host}")
+        preferred_host_internal: int | None = raw_preferred_host - 1  # convert to 0-based
+
+    settings = Settings(
+        read_timeout_ms=int(s.get("read_timeout_ms", defaults.settings.read_timeout_ms)),
+        preferred_host=preferred_host_internal,
+    )
 
     arguments_settings = ArgsSettings(
         verbose_extra=cli_args.verbose_extra if cli_args.verbose_extra is not None else False,
