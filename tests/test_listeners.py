@@ -458,6 +458,33 @@ def test_receiver_run_calls_detect_products(mocker):
     mock_detect.assert_called_once()
 
 
+def test_receiver_detect_products_retries_failed_slots(mocker):
+    """If a slot fails on first pass, _detect_products retries it on a second pass."""
+    registry = ProductRegistry()
+    listener, mock_transport = _make_receiver_listener(mocker, registry=registry)
+    product = LogiProduct(slot=1, change_host_feat_idx=3, divert_feat_idx=None, role="keyboard", name="KB")
+
+    # First call for slot 1 returns None (timeout), second call succeeds
+    call_count = [0]
+    original_query = mocker.patch("cleverswitch.listeners._query_device_info")
+
+    def query_side_effect(transport, devnumber):
+        if devnumber == 1:
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return None  # first pass: timeout
+            return ("keyboard", "KB")  # second pass: success
+        return None
+
+    original_query.side_effect = query_side_effect
+    mocker.patch("cleverswitch.listeners._make_logi_product", return_value=product)
+
+    listener._detect_products()
+
+    assert 1 in listener._products
+    assert call_count[0] == 2
+
+
 # ── ReceiverListener host change uses registry ───────────────────────────────
 
 
@@ -638,7 +665,7 @@ def _kbd_products_no_divert(slot=1, change_host_feat_idx=10):
 
 def test_parse_message_returns_host_change_for_change_host_notification():
     products = _kbd_products_no_divert(slot=1, change_host_feat_idx=10)
-    raw = _change_host_notification(slot=1, change_host_feat_idx=10, sw_id=0x0F, target_host=1)
+    raw = _change_host_notification(slot=1, change_host_feat_idx=10, sw_id=0x00, target_host=1)
     event = parse_message(raw, products)
     assert isinstance(event, HostChangeEvent)
     assert event.slot == 1
@@ -649,7 +676,7 @@ def test_parse_message_ignores_change_host_notification_when_divert_enabled():
     products = _kbd_products(slot=1, divert_feat_idx=5)
     # Use change_host_feat_idx=2 (from _kbd_products), but since divert_feat_idx is set,
     # the CHANGE_HOST notification path should NOT be taken
-    raw = _change_host_notification(slot=1, change_host_feat_idx=2, sw_id=0x0F, target_host=1)
+    raw = _change_host_notification(slot=1, change_host_feat_idx=2, sw_id=0x00, target_host=1)
     event = parse_message(raw, products)
     # Should not be a HostChangeEvent from the notification path
     assert not isinstance(event, HostChangeEvent)
@@ -658,7 +685,14 @@ def test_parse_message_ignores_change_host_notification_when_divert_enabled():
 def test_parse_message_ignores_change_host_notification_for_mouse():
     product = LogiProduct(slot=1, change_host_feat_idx=10, divert_feat_idx=None, role="mouse", name="MX Master")
     products = {1: product}
-    raw = _change_host_notification(slot=1, change_host_feat_idx=10, sw_id=0x0F, target_host=1)
+    raw = _change_host_notification(slot=1, change_host_feat_idx=10, sw_id=0x00, target_host=1)
+    assert parse_message(raw, products) is None
+
+
+def test_parse_message_ignores_change_host_response_from_other_app():
+    """Logi Options+ getCurrHost response (sw_id=0x0a) must NOT be matched as a notification."""
+    products = _kbd_products_no_divert(slot=1, change_host_feat_idx=10)
+    raw = _change_host_notification(slot=1, change_host_feat_idx=10, sw_id=0x0A, target_host=0)
     assert parse_message(raw, products) is None
 
 

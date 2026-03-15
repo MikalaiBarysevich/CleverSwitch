@@ -147,6 +147,13 @@ class ReceiverListener(BaseListener):
                 self._add_product(slot)
                 if slot in self._products:
                     self._handle_connection(ConnectionEvent(slot))
+        # Retry slots that failed — a device may have been slow to wake up
+        # and its late response was consumed by a subsequent slot's probe.
+        for slot in range(1, 7):
+            if slot not in self._products:
+                self._add_product(slot)
+                if slot in self._products:
+                    self._handle_connection(ConnectionEvent(slot))
 
     def _handle_event(self, event: BaseEvent) -> None:
         if isinstance(event, ConnectionEvent):
@@ -323,7 +330,7 @@ def parse_message(raw: bytes, products: dict[int, LogiProduct] | None = None) ->
             and product.divert_feat_idx is None
             and feature_id == product.change_host_feat_idx
             and function_id & 0xF0 == 0x00
-            and function_id & 0x0F != SW_ID
+            and function_id & 0x0F == 0
             and len(raw) > 5
         ):
             return HostChangeEvent(slot, raw[5])
