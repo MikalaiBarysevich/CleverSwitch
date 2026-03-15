@@ -15,6 +15,8 @@ from ..errors import TransportError
 from .constants import (
     CHANGE_HOST_FN_SET,
     FEATURE_ROOT,
+    HOST_SWITCH_CIDS,
+    KEY_FLAG_DIVERTABLE,
     MAP_FLAG_DIVERTED,
     MSG_DJ_LEN,
     MSG_LONG_LEN,
@@ -276,3 +278,33 @@ def set_cid_divert(
         bfield |= MAP_FLAG_DIVERTED  # action bit — only when diverting
     params = struct.pack("!HBH", cid, bfield, 0)
     request_write_only(transport, devnumber, (feat_idx << 8) | 0x30, params)
+
+
+def are_es_cids_divertable(transport: HIDTransport, devnumber: int, feat_idx: int) -> bool:
+    """Check whether all Easy-Switch CIDs on *devnumber* support temporary diversion.
+
+    Queries REPROG_CONTROLS_V4 getCidCount (fn 0x00) and getCidInfo (fn 0x10)
+    to inspect KEY_FLAG_DIVERTABLE for each HOST_SWITCH_CID.
+
+    Returns True only if at least one ES CID is found AND all found are divertable.
+    """
+    reply = request(transport, devnumber, (feat_idx << 8) | 0x00, timeout=500)
+    if not reply:
+        return False
+    count = reply[0]
+
+    es_cids_found = 0
+    for idx in range(count):
+        reply = request(transport, devnumber, (feat_idx << 8) | 0x10, idx, timeout=500)
+        if not reply or len(reply) < 5:
+            continue
+        cid = (reply[0] << 8) | reply[1]
+        if cid in HOST_SWITCH_CIDS:
+            flags = reply[4]
+            if not (flags & KEY_FLAG_DIVERTABLE):
+                return False
+            es_cids_found += 1
+            if es_cids_found == len(HOST_SWITCH_CIDS):
+                break
+
+    return es_cids_found > 0

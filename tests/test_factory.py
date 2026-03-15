@@ -26,19 +26,34 @@ def test_make_logi_product_resolves_reprog_controls_for_keyboard(mocker, fake_tr
         "cleverswitch.factory.resolve_feature_index",
         side_effect=[3, 4],  # CHANGE_HOST=3, REPROG=4
     )
+    mocker.patch("cleverswitch.factory.are_es_cids_divertable", return_value=True)
     result = _make_logi_product(fake_transport, slot=1, role="keyboard", name="MX Keys")
     assert result is not None
     assert result.change_host_feat_idx == 3
     assert result.divert_feat_idx == 4
 
 
-def test_make_logi_product_returns_none_when_keyboard_lacks_reprog(mocker, fake_transport):
+def test_make_logi_product_keyboard_lacks_reprog_uses_change_host_notifications(mocker, fake_transport):
     mocker.patch(
         "cleverswitch.factory.resolve_feature_index",
         side_effect=[3, None],  # CHANGE_HOST=3, REPROG missing
     )
-    result = _make_logi_product(fake_transport, slot=1, role="keyboard", name="MX Keys")
-    assert result is None
+    result = _make_logi_product(fake_transport, slot=1, role="keyboard", name="MX Keys S")
+    assert result is not None
+    assert result.change_host_feat_idx == 3
+    assert result.divert_feat_idx is None
+
+
+def test_make_logi_product_keyboard_non_divertable_es_cids(mocker, fake_transport):
+    mocker.patch(
+        "cleverswitch.factory.resolve_feature_index",
+        side_effect=[3, 4],  # CHANGE_HOST=3, REPROG=4
+    )
+    mocker.patch("cleverswitch.factory.are_es_cids_divertable", return_value=False)
+    result = _make_logi_product(fake_transport, slot=1, role="keyboard", name="MX Keys S")
+    assert result is not None
+    assert result.change_host_feat_idx == 3
+    assert result.divert_feat_idx is None
 
 
 def test_make_logi_product_name_is_preserved(mocker, fake_transport):

@@ -314,6 +314,20 @@ def parse_message(raw: bytes, products: dict[int, LogiProduct] | None = None) ->
     ):
         return HostChangeEvent(slot, HOST_SWITCH_CIDS[target_host_cid])
 
+    # CHANGE_HOST notification (keyboards without CID diversion)
+    if products:
+        product = products.get(slot)
+        if (
+            product is not None
+            and product.role == "keyboard"
+            and product.divert_feat_idx is None
+            and feature_id == product.change_host_feat_idx
+            and function_id & 0xF0 == 0x00
+            and function_id & 0x0F != SW_ID
+            and len(raw) > 5
+        ):
+            return HostChangeEvent(slot, raw[5])
+
     return None
 
 

@@ -619,3 +619,50 @@ def test_parse_message_ignores_product_without_divert_undivert():
 def test_parse_message_without_products_skips_undivert_check():
     raw = _setCidReporting_response(slot=1, feat_idx=5, sw_id=0x02, cid=0x00D1)
     assert parse_message(raw) is None
+
+
+# ── CHANGE_HOST notification detection (non-divertable keyboards) ────────────
+
+
+def _change_host_notification(slot: int, change_host_feat_idx: int, sw_id: int, target_host: int) -> bytes:
+    """Build a CHANGE_HOST notification: report_id=0x11, fn=0x00, sw_id in low nibble."""
+    fn_sw = 0x00 | (sw_id & 0x0F)
+    payload = bytes([change_host_feat_idx, fn_sw, 0x00, target_host]) + bytes(14)
+    return bytes([REPORT_LONG, slot]) + payload
+
+
+def _kbd_products_no_divert(slot=1, change_host_feat_idx=10):
+    product = LogiProduct(slot=slot, change_host_feat_idx=change_host_feat_idx, divert_feat_idx=None, role="keyboard", name="MX Keys S")
+    return {slot: product}
+
+
+def test_parse_message_returns_host_change_for_change_host_notification():
+    products = _kbd_products_no_divert(slot=1, change_host_feat_idx=10)
+    raw = _change_host_notification(slot=1, change_host_feat_idx=10, sw_id=0x0F, target_host=1)
+    event = parse_message(raw, products)
+    assert isinstance(event, HostChangeEvent)
+    assert event.slot == 1
+    assert event.target_host == 1
+
+
+def test_parse_message_ignores_change_host_notification_when_divert_enabled():
+    products = _kbd_products(slot=1, divert_feat_idx=5)
+    # Use change_host_feat_idx=2 (from _kbd_products), but since divert_feat_idx is set,
+    # the CHANGE_HOST notification path should NOT be taken
+    raw = _change_host_notification(slot=1, change_host_feat_idx=2, sw_id=0x0F, target_host=1)
+    event = parse_message(raw, products)
+    # Should not be a HostChangeEvent from the notification path
+    assert not isinstance(event, HostChangeEvent)
+
+
+def test_parse_message_ignores_change_host_notification_for_mouse():
+    product = LogiProduct(slot=1, change_host_feat_idx=10, divert_feat_idx=None, role="mouse", name="MX Master")
+    products = {1: product}
+    raw = _change_host_notification(slot=1, change_host_feat_idx=10, sw_id=0x0F, target_host=1)
+    assert parse_message(raw, products) is None
+
+
+def test_parse_message_ignores_change_host_with_own_sw_id():
+    products = _kbd_products_no_divert(slot=1, change_host_feat_idx=10)
+    raw = _change_host_notification(slot=1, change_host_feat_idx=10, sw_id=SW_ID, target_host=1)
+    assert parse_message(raw, products) is None

@@ -25,10 +25,12 @@ from cleverswitch.hidpp.constants import (
     REPORT_SHORT,
     SW_ID,
 )
+from cleverswitch.hidpp.constants import KEY_FLAG_DIVERTABLE
 from cleverswitch.hidpp.protocol import (
     _build_msg,
     _is_relevant,
     _pack_params,
+    are_es_cids_divertable,
     get_device_name,
     get_device_type,
     request,
@@ -308,3 +310,54 @@ def test_get_device_name_returns_partial_name_when_chunk_request_fails(mocker, f
     )
     result = get_device_name(fake_transport, devnumber=1, feat_idx=2)
     assert result == "MX "
+
+
+# ── are_es_cids_divertable() ────────────────────────────────────────────────
+
+
+def _cid_info_reply(cid: int, flags: int) -> bytes:
+    """Build a getCidInfo reply: CID (2B BE) + task_id (2B) + flags (1B) + padding."""
+    return struct.pack("!HHB", cid, 0, flags) + b"\x00" * 11
+
+
+def test_are_es_cids_divertable_true(mocker, fake_transport):
+    mocker.patch(
+        "cleverswitch.hidpp.protocol.request",
+        side_effect=[
+            b"\x03" + b"\x00" * 15,  # getCidCount → 3
+            _cid_info_reply(0x00D1, KEY_FLAG_DIVERTABLE),
+            _cid_info_reply(0x00D2, KEY_FLAG_DIVERTABLE),
+            _cid_info_reply(0x00D3, KEY_FLAG_DIVERTABLE),
+        ],
+    )
+    assert are_es_cids_divertable(fake_transport, devnumber=1, feat_idx=4) is True
+
+
+def test_are_es_cids_divertable_false_no_flag(mocker, fake_transport):
+    mocker.patch(
+        "cleverswitch.hidpp.protocol.request",
+        side_effect=[
+            b"\x03" + b"\x00" * 15,  # getCidCount → 3
+            _cid_info_reply(0x00D1, 0x00),  # not divertable
+            _cid_info_reply(0x00D2, KEY_FLAG_DIVERTABLE),
+            _cid_info_reply(0x00D3, KEY_FLAG_DIVERTABLE),
+        ],
+    )
+    assert are_es_cids_divertable(fake_transport, devnumber=1, feat_idx=4) is False
+
+
+def test_are_es_cids_divertable_false_no_es_cids(mocker, fake_transport):
+    mocker.patch(
+        "cleverswitch.hidpp.protocol.request",
+        side_effect=[
+            b"\x02" + b"\x00" * 15,  # getCidCount → 2
+            _cid_info_reply(0x0050, KEY_FLAG_DIVERTABLE),  # not an ES CID
+            _cid_info_reply(0x0051, KEY_FLAG_DIVERTABLE),  # not an ES CID
+        ],
+    )
+    assert are_es_cids_divertable(fake_transport, devnumber=1, feat_idx=4) is False
+
+
+def test_are_es_cids_divertable_false_get_cid_count_fails(mocker, fake_transport):
+    mocker.patch("cleverswitch.hidpp.protocol.request", return_value=None)
+    assert are_es_cids_divertable(fake_transport, devnumber=1, feat_idx=4) is False
