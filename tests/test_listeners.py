@@ -561,6 +561,86 @@ def test_host_change_sends_to_all_when_source_on_different_transport(mocker, fak
     assert mock_send.call_count == 2
 
 
+# ── ReceiverListener late probe (unknown slot traffic) ────────────────────────
+
+
+def test_probe_unknown_slot_triggers_add_product_for_unregistered_slot(mocker):
+    listener, mock_transport = _make_receiver_listener(mocker)
+    product = LogiProduct(slot=1, change_host_feat_idx=3, divert_feat_idx=None, role="keyboard", name="KB")
+    mocker.patch("cleverswitch.listeners._query_device_info", return_value=("keyboard", "KB"))
+    mocker.patch("cleverswitch.listeners._make_logi_product", return_value=product)
+    mock_divert = mocker.patch("cleverswitch.listeners._divert_all_es_keys")
+
+    raw = _long_msg(slot=1, sub_id=0x09, address=0x0D, data=bytes(16))
+    listener._probe_unknown_slot(raw)
+
+    assert 1 in listener._products
+
+
+def test_probe_unknown_slot_skips_already_registered_slot(mocker):
+    listener, mock_transport = _make_receiver_listener(mocker)
+    existing = LogiProduct(slot=1, change_host_feat_idx=2, divert_feat_idx=None, role="mouse", name="M")
+    listener._products[1] = existing
+    mock_add = mocker.patch.object(listener, "_add_product")
+
+    raw = _long_msg(slot=1, sub_id=0x09, address=0x0D, data=bytes(16))
+    listener._probe_unknown_slot(raw)
+
+    mock_add.assert_not_called()
+
+
+def test_probe_unknown_slot_respects_cooldown(mocker):
+    listener, mock_transport = _make_receiver_listener(mocker)
+    mocker.patch("cleverswitch.listeners._query_device_info", return_value=None)
+    mock_add = mocker.patch.object(listener, "_add_product")
+
+    raw = _long_msg(slot=2, sub_id=0x09, address=0x0D, data=bytes(16))
+    listener._probe_unknown_slot(raw)
+    listener._probe_unknown_slot(raw)  # second call within 5s
+
+    mock_add.assert_called_once()
+
+
+def test_probe_unknown_slot_ignores_non_long_report(mocker):
+    listener, mock_transport = _make_receiver_listener(mocker)
+    mock_add = mocker.patch.object(listener, "_add_product")
+
+    raw = bytes([REPORT_SHORT, 0x01, 0x09, 0x0D]) + bytes(3)
+    listener._probe_unknown_slot(raw)
+
+    mock_add.assert_not_called()
+
+
+def test_probe_unknown_slot_ignores_invalid_slot_numbers(mocker):
+    listener, mock_transport = _make_receiver_listener(mocker)
+    mock_add = mocker.patch.object(listener, "_add_product")
+
+    for slot in (0, 7, 0xFF):
+        raw = _long_msg(slot=slot, sub_id=0x09, address=0x0D, data=bytes(16))
+        listener._probe_unknown_slot(raw)
+
+    mock_add.assert_not_called()
+
+
+def test_probe_unknown_slot_diverts_keys_on_successful_probe(mocker):
+    listener, mock_transport = _make_receiver_listener(mocker)
+    product = LogiProduct(slot=1, change_host_feat_idx=3, divert_feat_idx=5, role="keyboard", name="KB")
+    mocker.patch("cleverswitch.listeners._query_device_info", return_value=("keyboard", "KB"))
+    mocker.patch("cleverswitch.listeners._make_logi_product", return_value=product)
+    mock_divert = mocker.patch("cleverswitch.listeners._divert_all_es_keys")
+
+    raw = _long_msg(slot=1, sub_id=0x09, address=0x0D, data=bytes(16))
+    listener._probe_unknown_slot(raw)
+
+    mock_divert.assert_called_once_with(mock_transport, product)
+
+
+def test_bt_listener_probe_unknown_slot_is_noop(mocker):
+    listener, mock_transport = _make_bt_listener(mocker)
+    raw = _long_msg(slot=1, sub_id=0x09, address=0x0D, data=bytes(16))
+    listener._probe_unknown_slot(raw)  # must not raise
+
+
 # ── BTListener ───────────────────────────────────────────────────────────────
 
 

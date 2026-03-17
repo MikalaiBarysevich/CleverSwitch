@@ -1,6 +1,7 @@
 import logging
 import threading
 from threading import Thread
+from time import monotonic
 
 from .errors import TransportError
 from .factory import _make_logi_product
@@ -68,6 +69,7 @@ class BaseListener(Thread):
         self._registry = registry
         self._transport: HIDTransport | None = None
         self._products: dict[int, LogiProduct] = {}
+        self._probe_cooldown: dict[int, float] = {}
         self._stopped = False
         super().__init__(daemon=True)
 
@@ -91,6 +93,7 @@ class BaseListener(Thread):
             event = parse_message(raw, self._products)
             log.debug("parsed event=%s", event)
             if event is None:
+                self._probe_unknown_slot(raw)
                 continue
             self._handle_event(event)
             self._shutdown.wait(0.2)
@@ -105,6 +108,9 @@ class BaseListener(Thread):
                 send_change_host(entry.transport, entry.devnumber, entry.change_host_feat_idx, event.target_host)
             except Exception as e:
                 log.debug("Host switch failed for %s: %s", entry.name, e)
+
+    def _probe_unknown_slot(self, raw: bytes) -> None:
+        """Override in subclasses to probe unregistered slots on unrecognised traffic."""
 
     def _init_transport(self) -> None: ...
 
@@ -156,6 +162,21 @@ class ReceiverListener(BaseListener):
                 self._add_product(slot)
                 if slot in self._products:
                     self._handle_connection(ConnectionEvent(slot))
+
+    def _probe_unknown_slot(self, raw: bytes) -> None:
+        if len(raw) < 2 or raw[0] != REPORT_LONG:
+            return
+        slot = raw[1]
+        if slot < 1 or slot > 6 or slot in self._products:
+            return
+        now = monotonic()
+        if now - self._probe_cooldown.get(slot, 0) < 5.0:
+            return
+        self._probe_cooldown[slot] = now
+        log.debug("Traffic from unregistered slot %d — attempting late probe", slot)
+        self._add_product(slot)
+        if slot in self._products:
+            self._handle_connection(ConnectionEvent(slot))
 
     def _handle_event(self, event: BaseEvent) -> None:
         if isinstance(event, ConnectionEvent):
