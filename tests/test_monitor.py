@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import threading
 
-import pytest
-
 from cleverswitch.hidpp.constants import BOLT_PID, HOST_SWITCH_CIDS
 from cleverswitch.hidpp.transport import HidDeviceInfo
 from cleverswitch.listeners import (
@@ -28,7 +26,6 @@ from cleverswitch.model import (
     ProductEntry,
 )
 
-
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
@@ -43,7 +40,9 @@ def _make_product(role: str, slot: int, divert_feat_idx: int | None = None) -> L
 
 
 def _receiver_device():
-    return HidDeviceInfo(path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=0x0002, connection_type="receiver")
+    return HidDeviceInfo(
+        path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=0x0002, connection_type="receiver"
+    )
 
 
 def _make_listener(mocker, registry=None):

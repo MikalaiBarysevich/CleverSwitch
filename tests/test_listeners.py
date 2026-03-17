@@ -46,7 +46,6 @@ from cleverswitch.listeners import (
 )
 from cleverswitch.model import ConnectionEvent, ExternalUndivertEvent, HostChangeEvent, LogiProduct, ProductEntry
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -61,11 +60,15 @@ def _dj_msg(slot: int, feature_id: int, address: int) -> bytes:
 
 
 def _receiver_device():
-    return HidDeviceInfo(path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=0x0002, connection_type="receiver")
+    return HidDeviceInfo(
+        path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=0x0002, connection_type="receiver"
+    )
 
 
 def _bt_device(pid=0xB023):
-    return HidDeviceInfo(path=b"/dev/hidraw1", vid=0x046D, pid=pid, usage_page=0xFF43, usage=0x0202, connection_type="bluetooth")
+    return HidDeviceInfo(
+        path=b"/dev/hidraw1", vid=0x046D, pid=pid, usage_page=0xFF43, usage=0x0202, connection_type="bluetooth"
+    )
 
 
 def _make_receiver_listener(mocker, device=None, shutdown=None, registry=None, init_transport=True):
@@ -479,7 +482,9 @@ def test_receiver_host_change_sends_to_all_registry_entries(mocker, fake_transpo
 def test_bt_listener_detect_products_registers_in_registry(mocker):
     registry = ProductRegistry()
     listener, mock_transport = _make_bt_listener(mocker, registry=registry)
-    product = LogiProduct(slot=DEVICE_RECEIVER, change_host_feat_idx=3, divert_feat_idx=None, role="mouse", name="MX Anywhere")
+    product = LogiProduct(
+        slot=DEVICE_RECEIVER, change_host_feat_idx=3, divert_feat_idx=None, role="mouse", name="MX Anywhere"
+    )
     mocker.patch("cleverswitch.listeners._query_device_info", return_value=("mouse", "MX Anywhere"))
     mocker.patch("cleverswitch.listeners._make_logi_product", return_value=product)
 
@@ -494,7 +499,9 @@ def test_bt_listener_detect_products_registers_in_registry(mocker):
 def test_bt_listener_detect_products_diverts_keys_for_keyboard(mocker):
     registry = ProductRegistry()
     listener, mock_transport = _make_bt_listener(mocker, registry=registry)
-    product = LogiProduct(slot=DEVICE_RECEIVER, change_host_feat_idx=3, divert_feat_idx=5, role="keyboard", name="MX Keys")
+    product = LogiProduct(
+        slot=DEVICE_RECEIVER, change_host_feat_idx=3, divert_feat_idx=5, role="keyboard", name="MX Keys"
+    )
     mocker.patch("cleverswitch.listeners._query_device_info", return_value=("keyboard", "MX Keys"))
     mocker.patch("cleverswitch.listeners._make_logi_product", return_value=product)
     mock_divert = mocker.patch("cleverswitch.listeners._divert_all_es_keys")
@@ -509,7 +516,9 @@ def test_bt_listener_cleanup_unregisters_from_registry(mocker):
     listener, mock_transport = _make_bt_listener(mocker, registry=registry)
     product = LogiProduct(slot=DEVICE_RECEIVER, change_host_feat_idx=3, divert_feat_idx=None, role="mouse", name="M")
     listener._products[DEVICE_RECEIVER] = product
-    registry.register(listener._hid_device_info.pid, ProductEntry(mock_transport, DEVICE_RECEIVER, 3, None, "mouse", "M"))
+    registry.register(
+        listener._hid_device_info.pid, ProductEntry(mock_transport, DEVICE_RECEIVER, 3, None, "mouse", "M")
+    )
 
     listener._cleanup()
 
@@ -557,7 +566,9 @@ def _setCidReporting_response(slot: int, feat_idx: int, sw_id: int, cid: int) ->
 
 
 def _kbd_products(slot=1, divert_feat_idx=5):
-    product = LogiProduct(slot=slot, change_host_feat_idx=2, divert_feat_idx=divert_feat_idx, role="keyboard", name="KB")
+    product = LogiProduct(
+        slot=slot, change_host_feat_idx=2, divert_feat_idx=divert_feat_idx, role="keyboard", name="KB"
+    )
     return {slot: product}
 
 

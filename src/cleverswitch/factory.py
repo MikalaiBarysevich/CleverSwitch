@@ -51,7 +51,7 @@ def _make_logi_product(
             feat_idx_rep,
         )
 
-    log.info("'%s' found", name)
+    log.info(f"'{name}' found via transport={transport.kind}")
 
     return LogiProduct(
         slot=slot,

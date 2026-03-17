@@ -5,11 +5,8 @@ from __future__ import annotations
 import logging
 import subprocess
 
-import pytest
-
 from cleverswitch.config import HookEntry, HooksConfig
 from cleverswitch.hooks import _run, fire, fire_connect, fire_disconnect, fire_switch
-
 
 # ── fire() ────────────────────────────────────────────────────────────────────
 

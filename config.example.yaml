@@ -1,14 +1,7 @@
 # CleverSwitch configuration example
 # Copy to ~/.config/cleverswitch/config.yaml and edit as needed.
 
-# Bolt receiver identification
-# Usually auto-detected. Override only if you have multiple Bolt receivers
-# and need to target a specific one.
-receiver:
-  vendor_id: 0x046D       # Logitech vendor ID (do not change)
-  product_id: 0xC548      # Bolt receiver product ID (do not change)
-  # path: "/dev/hidraw3"  # optional: force a specific device path (Linux)
-
+# WILL WORK IN FUTURE RELEASES!
 # Hook scripts (all optional)
 # Scripts are called asynchronously and never block the switch relay.
 # Each script receives event details via environment variables:
@@ -40,13 +33,4 @@ hooks:
 # Behavior settings
 settings:
   # How long to block on HID read before checking for shutdown signal (ms)
-  read_timeout_ms: 1000
-
-  # Seconds between reconnection attempts when receiver is lost
-  retry_interval_s: 5
-
-  # Maximum reconnection attempts (0 = retry indefinitely)
-  max_retries: 0
-
-  # Log level: DEBUG, INFO, WARNING, ERROR
-  log_level: "INFO"
+  read_timeout_ms: 2000

@@ -4,11 +4,8 @@ from __future__ import annotations
 
 import logging
 
-import pytest
-
 import cleverswitch.platform_setup as ps
 from cleverswitch.platform_setup import _check_linux, _check_macos, check
-
 
 # ── check() dispatch ──────────────────────────────────────────────────────────
 
