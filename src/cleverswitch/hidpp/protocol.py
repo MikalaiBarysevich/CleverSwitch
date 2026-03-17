@@ -75,7 +75,7 @@ def request(
     devnumber: int,
     request_id: int,
     *params,
-    timeout: int = 500,
+    timeout: int = 2000,
 ) -> bytes | None:
     """Send a HID++ request and return the reply payload.
 
@@ -181,7 +181,7 @@ def resolve_feature_index(
         feature_code >> 8,
         feature_code & 0xFF,
         0x00,
-        timeout=500,
+        timeout=2000,
     )
     if reply and reply[0] != 0x00:
         return reply[0]
@@ -199,7 +199,7 @@ def get_device_name(
     Returns the marketing name (e.g. 'MX Keys'), or None on failure.
     """
     # fn [0]: getDeviceNameCount — returns total name length (no terminating zero)
-    reply = request(transport, devnumber, (feat_idx << 8) | 0x00, timeout=500)
+    reply = request(transport, devnumber, (feat_idx << 8) | 0x00, timeout=2000)
     if not reply:
         return None
     name_len = reply[0]
@@ -209,7 +209,7 @@ def get_device_name(
     # fn [1]: getDeviceName(charIndex) — returns chunk starting at charIndex
     chars: list[int] = []
     while len(chars) < name_len:
-        reply = request(transport, devnumber, (feat_idx << 8) | 0x10, len(chars), timeout=500)
+        reply = request(transport, devnumber, (feat_idx << 8) | 0x10, len(chars), timeout=2000)
         if not reply:
             break
         remaining = name_len - len(chars)
@@ -233,9 +233,24 @@ def get_device_type(
     or None on failure.
     """
     request_id = (feat_idx << 8) | 0x20  # function [2]
-    reply = request(transport, devnumber, request_id, timeout=500)
+    reply = request(transport, devnumber, request_id, timeout=2000)
     if reply:
         return reply[0]
+    return None
+
+
+def get_host_info(
+    transport: HIDTransport,
+    devnumber: int,
+    feature_idx: int,
+) -> tuple[int, int] | None:
+    """Call x1814 getHostInfo [fn 0] to read numHosts and currentHost.
+
+    Returns (num_hosts, current_host) or None on failure.
+    """
+    reply = request(transport, devnumber, (feature_idx << 8) | 0x00, timeout=2000)
+    if reply and len(reply) >= 2:
+        return reply[0], reply[1]
     return None
 
 

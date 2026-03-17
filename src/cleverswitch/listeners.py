@@ -11,9 +11,13 @@ from .hidpp.constants import (
     DEVICE_TYPE_MOUSE,
     DEVICE_TYPE_TRACKBALL,
     DEVICE_TYPE_TRACKPAD,
+    DJ_DEVICE_PAIRING,
     FEATURE_DEVICE_TYPE_AND_NAME,
+    HID_DEVICE_PAIRING,
     HOST_SWITCH_CIDS,
+    REPORT_DJ,
     REPORT_LONG,
+    REPORT_SHORT,
     SW_ID,
 )
 from .hidpp.protocol import get_device_name, get_device_type, resolve_feature_index, send_change_host, set_cid_divert
@@ -21,6 +25,7 @@ from .hidpp.transport import HidDeviceInfo, HIDTransport
 from .model import (
     BaseEvent,
     ConnectionEvent,
+    DisconnectionEvent,
     ExternalUndivertEvent,
     HostChangeEvent,
     LogiProduct,
@@ -149,7 +154,9 @@ class ReceiverListener(BaseListener):
                     self._handle_connection(ConnectionEvent(slot))
 
     def _handle_event(self, event: BaseEvent) -> None:
-        if isinstance(event, ConnectionEvent):
+        if isinstance(event, DisconnectionEvent):
+            self._handle_disconnection(event)
+        elif isinstance(event, ConnectionEvent):
             if event.slot not in self._products:
                 log.debug("Adding product for slot=%d", event.slot)
                 self._add_product(event.slot)
@@ -159,14 +166,50 @@ class ReceiverListener(BaseListener):
         elif isinstance(event, ExternalUndivertEvent):
             self._handle_external_undivert(event)
 
+    def _handle_disconnection(self, event: DisconnectionEvent) -> None:
+        product = self._products.get(event.slot)
+        if product is None:
+            return
+        product.connected = False
+        log.info("Device disconnected: slot=%d name=%s", product.slot, product.name)
+        if product.num_hosts < 2:
+            return
+        # Switch all other CONNECTED products to host 1 (the other Mac).
+        target_host = 1
+        log.info("Switching other devices to host %d", target_host)
+        for entry in self._registry.all_entries():
+            if entry.devnumber == event.slot:
+                continue
+            other = self._products.get(entry.devnumber)
+            if other and not other.connected:
+                continue  # already disconnected, skip
+            log.debug("Sending CHANGE_HOST to %s (slot=%d) target_host=%d", entry.name, entry.devnumber, target_host)
+            try:
+                send_change_host(entry.transport, entry.devnumber, entry.change_host_feat_idx, target_host)
+            except Exception as e:
+                log.debug("Host switch failed for %s: %s", entry.name, e)
+
     def _handle_connection(self, event: ConnectionEvent) -> None:
         product = self._products.get(event.slot)
         if product is None:
             return
+        product.connected = True
         log.debug(f"Product reconnected slot={product.slot} name={product.name}")
         if product.divert_feat_idx is not None:
             log.debug(f"Sending divert host switch keys request for slot={product.slot} name={product.name}")
             _divert_all_es_keys(self._transport, product)
+        # Bring back other devices that are still disconnected.
+        for entry in self._registry.all_entries():
+            if entry.devnumber == event.slot:
+                continue
+            other = self._products.get(entry.devnumber)
+            if other and other.connected:
+                continue  # already here, skip
+            log.info("Bringing back %s (slot=%d) to host 0", entry.name, entry.devnumber)
+            try:
+                send_change_host(entry.transport, entry.devnumber, entry.change_host_feat_idx, 0)
+            except Exception as e:
+                log.debug("Host switch failed for %s: %s", entry.name, e)
 
     def _handle_external_undivert(self, event: ExternalUndivertEvent) -> None:
         product = self._products.get(event.slot)
@@ -284,6 +327,18 @@ def parse_message(raw: bytes, products: dict[int, LogiProduct] | None = None) ->
     slot = raw[1]
     feature_id = raw[2]
     function_id = raw[3]
+
+    # DJ pairing report: detect device disconnect/connect
+    if report_id == REPORT_DJ and feature_id == DJ_DEVICE_PAIRING:
+        if function_id & 0x40:  # disconnect flag
+            return DisconnectionEvent(slot)
+        return ConnectionEvent(slot)
+
+    # HID++ 1.0 short pairing notification (Bolt on macOS)
+    if report_id == REPORT_SHORT and feature_id == HID_DEVICE_PAIRING and len(raw) >= 5:
+        if raw[4] & 0x40:  # disconnect flag
+            return DisconnectionEvent(slot)
+        return None  # connect handled by x1D4B long notification
 
     if report_id != REPORT_LONG:
         return None

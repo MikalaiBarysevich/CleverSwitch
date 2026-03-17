@@ -44,7 +44,7 @@ from cleverswitch.listeners import (
     _undivert_all_es_keys,
     parse_message,
 )
-from cleverswitch.model import ConnectionEvent, ExternalUndivertEvent, HostChangeEvent, LogiProduct, ProductEntry
+from cleverswitch.model import ConnectionEvent, DisconnectionEvent, ExternalUndivertEvent, HostChangeEvent, LogiProduct, ProductEntry
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -219,14 +219,33 @@ def test_parse_message_returns_none_for_unknown_cid_in_long_msg():
     assert not isinstance(parse_message(raw, products), HostChangeEvent)
 
 
-def test_parse_message_returns_none_for_dj_pairing():
-    """DJ parsing is handled at receiver level; parse_message only handles REPORT_LONG."""
+def test_parse_message_returns_connection_event_for_dj_pairing():
     raw = _dj_msg(slot=2, feature_id=DJ_DEVICE_PAIRING, address=0x00)
-    assert parse_message(raw) is None
+    event = parse_message(raw)
+    assert isinstance(event, ConnectionEvent)
+    assert event.slot == 2
 
 
-def test_parse_message_returns_none_for_dj_pairing_disconnected():
+def test_parse_message_returns_disconnection_event_for_dj_pairing_disconnected():
     raw = _dj_msg(slot=3, feature_id=DJ_DEVICE_PAIRING, address=0x40)
+    event = parse_message(raw)
+    assert isinstance(event, DisconnectionEvent)
+    assert event.slot == 3
+
+
+def test_parse_message_returns_disconnection_event_for_hid_device_pairing_disconnect():
+    from cleverswitch.hidpp.constants import HID_DEVICE_PAIRING
+
+    raw = bytes([REPORT_SHORT, 5, HID_DEVICE_PAIRING, 0x10, 0x41, 0x80, 0xB3])
+    event = parse_message(raw)
+    assert isinstance(event, DisconnectionEvent)
+    assert event.slot == 5
+
+
+def test_parse_message_returns_none_for_hid_device_pairing_connect():
+    from cleverswitch.hidpp.constants import HID_DEVICE_PAIRING
+
+    raw = bytes([REPORT_SHORT, 5, HID_DEVICE_PAIRING, 0x10, 0x01, 0x80, 0xB3])
     assert parse_message(raw) is None
 
 

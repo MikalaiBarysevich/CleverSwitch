@@ -1,5 +1,5 @@
 from .hidpp.constants import FEATURE_CHANGE_HOST, FEATURE_REPROG_CONTROLS_V4
-from .hidpp.protocol import resolve_feature_index
+from .hidpp.protocol import get_host_info, resolve_feature_index
 from .hidpp.transport import HIDTransport, log
 from .model import LogiProduct
 
@@ -31,6 +31,12 @@ def _make_logi_product(
         feat_idx,
     )
 
+    num_hosts = 0
+    host_info = get_host_info(transport, slot, feat_idx)
+    if host_info:
+        num_hosts, current_host = host_info
+        log.debug("%s (slot=0x%02X) host info: num_hosts=%d, current_host=%d", name, slot, num_hosts, current_host)
+
     feat_idx_rep = None
     if role == "keyboard":
         feat_idx_rep = resolve_feature_index(transport, slot, FEATURE_REPROG_CONTROLS_V4)
@@ -59,4 +65,5 @@ def _make_logi_product(
         divert_feat_idx=feat_idx_rep,
         role=role,
         name=name,
+        num_hosts=num_hosts,
     )

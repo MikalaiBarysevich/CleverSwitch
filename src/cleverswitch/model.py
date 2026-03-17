@@ -21,6 +21,11 @@ class ConnectionEvent(BaseEvent):
 
 
 @dataclass
+class DisconnectionEvent(BaseEvent):
+    slot: int
+
+
+@dataclass
 class ExternalUndivertEvent(BaseEvent):
     target_host_cid: int
 
@@ -34,6 +39,7 @@ class LogiProduct:
     divert_feat_idx: int | None
     role: str  # "keyboard" or "mouse"
     name: str
+    num_hosts: int = 0
     connected: bool = False
 
 
