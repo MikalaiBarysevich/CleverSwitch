@@ -503,6 +503,64 @@ def test_receiver_host_change_sends_to_all_registry_entries(mocker, fake_transpo
     assert mock_send.call_count == 2
 
 
+def test_receiver_host_change_skips_source_device(mocker):
+    registry = ProductRegistry()
+    listener, mock_transport = _make_receiver_listener(mocker, registry=registry)
+    entry_src = ProductEntry(mock_transport, 1, 2, None, "keyboard", "KB")
+    entry_other = ProductEntry(mock_transport, 2, 3, None, "mouse", "M")
+    registry.register((BOLT_PID, 1), entry_src)
+    registry.register((BOLT_PID, 2), entry_other)
+    mock_send = mocker.patch("cleverswitch.listeners.send_change_host")
+
+    listener._handle_host_change(HostChangeEvent(slot=1, target_host=0))
+
+    mock_send.assert_called_once_with(mock_transport, 2, 3, 0)
+
+
+def test_bt_host_change_skips_source_device(mocker):
+    registry = ProductRegistry()
+    listener, mock_transport = _make_bt_listener(mocker, registry=registry)
+    entry_src = ProductEntry(mock_transport, DEVICE_RECEIVER, 3, None, "keyboard", "Keys")
+    other_transport = mocker.MagicMock()
+    entry_other = ProductEntry(other_transport, DEVICE_RECEIVER, 4, None, "mouse", "Mouse")
+    registry.register(0xB023, entry_src)
+    registry.register(0xB034, entry_other)
+    mock_send = mocker.patch("cleverswitch.listeners.send_change_host")
+
+    listener._handle_host_change(HostChangeEvent(slot=DEVICE_RECEIVER, target_host=1))
+
+    mock_send.assert_called_once_with(other_transport, DEVICE_RECEIVER, 4, 1)
+
+
+def test_receiver_host_change_includes_divertable_source(mocker):
+    """Divertable keyboards intercept the keypress without switching — they need CHANGE_HOST too."""
+    registry = ProductRegistry()
+    listener, mock_transport = _make_receiver_listener(mocker, registry=registry)
+    entry_src = ProductEntry(mock_transport, 1, 2, 5, "keyboard", "KB")  # divert_feat_idx=5
+    entry_other = ProductEntry(mock_transport, 2, 3, None, "mouse", "M")
+    registry.register((BOLT_PID, 1), entry_src)
+    registry.register((BOLT_PID, 2), entry_other)
+    mock_send = mocker.patch("cleverswitch.listeners.send_change_host")
+
+    listener._handle_host_change(HostChangeEvent(slot=1, target_host=0))
+
+    assert mock_send.call_count == 2
+
+
+def test_host_change_sends_to_all_when_source_on_different_transport(mocker, fake_transport):
+    registry = ProductRegistry()
+    entry1 = ProductEntry(fake_transport, 1, 2, None, "keyboard", "KB")
+    entry2 = ProductEntry(fake_transport, 2, 3, None, "mouse", "M")
+    registry.register((BOLT_PID, 1), entry1)
+    registry.register((BOLT_PID, 2), entry2)
+    listener, mock_transport = _make_receiver_listener(mocker, registry=registry)
+    mock_send = mocker.patch("cleverswitch.listeners.send_change_host")
+
+    listener._handle_host_change(HostChangeEvent(slot=1, target_host=2))
+
+    assert mock_send.call_count == 2
+
+
 # ── BTListener ───────────────────────────────────────────────────────────────
 
 
@@ -689,11 +747,14 @@ def test_parse_message_ignores_change_host_notification_for_mouse():
     assert parse_message(raw, products) is None
 
 
-def test_parse_message_ignores_change_host_response_from_other_app():
-    """Logi Options+ getCurrHost response (sw_id=0x0a) must NOT be matched as a notification."""
+@pytest.mark.parametrize("sw_id", [0x01, 0x05, 0x0A, 0x0D, 0x0F])
+def test_parse_message_accepts_change_host_notification_with_various_sw_ids(sw_id):
+    """fn=0 with any sw_id != SW_ID is a legitimate device notification per HID++ spec."""
     products = _kbd_products_no_divert(slot=1, change_host_feat_idx=10)
-    raw = _change_host_notification(slot=1, change_host_feat_idx=10, sw_id=0x0A, target_host=0)
-    assert parse_message(raw, products) is None
+    raw = _change_host_notification(slot=1, change_host_feat_idx=10, sw_id=sw_id, target_host=2)
+    event = parse_message(raw, products)
+    assert isinstance(event, HostChangeEvent)
+    assert event.target_host == 2
 
 
 def test_parse_message_ignores_change_host_with_own_sw_id():

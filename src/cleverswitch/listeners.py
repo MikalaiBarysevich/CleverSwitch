@@ -96,8 +96,10 @@ class BaseListener(Thread):
             self._shutdown.wait(0.2)
 
     def _handle_host_change(self, event: HostChangeEvent) -> None:
-        """Send CHANGE_HOST to ALL products in the registry."""
+        """Send CHANGE_HOST to all products except the source device."""
         for entry in self._registry.all_entries():
+            if entry.transport is self._transport and entry.devnumber == event.slot and entry.divert_feat_idx is None:
+                continue
             log.debug("Sending host change event to: %s", entry.name)
             try:
                 send_change_host(entry.transport, entry.devnumber, entry.change_host_feat_idx, event.target_host)
@@ -330,7 +332,7 @@ def parse_message(raw: bytes, products: dict[int, LogiProduct] | None = None) ->
             and product.divert_feat_idx is None
             and feature_id == product.change_host_feat_idx
             and function_id & 0xF0 == 0x00
-            and function_id & 0x0F == 0
+            and function_id & 0x0F != SW_ID
             and len(raw) > 5
         ):
             return HostChangeEvent(slot, raw[5])
