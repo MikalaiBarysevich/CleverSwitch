@@ -1,0 +1,3 @@
+class Subscriber:
+    def notify(self, event) -> None:
+        ...

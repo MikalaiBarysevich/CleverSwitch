@@ -1,7 +1,7 @@
 """CLI entry point."""
 
 from __future__ import annotations
-
+import platform
 import argparse
 import logging
 import signal
@@ -13,7 +13,7 @@ from . import config as cfg_module
 from .discovery import discover
 from .errors import CleverSwitchError, ConfigError
 from .hidpp.transport import enumerate_hid_devices
-
+_SYSTEM = platform.system()
 
 def main() -> None:
     args = _parse_args()
@@ -40,6 +40,9 @@ def main() -> None:
     shutdown = threading.Event()
     signal.signal(signal.SIGINT, lambda *_: shutdown.set())
     signal.signal(signal.SIGTERM, lambda *_: shutdown.set())
+    if _SYSTEM != "Windows":
+        signal.signal(signal.SIGHUP, lambda *_: shutdown.set()) #todo not present in windows
+        signal.signal(signal.SIGQUIT, lambda *_: shutdown.set()) #todo not present in windows
 
     try:
         discovery_thread = threading.Thread(
