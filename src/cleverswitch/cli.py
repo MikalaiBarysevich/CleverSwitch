@@ -20,12 +20,12 @@ def main() -> None:
 
     # Load config first so we get log_level before anything else
     try:
-        cfg = cfg_module.load(args.config)
+        cfg = cfg_module.load(args)
     except ConfigError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 
-    _setup_logging(cfg.settings.log_level, args.verbose)
+    _setup_logging(args.verbose or args.verbose_extra)
     log = logging.getLogger(__name__)
 
     log.info("CleverSwitch %s starting", __version__)
@@ -44,7 +44,10 @@ def main() -> None:
     try:
         discovery_thread = threading.Thread(
             target=discover,
-            args=(shutdown,),
+            args=(
+                cfg,
+                shutdown,
+            ),
         )
 
         discovery_thread.start()
@@ -74,14 +77,17 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument("-c", "--config", metavar="FILE", help="path to config YAML file")
     p.add_argument("-v", "--verbose", action="store_true", help="force DEBUG logging")
+    p.add_argument("-vv", "--verbose-extra", action="store_true", help="force DEBUG logging including discovery")
     p.add_argument("--dry-run", action="store_true", help="discover devices and print info, then exit")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return p.parse_args()
 
 
-def _setup_logging(level: str, verbose: bool) -> None:
+def _setup_logging(verbose: bool) -> None:
     if verbose:
         level = "DEBUG"
+    else:
+        level = "INFO"
     logging.basicConfig(
         level=getattr(logging, level, logging.INFO),
         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",

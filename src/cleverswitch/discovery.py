@@ -13,21 +13,23 @@ from __future__ import annotations
 import logging
 import threading
 
+from .config import Config
 from .hidpp.transport import enumerate_hid_devices
 from .listeners import BaseListener, BTListener, ProductRegistry, ReceiverListener
 
 log = logging.getLogger(__name__)
 
 
-def discover(shutdown: threading.Event) -> None:
+def discover(config: Config, shutdown: threading.Event) -> None:
     log.info("Starting device discovery…")
+    log.info("Start pressing Easy-Switch buttons once at least 2 devices are discovered.")
 
     registry = ProductRegistry()
     listeners: dict[bytes, BaseListener] = {}
 
     try:
         while not shutdown.is_set():
-            devices = enumerate_hid_devices()
+            devices = enumerate_hid_devices(verbose_extra=config.arguments_settings.verbose_extra)
 
             # Remove listeners for paths that disappeared or threads that died
             current_paths = {d.path for d in devices}

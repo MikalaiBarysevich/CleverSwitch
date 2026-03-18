@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from cleverswitch.factory import _make_logi_product
 
 

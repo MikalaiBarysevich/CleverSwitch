@@ -37,7 +37,6 @@ from cleverswitch.hidpp.protocol import (
     set_cid_divert,
 )
 
-
 # ── _pack_params ───────────────────────────────────────────────────────────────
 
 
@@ -50,13 +49,13 @@ def test_pack_params_packs_single_int_as_one_byte():
 
 
 def test_pack_params_passes_bytes_through_unchanged():
-    assert _pack_params((b"\xAA\xBB",)) == b"\xAA\xBB"
+    assert _pack_params((b"\xaa\xbb",)) == b"\xaa\xbb"
 
 
 def test_pack_params_concatenates_mixed_int_and_bytes():
     params = (0xFF, b"\x01\x02")
     result = _pack_params(params)
-    assert result == b"\xFF\x01\x02"
+    assert result == b"\xff\x01\x02"
 
 
 # ── _build_msg ─────────────────────────────────────────────────────────────────
@@ -129,10 +128,10 @@ def _make_long_reply(devnumber: int, request_id: int, payload: bytes = b"\x00" *
 
 def test_request_returns_payload_on_successful_reply(make_fake_transport):
     effective_id = (0x0100 & 0xFFF0) | SW_ID  # 0x0108
-    reply = _make_long_reply(1, effective_id, b"\xAA\xBB\xCC")
+    reply = _make_long_reply(1, effective_id, b"\xaa\xbb\xcc")
     t = make_fake_transport(responses=[reply])
     result = request(t, devnumber=1, request_id=0x0100)
-    assert result[:3] == b"\xAA\xBB\xCC"
+    assert result[:3] == b"\xaa\xbb\xcc"
 
 
 def test_request_writes_message_to_transport(make_fake_transport):
@@ -240,7 +239,6 @@ def test_send_change_host_raises_transport_error_on_write_failure(mocker, fake_t
         send_change_host(fake_transport, devnumber=1, feature_idx=4, target_host=2)
 
 
-
 # ── set_cid_divert() ──────────────────────────────────────────────────────────
 
 
@@ -266,8 +264,8 @@ def test_get_device_name_returns_name_from_single_chunk(mocker, fake_transport):
     mocker.patch(
         "cleverswitch.hidpp.protocol.request",
         side_effect=[
-            b"\x07",                          # getDeviceNameCount → nameLen=7
-            b"MX Keys" + b"\x00" * 9,         # getDeviceName(0) → 16-byte chunk
+            b"\x07",  # getDeviceNameCount → nameLen=7
+            b"MX Keys" + b"\x00" * 9,  # getDeviceName(0) → 16-byte chunk
         ],
     )
     result = get_device_name(fake_transport, devnumber=1, feat_idx=2)
@@ -278,11 +276,11 @@ def test_get_device_name_assembles_name_from_multiple_chunks(mocker, fake_transp
     mocker.patch(
         "cleverswitch.hidpp.protocol.request",
         side_effect=[
-            b"\x0b",        # getDeviceNameCount → nameLen=11 ("MX Master 3")
-            b"MX ",         # getDeviceName(0)  → chars 0-2
-            b"Mas",         # getDeviceName(3)  → chars 3-5
-            b"ter",         # getDeviceName(6)  → chars 6-8
-            b" 3\x00",      # getDeviceName(9)  → chars 9-10 + padding
+            b"\x0b",  # getDeviceNameCount → nameLen=11 ("MX Master 3")
+            b"MX ",  # getDeviceName(0)  → chars 0-2
+            b"Mas",  # getDeviceName(3)  → chars 3-5
+            b"ter",  # getDeviceName(6)  → chars 6-8
+            b" 3\x00",  # getDeviceName(9)  → chars 9-10 + padding
         ],
     )
     result = get_device_name(fake_transport, devnumber=1, feat_idx=2)
@@ -303,9 +301,9 @@ def test_get_device_name_returns_partial_name_when_chunk_request_fails(mocker, f
     mocker.patch(
         "cleverswitch.hidpp.protocol.request",
         side_effect=[
-            b"\x07",    # nameLen=7
-            b"MX ",     # chars 0-2
-            None,       # chars 3+ → failure
+            b"\x07",  # nameLen=7
+            b"MX ",  # chars 0-2
+            None,  # chars 3+ → failure
         ],
     )
     result = get_device_name(fake_transport, devnumber=1, feat_idx=2)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from cleverswitch.config import Config, HooksConfig, ReceiverConfig, Settings
+from cleverswitch.config import ArgsSettings, Config, HooksConfig, Settings
 from cleverswitch.hidpp.constants import BOLT_PID
 
 
@@ -57,7 +57,7 @@ def make_fake_transport():
 def default_cfg() -> Config:
     """Minimal valid Config with all defaults."""
     return Config(
-        receiver=ReceiverConfig(),
         hooks=HooksConfig(),
         settings=Settings(),
+        arguments_settings=ArgsSettings(),
     )

@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import threading
 
-import pytest
-
+from cleverswitch.config import default_config
 from cleverswitch.discovery import discover
 from cleverswitch.hidpp.constants import BOLT_PID
 from cleverswitch.hidpp.transport import HidDeviceInfo
 
+_CFG = default_config()
+
 
 def _receiver_device(path=b"/dev/hidraw0"):
-    return HidDeviceInfo(path=path, vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=0x0002, connection_type="receiver")
+    return HidDeviceInfo(
+        path=path, vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=0x0002, connection_type="receiver"
+    )
 
 
 def _bt_device(path=b"/dev/hidraw1", pid=0xB023):
@@ -23,7 +26,7 @@ def test_discover_returns_immediately_when_shutdown_is_already_set(mocker):
     mocker.patch("cleverswitch.discovery.enumerate_hid_devices", return_value=[])
     shutdown = threading.Event()
     shutdown.set()
-    discover(shutdown)  # must return without hanging
+    discover(_CFG, shutdown)  # must return without hanging
 
 
 def test_discover_creates_receiver_listener_for_receiver_device(mocker):
@@ -42,7 +45,7 @@ def test_discover_creates_receiver_listener_for_receiver_device(mocker):
 
     shutdown.wait = fake_wait
 
-    discover(shutdown)
+    discover(_CFG, shutdown)
 
     mock_listener_cls.assert_called_once()
     assert mock_listener_cls.call_args[0][0] is device
@@ -65,7 +68,7 @@ def test_discover_creates_bt_listener_for_bluetooth_device(mocker):
 
     shutdown.wait = fake_wait
 
-    discover(shutdown)
+    discover(_CFG, shutdown)
 
     mock_bt_cls.assert_called_once()
     assert mock_bt_cls.call_args[0][0] is device
@@ -91,7 +94,7 @@ def test_discover_does_not_create_duplicate_listeners_for_same_device(mocker):
 
     shutdown.wait = fake_wait
 
-    discover(shutdown)
+    discover(_CFG, shutdown)
 
     assert mock_listener_cls.call_count == 1
 
@@ -111,7 +114,7 @@ def test_discover_joins_listeners_on_shutdown(mocker):
 
     shutdown.wait = fake_wait
 
-    discover(shutdown)
+    discover(_CFG, shutdown)
 
     mock_listener.join.assert_called_once()
 
@@ -145,7 +148,7 @@ def test_discover_removes_dead_listener_and_recreates(mocker):
 
     shutdown.wait = fake_wait
 
-    discover(shutdown)
+    discover(_CFG, shutdown)
 
     # First listener was dead, so a second was created
     assert call_count[0] == 2

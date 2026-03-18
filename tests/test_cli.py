@@ -8,8 +8,7 @@ import sys
 import pytest
 
 from cleverswitch.cli import _dry_run, _parse_args, _setup_logging, main
-from cleverswitch.errors import CleverSwitchError, ConfigError
-
+from cleverswitch.errors import ConfigError
 
 # ── _parse_args() ─────────────────────────────────────────────────────────────
 
@@ -49,15 +48,15 @@ def test_parse_args_enables_dry_run_flag(monkeypatch):
 # ── _setup_logging() ──────────────────────────────────────────────────────────
 
 
-def test_setup_logging_uses_provided_level_when_not_verbose(mocker):
+def test_setup_logging_uses_info_level_when_not_verbose(mocker):
     mock_basic = mocker.patch("cleverswitch.cli.logging.basicConfig")
-    _setup_logging("WARNING", verbose=False)
-    assert mock_basic.call_args[1]["level"] == logging.WARNING
+    _setup_logging(verbose=False)
+    assert mock_basic.call_args[1]["level"] == logging.INFO
 
 
 def test_setup_logging_overrides_to_debug_when_verbose_is_true(mocker):
     mock_basic = mocker.patch("cleverswitch.cli.logging.basicConfig")
-    _setup_logging("INFO", verbose=True)
+    _setup_logging(verbose=True)
     assert mock_basic.call_args[1]["level"] == logging.DEBUG
 
 
@@ -119,7 +118,9 @@ def test_dry_run_logs_found_receivers(mocker, caplog):
     from cleverswitch.hidpp.transport import HidDeviceInfo
 
     devices = [
-        HidDeviceInfo(path=b"/dev/hidraw0", vid=0x046D, pid=0xC548, usage_page=0xFF00, usage=1, connection_type="receiver"),
+        HidDeviceInfo(
+            path=b"/dev/hidraw0", vid=0x046D, pid=0xC548, usage_page=0xFF00, usage=1, connection_type="receiver"
+        ),
     ]
     mocker.patch("cleverswitch.cli.enumerate_hid_devices", return_value=devices)
 
@@ -133,8 +134,12 @@ def test_dry_run_logs_multiple_receivers(mocker, caplog):
     from cleverswitch.hidpp.transport import HidDeviceInfo
 
     devices = [
-        HidDeviceInfo(path=b"/dev/hidraw0", vid=0x046D, pid=0xC548, usage_page=0xFF00, usage=1, connection_type="receiver"),
-        HidDeviceInfo(path=b"/dev/hidraw1", vid=0x046D, pid=0xC52B, usage_page=0xFF00, usage=1, connection_type="receiver"),
+        HidDeviceInfo(
+            path=b"/dev/hidraw0", vid=0x046D, pid=0xC548, usage_page=0xFF00, usage=1, connection_type="receiver"
+        ),
+        HidDeviceInfo(
+            path=b"/dev/hidraw1", vid=0x046D, pid=0xC52B, usage_page=0xFF00, usage=1, connection_type="receiver"
+        ),
     ]
     mocker.patch("cleverswitch.cli.enumerate_hid_devices", return_value=devices)
 

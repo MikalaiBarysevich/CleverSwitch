@@ -178,7 +178,9 @@ def _is_hidpp_interface(info: dict) -> bool:
     return info["usage_page"] in HIDPP_USAGE_PAGES
 
 
-def enumerate_hid_devices(vendor_id: int = LOGITECH_VENDOR_ID, product_id: int = 0) -> list[HidDeviceInfo]:
+def enumerate_hid_devices(
+    vendor_id: int = LOGITECH_VENDOR_ID, product_id: int = 0, verbose_extra: bool = False
+) -> list[HidDeviceInfo]:
     """Call hid_enumerate and return HID++ capable devices (receivers + BT), freeing the linked list."""
     head = _lib.hid_enumerate(vendor_id, product_id)
     result: dict[bytes, HidDeviceInfo] = {}
@@ -189,19 +191,23 @@ def enumerate_hid_devices(vendor_id: int = LOGITECH_VENDOR_ID, product_id: int =
         path = hid_device_content.path
         usage_page = hid_device_content.usage_page
         pid = hid_device_content.product_id
-        log.debug(f"Found hid device with path={path}, pid=0x{pid:04X}, usage_page=0x{usage_page:04X}")
+
+        _log(f"Found hid device with path={path}, pid=0x{pid:04X}, usage_page=0x{usage_page:04X}", verbose_extra)
 
         if path in result:
-            log.debug(f"Already processed path={path}, pid=0x{pid:04X}")
+            _log(f"Already processed path={path}, pid=0x{pid:04X}", verbose_extra)
             continue
 
         if usage_page not in HIDPP_USAGE_PAGES:
-            log.debug(f"Usage page not supported. Skipping path={path}, pid=0x{pid:04X}, usage_page=0x{usage_page:04X}")
+            _log(
+                f"Usage page not supported. Skipping path={path}, pid=0x{pid:04X}, usage_page=0x{usage_page:04X}",
+                verbose_extra,
+            )
             continue
 
         usage = hid_device_content.usage
         if usage not in HIDPP_USAGES_LONG:
-            log.debug(f"Usage 0x{usage:04X} not supported. Skipping path={path}, pid=0x{pid:04X}")
+            _log(f"Usage 0x{usage:04X} not supported. Skipping path={path}, pid=0x{pid:04X}", verbose_extra)
             continue
 
         connection_type = "receiver" if pid in ALL_RECEIVER_PIDS else "bluetooth"
@@ -215,8 +221,13 @@ def enumerate_hid_devices(vendor_id: int = LOGITECH_VENDOR_ID, product_id: int =
             connection_type,
         )
     _lib.hid_free_enumeration(head)
-    log.debug(f"All suitable hid devices={result}")
+    _log(f"All suitable hid devices={result}", verbose_extra)
     return list(result.values())
+
+
+def _log(msg: str, verbose_extra: bool = False) -> None:
+    if verbose_extra:
+        log.debug(msg)
 
 
 @dataclasses.dataclass
