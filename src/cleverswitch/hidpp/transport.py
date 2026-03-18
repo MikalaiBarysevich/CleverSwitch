@@ -127,6 +127,7 @@ _DeviceInfo._fields_ = [
     ("usage", ctypes.c_ushort),
     ("interface_number", ctypes.c_int),
     ("next", ctypes.POINTER(_DeviceInfo)),
+    ("bus_type", ctypes.c_int),
 ]
 
 # ── hidapi function signatures ────────────────────────────────────────────────
@@ -139,6 +140,9 @@ _lib.hid_free_enumeration.argtypes = [ctypes.POINTER(_DeviceInfo)]
 
 _lib.hid_open_path.restype = ctypes.c_void_p
 _lib.hid_open_path.argtypes = [ctypes.c_char_p]
+
+_lib.hid_open.restype = ctypes.c_void_p
+_lib.hid_open.argtypes = [ctypes.c_ushort, ctypes.c_ushort, ctypes.c_wchar_p]
 
 _lib.hid_close.restype = None
 _lib.hid_close.argtypes = [ctypes.c_void_p]
@@ -183,42 +187,29 @@ def enumerate_hid_devices(
 ) -> list[HidDeviceInfo]:
     """Call hid_enumerate and return HID++ capable devices (receivers + BT), freeing the linked list."""
     head = _lib.hid_enumerate(vendor_id, product_id)
-    result: dict[bytes, HidDeviceInfo] = {}
+    result: dict[int, HidDeviceInfo] = {}
     node = head
     while node:
         hid_device_content = node.contents
         node = hid_device_content.next
-        path = hid_device_content.path
-        usage_page = hid_device_content.usage_page
         pid = hid_device_content.product_id
-
-        _log(f"Found hid device with path={path}, pid=0x{pid:04X}, usage_page=0x{usage_page:04X}", verbose_extra)
-
-        if path in result:
-            _log(f"Already processed path={path}, pid=0x{pid:04X}", verbose_extra)
+        if pid in result:
             continue
 
-        if usage_page not in HIDPP_USAGE_PAGES:
-            _log(
-                f"Usage page not supported. Skipping path={path}, pid=0x{pid:04X}, usage_page=0x{usage_page:04X}",
-                verbose_extra,
-            )
+        bus_type = hid_device_content.bus_type
+
+        # in linux all connected receiver devices are opened as separate hid device. We want to skip them to make the rest
+        # code multiplatform
+        if _IS_LINUX and bus_type == 0x01 and hid_device_content.serial_number is not None and len(hid_device_content.serial_number) > 0:
             continue
 
-        usage = hid_device_content.usage
-        if usage not in HIDPP_USAGES_LONG:
-            _log(f"Usage 0x{usage:04X} not supported. Skipping path={path}, pid=0x{pid:04X}", verbose_extra)
-            continue
-
-        connection_type = "receiver" if pid in ALL_RECEIVER_PIDS else "bluetooth"
-
-        result[path] = HidDeviceInfo(
-            path,
+        result[pid] = HidDeviceInfo(
+            hid_device_content.path,
             hid_device_content.vendor_id,
             pid,
-            usage_page,
-            usage,
-            connection_type,
+            hid_device_content.usage_page,
+            hid_device_content.usage,
+            "receiver" if bus_type == 0x01 else "bluetooth",
         )
     _lib.hid_free_enumeration(head)
     _log(f"All suitable hid devices={result}", verbose_extra)
@@ -251,18 +242,25 @@ class HIDTransport:
     event loop is never blocked waiting for HID events.
     """
 
-    def __init__(self, path: bytes, kind: str, pid: int) -> None:
-        self.path = path
+    def __init__(self, kind: str, pid: int) -> None:
         self.kind = kind
         self.pid = pid
-        self._dev: int | None = _lib.hid_open_path(path)
-        if not self._dev:
-            raise OSError(_hid_err())
-        log.debug("Opened %s pid=0x%04X %s", kind, pid, path)
+        self._dev = None
+        self.try_open()
+        log.debug("Opened %s pid=0x%04X", kind, pid)
 
     # ── sync I/O (used by discovery / protocol layer) ─────────────────────────
 
-    def read(self, timeout: int = 500) -> bytes | None:
+    def try_open(self) -> None:
+        self._dev: int | None = _lib.hid_open(LOGITECH_VENDOR_ID, self.pid, None)
+        if not self._dev:
+            raise OSError(_hid_err())
+
+    def try_reopen(self) -> None:
+        self.close()
+        self.try_open()
+
+    def read(self, timeout: int = -1) -> bytes | None:
         """Block for up to *timeout* ms waiting for one HID packet.
 
         timeout=0  → non-blocking (return None immediately if no data)
