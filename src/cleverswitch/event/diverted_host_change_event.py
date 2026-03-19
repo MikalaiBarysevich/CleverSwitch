@@ -5,4 +5,4 @@ from ..event.event import Event
 
 @dataclasses.dataclass
 class DivertedHostChangeEvent(Event):
-    target_host: str
+    target_host: int

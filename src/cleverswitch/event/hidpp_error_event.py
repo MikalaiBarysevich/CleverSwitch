@@ -4,6 +4,5 @@ from ..event.event import Event
 
 
 @dataclasses.dataclass
-class ExternalUndivertEvent(Event):
-    feature_index: int
-    cid: int
+class HidppErrorEvent(Event):
+    error_code: int

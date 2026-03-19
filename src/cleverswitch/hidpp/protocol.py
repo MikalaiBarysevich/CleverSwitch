@@ -39,7 +39,7 @@ _MSG_LENGTHS = {
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 
-def _pack_params(params: tuple) -> bytes:
+def pack_params(params: tuple) -> bytes:
     if not params:
         return b""
     parts = []
@@ -51,7 +51,7 @@ def _pack_params(params: tuple) -> bytes:
     return b"".join(parts)
 
 
-def _build_msg(devnumber: int, request_id: int, params: bytes) -> bytes:
+def build_msg(devnumber: int, request_id: int, params: bytes) -> bytes:
     """Assemble a complete HID++ long message (report 0x11, 20 bytes).
 
     Always uses long format — HID++ 2.0 responses are always long, and on
@@ -89,9 +89,9 @@ def request(
     """
     request_id = (request_id & 0xFFF0) | SW_ID
 
-    params_bytes = _pack_params(params)
+    params_bytes = pack_params(params)
     request_data = struct.pack("!H", request_id) + params_bytes
-    msg = _build_msg(devnumber, request_id, params_bytes)
+    msg = build_msg(devnumber, request_id, params_bytes)
 
     if log.isEnabledFor(logging.DEBUG):
         log.debug("-> dev=0x%02X [%s]", devnumber, msg.hex())
@@ -147,8 +147,8 @@ def request_write_only(
 ) -> None:
     request_id = (request_id & 0xFFF0) | SW_ID
 
-    params_bytes = _pack_params(params)
-    msg = _build_msg(devnumber, request_id, params_bytes)
+    params_bytes = pack_params(params)
+    msg = build_msg(devnumber, request_id, params_bytes)
 
     if log.isEnabledFor(logging.DEBUG):
         log.debug("-> dev=0x%02X [%s]", devnumber, msg.hex())
@@ -248,7 +248,7 @@ def send_change_host(
     """Switch *devnumber* to *target_host* (0-based). Fire-and-forget — no reply expected."""
     request_id = (feature_idx << 8) | (CHANGE_HOST_FN_SET & 0xF0) | SW_ID
     params = struct.pack("B", target_host)
-    msg = _build_msg(devnumber, request_id, params)
+    msg = build_msg(devnumber, request_id, params)
     if log.isEnabledFor(logging.DEBUG):
         log.debug("send_change_host -> dev=0x%02X host=%d [%s]", devnumber, target_host, msg.hex())
     try:
