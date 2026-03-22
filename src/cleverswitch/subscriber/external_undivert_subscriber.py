@@ -15,6 +15,7 @@ class ExternalUndivertSubscriber(Subscriber):
     def __init__(self, device_registry: LogiDeviceRegistry, topics: dict[str, Topic]):
         self._device_registry = device_registry
         self._topics = topics
+        topics["event_topic"].subscribe(self)
 
     def notify(self, event) -> None:
         if not isinstance(event, ExternalUndivertEvent):

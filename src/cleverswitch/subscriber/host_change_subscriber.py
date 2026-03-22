@@ -2,7 +2,7 @@ import logging
 
 from ..event.hidpp_notification_event import HidppNotificationEvent
 from ..event.write_event import WriteEvent
-from ..hidpp.constants import CHANGE_HOST_FN_SET, FEATURE_CHANGE_HOST, SW_ID
+from ..hidpp.constants import CHANGE_HOST_FN_SET, FEATURE_CHANGE_HOST, SW_ID_HOST_CHANGE
 from ..hidpp.protocol import build_msg, pack_params
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
@@ -16,6 +16,7 @@ class HostChangeSubscriber(Subscriber):
     def __init__(self, device_registry: LogiDeviceRegistry, topics: dict[str, Topic]):
         self._device_registry = device_registry
         self._topics = topics
+        topics["event_topic"].subscribe(self)
 
     def notify(self, event) -> None:
         if not isinstance(event, HidppNotificationEvent):
@@ -47,7 +48,7 @@ class HostChangeSubscriber(Subscriber):
             if dev_change_host_idx is None:
                 continue
 
-            request_id = (dev_change_host_idx << 8) | (CHANGE_HOST_FN_SET & 0xF0) | SW_ID
+            request_id = (dev_change_host_idx << 8) | (CHANGE_HOST_FN_SET & 0xF0) | SW_ID_HOST_CHANGE
             params = pack_params((target_host,))
             msg = build_msg(device.slot, request_id, params)
             self._topics["write_topic"].publish(WriteEvent(slot=device.slot, pid=device.pid, hid_message=msg))

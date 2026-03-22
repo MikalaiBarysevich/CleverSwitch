@@ -184,36 +184,44 @@ def _is_hidpp_interface(info: dict) -> bool:
 
 def enumerate_hid_devices(
     vendor_id: int = LOGITECH_VENDOR_ID, product_id: int = 0, verbose_extra: bool = False
-) -> list[HidDeviceInfo]:
+) -> dict[int, list[HidDeviceInfo]]:
     """Call hid_enumerate and return HID++ capable devices (receivers + BT), freeing the linked list."""
     head = _lib.hid_enumerate(vendor_id, product_id)
-    result: dict[int, HidDeviceInfo] = {}
+    result: dict[int, list[HidDeviceInfo]] = {}
+    seen_paths: set[bytes] = set()
     node = head
     while node:
         hid_device_content = node.contents
         node = hid_device_content.next
         pid = hid_device_content.product_id
-        if pid in result:
-            continue
-
         bus_type = hid_device_content.bus_type
+        path = hid_device_content.path
+
+        if path in seen_paths:
+            continue
+        seen_paths.add(path)
 
         # in linux all connected receiver devices are opened as separate hid device. We want to skip them to make the rest
         # code multiplatform
         if _IS_LINUX and bus_type == 0x01 and hid_device_content.serial_number is not None and len(hid_device_content.serial_number) > 0:
             continue
 
-        result[pid] = HidDeviceInfo(
+        hid_device_info = HidDeviceInfo(
             hid_device_content.path,
             hid_device_content.vendor_id,
-            pid,
+            hid_device_content.product_id,
             hid_device_content.usage_page,
             hid_device_content.usage,
             "receiver" if bus_type == 0x01 else "bluetooth",
         )
+
+        pid_collections = result.get(pid, list[HidDeviceInfo]())
+        pid_collections.append(hid_device_info)
+        result[pid] = pid_collections
+
     _lib.hid_free_enumeration(head)
     _log(f"All suitable hid devices={result}", verbose_extra)
-    return list(result.values())
+    return dict(result)
 
 
 def _log(msg: str, verbose_extra: bool = False) -> None:

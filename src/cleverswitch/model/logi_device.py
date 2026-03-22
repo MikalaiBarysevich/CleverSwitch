@@ -10,4 +10,5 @@ class LogiDevice:
     available_features: dict[int, int]  # feature_code → feature_index
     name: str | None = None
     divertable_cids: set[int] = dataclasses.field(default_factory=set)
-    info_step: int = 0
+    persistently_divertable_cids: set[int] = dataclasses.field(default_factory=set)
+    completed_steps: set[str] = dataclasses.field(default_factory=set)

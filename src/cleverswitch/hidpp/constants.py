@@ -37,8 +37,20 @@ MAX_READ_SIZE = 32
 DEVICE_RECEIVER = 0xFF
 
 # Software ID — lower nibble of the function byte in requests.
-# Always has bit 3 set (>= 0x08) so notifications (sw_id=0) are distinguishable.
+# Bit 3 (0x08) is always set for CleverSwitch, bits 0-2 identify the task.
+# Notifications from device have sw_id=0, so bit 3 distinguishes our responses.
 SW_ID = 0x08
+SW_ID_MASK = 0x08  # All CleverSwitch SW_IDs have this bit set
+
+# Per-task SW_IDs (0x08-0x0F): bit 3 = CleverSwitch, bits 0-2 = task ID
+SW_ID_RESOLVE_REPROG = 0x08
+SW_ID_RESOLVE_CHANGE_HOST = 0x09
+SW_ID_RESOLVE_DEVICE_TYPE_NAME = 0x0A
+SW_ID_FIND_DIVERTABLE_CIDS = 0x0B
+SW_ID_GET_DEVICE_TYPE = 0x0C
+SW_ID_GET_DEVICE_NAME = 0x0D
+SW_ID_DIVERT = 0x0E
+SW_ID_HOST_CHANGE = 0x0F
 
 # ── HID++ 2.0 feature codes ───────────────────────────────────────────────────
 
@@ -58,6 +70,7 @@ HOST_SWITCH_CIDS = {0x00D1: 0, 0x00D2: 1, 0x00D3: 2}
 
 # REPROG_CONTROLS_V4 key capability flag (byte 4 of getCidInfo response)
 KEY_FLAG_DIVERTABLE = 0x20  # key can be temporarily diverted
+KEY_FLAG_PERSISTENTLY_DIVERTABLE = 0x40  # key can be persistently diverted
 
 # Mapping flag bit for setCidReporting (byte 2 of request payload)
 MAP_FLAG_DIVERTED = 0x01  # temporarily divert (cleared on device reset)
