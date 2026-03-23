@@ -12,9 +12,11 @@ from ..subscriber.subscriber import Subscriber
 
 log = logging.getLogger(__name__)
 
+
 class HidGateway(Thread, Subscriber):
 
-    def __init__(self, device_info: HidDeviceInfo, event_listener: EventListener, send_event_on_connection: bool = False) -> None:
+    def __init__(self, device_info: HidDeviceInfo, event_listener: EventListener,
+                 send_event_on_connection: bool = False) -> None:
         super().__init__(daemon=True)
         self._send_event_on_connection = send_event_on_connection
         self._device_info = device_info
@@ -30,7 +32,7 @@ class HidGateway(Thread, Subscriber):
                     hid_event = self._transport.read()
                     self._event_listener.listen(hid_event)
                     log.debug(f"Received HID event from pid={hex(self._device_info.pid)}: {hid_event.hex()}", )
-                except TransportError :
+                except TransportError:
                     log.debug(f"Device disconnected pid={hex(self._device_info.pid)}")
                     self._connected = False
                     if self._send_event_on_connection:
@@ -39,10 +41,19 @@ class HidGateway(Thread, Subscriber):
                 self._try_connect()
 
     def _try_connect(self):
-        this_device = enumerate_hid_devices(product_id=self._device_info.pid)
-        if len(this_device) == 0:
+        this_device_collection = enumerate_hid_devices(product_id=self._device_info.pid)
+        if len(this_device_collection) == 0:
             time.sleep(1)
             return
+
+        for device in this_device_collection[self._device_info.pid]:
+            if (device.usage_page == self._device_info.usage_page
+                    and device.usage == self._device_info.usage):
+                if device.path != self._device_info.path:
+                    self._device_info.path = device.path
+                    self._transport.close()
+                    self._transport = None
+                break
 
         try:
             if self._transport is None:
