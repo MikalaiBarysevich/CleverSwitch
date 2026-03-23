@@ -40,8 +40,8 @@ def main() -> None:
     shutdown = threading.Event()
     signal.signal(signal.SIGINT, lambda *_: shutdown.set())
     signal.signal(signal.SIGTERM, lambda *_: shutdown.set())
-    signal.signal(signal.SIGHUP, lambda *_: shutdown.set())
-    signal.signal(signal.SIGQUIT, lambda *_: shutdown.set())
+    signal.signal(signal.SIGHUP, lambda *_: shutdown.set()) #todo not present in windows
+    signal.signal(signal.SIGQUIT, lambda *_: shutdown.set()) #todo not present in windows
 
     try:
         discovery_thread = threading.Thread(

@@ -201,6 +201,9 @@ def enumerate_hid_devices(
             continue
         seen_paths.add(path)
 
+        if hid_device_content.usage_page not in HIDPP_USAGE_PAGES:
+            continue
+
         # in linux all connected receiver devices are opened as separate hid device. We want to skip them to make the rest
         # code multiplatform
         if _IS_LINUX and bus_type == 0x01 and hid_device_content.serial_number is not None and len(hid_device_content.serial_number) > 0:
