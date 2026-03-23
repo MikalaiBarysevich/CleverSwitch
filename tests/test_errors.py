@@ -13,7 +13,6 @@ from cleverswitch.errors import (
     TransportError,
 )
 
-
 # ── Inheritance ───────────────────────────────────────────────────────────────
 
 

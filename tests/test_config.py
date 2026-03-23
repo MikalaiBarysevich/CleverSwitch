@@ -3,13 +3,13 @@
 Tests cover:
   - load()         — file not found, invalid YAML, valid file, default fallback
   - _parse()       — mapping raw YAML dicts → Config dataclasses
-  - _validate()    — rejection of invalid PIDs, bad log levels
-  - _hex_or_int()  — hex-string and integer coercion
   - _parse_hooks() — string / dict hook entries, tilde expansion
+  - default_config — sensible defaults
 """
 
 from __future__ import annotations
 
+import argparse
 import textwrap
 from pathlib import Path
 
@@ -17,67 +17,68 @@ import pytest
 
 from cleverswitch.config import (
     Config,
-    HooksConfig,
-    ReceiverConfig,
-    Settings,
-    _hex_or_int,
     _parse,
     _parse_hooks,
-    _validate,
     default_config,
     load,
 )
 from cleverswitch.errors import ConfigError
-from cleverswitch.hidpp.constants import BOLT_PID, UNIFYING_PIDS
+
+
+def _cli_args(**overrides) -> argparse.Namespace:
+    defaults = {"config": None, "verbose_extra": None}
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
 
 
 # ── default_config ────────────────────────────────────────────────────────────
 
 
-def test_default_config_uses_bolt_receiver_by_default():
+def test_default_config_returns_config_instance():
     cfg = default_config()
-    assert cfg.receiver.product_id == BOLT_PID
+    assert isinstance(cfg, Config)
+
+
+def test_default_config_has_default_read_timeout():
+    cfg = default_config()
+    assert cfg.settings.read_timeout_ms == 2000
 
 
 # ── load ──────────────────────────────────────────────────────────────────────
 
 
 def test_load_raises_config_error_for_missing_explicit_path(tmp_path):
-    # Arrange
     missing = tmp_path / "nonexistent.yaml"
-    # Act / Assert
+    args = _cli_args(config=str(missing))
     with pytest.raises(ConfigError, match="not found"):
-        load(path=missing)
+        load(args)
 
 
 def test_load_raises_config_error_for_malformed_yaml(tmp_path):
-    # Arrange
     bad = tmp_path / "bad.yaml"
     bad.write_text("key: [unclosed bracket")
-    # Act / Assert
+    args = _cli_args(config=str(bad))
     with pytest.raises(ConfigError, match="Invalid YAML"):
-        load(path=bad)
+        load(args)
 
 
 def test_load_parses_valid_yaml_file(tmp_path):
-    # Arrange
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text(
         textwrap.dedent("""\
             settings:
-              log_level: DEBUG
+              read_timeout_ms: 3000
         """)
     )
-    # Act
-    cfg = load(path=cfg_file)
-    # Assert
-    assert cfg.settings.log_level == "DEBUG"
+    args = _cli_args(config=str(cfg_file))
+    cfg = load(args)
+    assert cfg.settings.read_timeout_ms == 3000
 
 
 def test_load_returns_default_config_when_no_default_path_exists(mocker):
-    # Patch the module-level default path to a location that never exists
     mocker.patch("cleverswitch.config._DEFAULT_CONFIG_PATH", Path("/nonexistent/cleverswitch/config.yaml"))
-    cfg = load(path=None)
+    args = _cli_args()
+    cfg = load(args)
     assert isinstance(cfg, Config)
 
 
@@ -85,23 +86,31 @@ def test_load_returns_default_config_when_no_default_path_exists(mocker):
 
 
 def test_parse_empty_dict_falls_back_to_all_defaults():
-    cfg = _parse({})
+    cfg = _parse({}, _cli_args())
     defaults = default_config()
-    assert cfg.settings.log_level == defaults.settings.log_level
+    assert cfg.settings.read_timeout_ms == defaults.settings.read_timeout_ms
 
 
-def test_parse_normalises_log_level_to_uppercase():
-    cfg = _parse({"settings": {"log_level": "warning"}})
-    assert cfg.settings.log_level == "WARNING"
+def test_parse_preferred_host_converts_to_zero_based():
+    """User-facing value 1/2/3 should be stored as 0-based index 0/1/2."""
+    assert _parse({"settings": {"preferred_host": 1}}, _cli_args()).settings.preferred_host == 0
+    assert _parse({"settings": {"preferred_host": 2}}, _cli_args()).settings.preferred_host == 1
+    assert _parse({"settings": {"preferred_host": 3}}, _cli_args()).settings.preferred_host == 2
 
 
-def test_parse_accepts_hex_string_for_receiver_vendor_id():
-    cfg = _parse({"receiver": {"vendor_id": "0x046D"}})
-    assert cfg.receiver.vendor_id == 0x046D
+def test_parse_preferred_host_defaults_to_none():
+    cfg = _parse({}, _cli_args())
+    assert cfg.settings.preferred_host is None
+
+
+def test_parse_preferred_host_raises_for_invalid_value():
+    from cleverswitch.errors import ConfigError
+
+    with pytest.raises(ConfigError, match="preferred_host"):
+        _parse({"settings": {"preferred_host": 4}}, _cli_args())
 
 
 def test_parse_populates_on_switch_hooks_from_mixed_entries():
-    # Arrange: one string entry and one dict entry with a custom timeout
     raw = {
         "hooks": {
             "on_switch": [
@@ -110,75 +119,16 @@ def test_parse_populates_on_switch_hooks_from_mixed_entries():
             ]
         }
     }
-    # Act
-    cfg = _parse(raw)
-    # Assert
+    cfg = _parse(raw, _cli_args())
     assert len(cfg.hooks.on_switch) == 2
     assert cfg.hooks.on_switch[0].path == "/usr/local/bin/switch.sh"
     assert cfg.hooks.on_switch[0].timeout == 5  # default timeout
     assert cfg.hooks.on_switch[1].timeout == 10
 
 
-# ── _validate ─────────────────────────────────────────────────────────────────
-
-
-def _receiver(pid: int = BOLT_PID) -> ReceiverConfig:
-    return ReceiverConfig(product_id=pid)
-
-
-def _settings(log_level: str = "INFO") -> Settings:
-    return Settings(log_level=log_level)
-
-
-def test_validate_raises_for_unknown_receiver_product_id():
-    with pytest.raises(ConfigError, match="not a known Bolt/Unifying PID"):
-        _validate(_receiver(0xFFFF), _settings())
-
-
-@pytest.mark.parametrize("unifying_pid", UNIFYING_PIDS)
-def test_validate_accepts_all_known_unifying_receiver_pids(unifying_pid):
-    # Should not raise for any of the known Unifying PIDs
-    _validate(_receiver(unifying_pid), _settings())
-
-
-def test_validate_raises_for_invalid_log_level():
-    with pytest.raises(ConfigError, match="Invalid log_level"):
-        _validate(_receiver(), _settings("VERBOSE"))
-
-
-@pytest.mark.parametrize("level", ["DEBUG", "INFO", "WARNING", "ERROR"])
-def test_validate_accepts_all_valid_log_levels(level):
-    # Should not raise for any standard log level
-    _validate(_receiver(), _settings(level))
-
-
-# ── _hex_or_int ───────────────────────────────────────────────────────────────
-
-
-def test_hex_or_int_returns_plain_integer_unchanged():
-    assert _hex_or_int(42) == 42
-
-
-def test_hex_or_int_parses_lowercase_0x_prefix_hex_string():
-    assert _hex_or_int("0x046D") == 0x046D
-
-
-def test_hex_or_int_parses_uppercase_0X_prefix_hex_string():
-    assert _hex_or_int("0X1234") == 0x1234
-
-
-def test_hex_or_int_parses_plain_decimal_string():
-    assert _hex_or_int("255") == 255
-
-
-def test_hex_or_int_raises_type_error_for_float():
-    with pytest.raises(TypeError, match="Expected int or hex string"):
-        _hex_or_int(3.14)
-
-
-def test_hex_or_int_raises_type_error_for_none():
-    with pytest.raises(TypeError, match="Expected int or hex string"):
-        _hex_or_int(None)
+def test_parse_sets_verbose_extra_from_cli_args():
+    cfg = _parse({}, _cli_args(verbose_extra=True))
+    assert cfg.arguments_settings.verbose_extra is True
 
 
 # ── _parse_hooks ──────────────────────────────────────────────────────────────

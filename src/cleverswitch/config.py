@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import dataclasses
 import os
 from pathlib import Path
@@ -10,16 +11,8 @@ from typing import Any
 import yaml
 
 from .errors import ConfigError
-from .hidpp.constants import BOLT_PID, UNIFYING_PIDS
 
 _DEFAULT_CONFIG_PATH = Path("~/.config/cleverswitch/config.yaml").expanduser()
-
-
-@dataclasses.dataclass(frozen=True)
-class ReceiverConfig:
-    vendor_id: int = 0x046D
-    product_id: int = BOLT_PID
-    path: str | None = None  # force a specific HID path
 
 
 @dataclasses.dataclass(frozen=True)
@@ -37,17 +30,20 @@ class HooksConfig:
 
 @dataclasses.dataclass(frozen=True)
 class Settings:
-    read_timeout_ms: int = 1000
-    retry_interval_s: int = 5
-    max_retries: int = 0  # 0 = infinite
-    log_level: str = "INFO"
+    read_timeout_ms: int = 2000
+    preferred_host: int | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class ArgsSettings:
+    verbose_extra: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
 class Config:
-    receiver: ReceiverConfig
     hooks: HooksConfig
     settings: Settings
+    arguments_settings: ArgsSettings
 
 
 # ── Default config ────────────────────────────────────────────────────────────
@@ -55,18 +51,19 @@ class Config:
 
 def default_config() -> Config:
     return Config(
-        receiver=ReceiverConfig(),
         hooks=HooksConfig(),
         settings=Settings(),
+        arguments_settings=ArgsSettings(),
     )
 
 
 # ── YAML loading ──────────────────────────────────────────────────────────────
 
 
-def load(path: Path | str | None = None) -> Config:
+def load(cli_args: argparse.Namespace) -> Config:
     """Load config from *path*. Falls back to ~/.config/cleverswitch/config.yaml,
     then to built-in defaults if no file is found."""
+    path = cli_args.config
     cfg_path = Path(path).expanduser() if path else _DEFAULT_CONFIG_PATH
 
     if not cfg_path.exists():
@@ -81,21 +78,13 @@ def load(path: Path | str | None = None) -> Config:
         raise ConfigError(f"Invalid YAML in {cfg_path}: {e}") from e
 
     try:
-        return _parse(raw)
+        return _parse(raw, cli_args)
     except (KeyError, TypeError, ValueError) as e:
         raise ConfigError(f"Config error in {cfg_path}: {e}") from e
 
 
-def _parse(raw: dict[str, Any]) -> Config:
+def _parse(raw: dict[str, Any], cli_args: argparse.Namespace) -> Config:
     defaults = default_config()
-
-    # ── receiver ──────────────────────────────────────────────────────────────
-    r = raw.get("receiver", {})
-    receiver = ReceiverConfig(
-        vendor_id=_hex_or_int(r.get("vendor_id", defaults.receiver.vendor_id)),
-        product_id=_hex_or_int(r.get("product_id", defaults.receiver.product_id)),
-        path=r.get("path"),
-    )
 
     # ── hooks ─────────────────────────────────────────────────────────────────
     h = raw.get("hooks", {})
@@ -107,15 +96,27 @@ def _parse(raw: dict[str, Any]) -> Config:
 
     # ── settings ──────────────────────────────────────────────────────────────
     s = raw.get("settings", {})
+
+    raw_preferred_host = s.get("preferred_host")
+    preferred_host_internal = None
+    if raw_preferred_host is not None:
+        raw_preferred_host = int(raw_preferred_host)
+        if raw_preferred_host not in (1, 2, 3):
+            raise ConfigError(f"settings.preferred_host must be 1, 2, or 3, got {raw_preferred_host}")
+        preferred_host_internal: int | None = raw_preferred_host - 1  # convert to 0-based
+
     settings = Settings(
         read_timeout_ms=int(s.get("read_timeout_ms", defaults.settings.read_timeout_ms)),
-        retry_interval_s=int(s.get("retry_interval_s", defaults.settings.retry_interval_s)),
-        max_retries=int(s.get("max_retries", defaults.settings.max_retries)),
-        log_level=str(s.get("log_level", defaults.settings.log_level)).upper(),
+        preferred_host=preferred_host_internal,
     )
 
-    _validate(receiver, settings)
-    return Config(receiver=receiver, hooks=hooks, settings=settings)
+    arguments_settings = ArgsSettings(
+        verbose_extra=cli_args.verbose_extra if cli_args.verbose_extra is not None else False,
+    )
+
+    config = Config(hooks=hooks, settings=settings, arguments_settings=arguments_settings)
+    _validate(config)
+    return config
 
 
 def _parse_hooks(entries: list) -> list[HookEntry]:
@@ -133,20 +134,5 @@ def _parse_hooks(entries: list) -> list[HookEntry]:
     return result
 
 
-def _validate(receiver: ReceiverConfig, settings: Settings) -> None:
-    valid_pids = (BOLT_PID,) + UNIFYING_PIDS
-    if receiver.product_id not in valid_pids:
-        raise ConfigError(
-            f"receiver.product_id 0x{receiver.product_id:04X} is not a known Bolt/Unifying PID. Expected one of: "
-            + ", ".join(f"0x{p:04X}" for p in valid_pids)
-        )
-    if settings.log_level not in ("DEBUG", "INFO", "WARNING", "ERROR"):
-        raise ConfigError(f"Invalid log_level: {settings.log_level!r}")
-
-
-def _hex_or_int(value) -> int:
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str):
-        return int(value, 16) if value.startswith("0x") or value.startswith("0X") else int(value)
-    raise TypeError(f"Expected int or hex string, got {type(value).__name__}: {value!r}")
+def _validate(config: Config) -> None:
+    pass

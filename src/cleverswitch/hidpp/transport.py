@@ -24,6 +24,7 @@ from .constants import (
     ALL_RECEIVER_PIDS,
     HIDPP_USAGE_PAGES,
     HIDPP_USAGES_LONG,
+    HIDPP_USAGES_SHORT,
     LOGITECH_VENDOR_ID,
     MAX_READ_SIZE,
 )
@@ -178,7 +179,9 @@ def _is_hidpp_interface(info: dict) -> bool:
     return info["usage_page"] in HIDPP_USAGE_PAGES
 
 
-def enumerate_hid_devices(vendor_id: int = LOGITECH_VENDOR_ID, product_id: int = 0) -> list[HidDeviceInfo]:
+def enumerate_hid_devices(
+    vendor_id: int = LOGITECH_VENDOR_ID, product_id: int = 0, verbose_extra: bool = False
+) -> list[HidDeviceInfo]:
     """Call hid_enumerate and return HID++ capable devices (receivers + BT), freeing the linked list."""
     head = _lib.hid_enumerate(vendor_id, product_id)
     result: dict[bytes, HidDeviceInfo] = {}
@@ -189,22 +192,32 @@ def enumerate_hid_devices(vendor_id: int = LOGITECH_VENDOR_ID, product_id: int =
         path = hid_device_content.path
         usage_page = hid_device_content.usage_page
         pid = hid_device_content.product_id
-        log.debug(f"Found hid device with path={path}, pid=0x{pid:04X}, usage_page=0x{usage_page:04X}")
+
+        _log(f"Found hid device with path={path}, pid=0x{pid:04X}, usage_page=0x{usage_page:04X}", verbose_extra)
 
         if path in result:
-            log.debug(f"Already processed path={path}, pid=0x{pid:04X}")
+            _log(f"Already processed path={path}, pid=0x{pid:04X}", verbose_extra)
             continue
 
         if usage_page not in HIDPP_USAGE_PAGES:
-            log.debug(f"Usage page not supported. Skipping path={path}, pid=0x{pid:04X}, usage_page=0x{usage_page:04X}")
+            _log(
+                f"Usage page not supported. Skipping path={path}, pid=0x{pid:04X}, usage_page=0x{usage_page:04X}",
+                verbose_extra,
+            )
             continue
 
         usage = hid_device_content.usage
+        is_receiver = pid in ALL_RECEIVER_PIDS
+        # On Windows, receiver devices expose a separate short-report HID collection
+        # (usage 0x0001) in addition to the long-report collection (usage 0x0002).
+        # Accept short-usage entries for receivers on Windows so callers can open
+        # the short collection to receive SHORT disconnect notifications.
         if usage not in HIDPP_USAGES_LONG:
-            log.debug(f"Usage 0x{usage:04X} not supported. Skipping path={path}, pid=0x{pid:04X}")
-            continue
+            if not (_IS_WINDOWS and is_receiver and usage in HIDPP_USAGES_SHORT):
+                _log(f"Usage 0x{usage:04X} not supported. Skipping path={path}, pid=0x{pid:04X}", verbose_extra)
+                continue
 
-        connection_type = "receiver" if pid in ALL_RECEIVER_PIDS else "bluetooth"
+        connection_type = "receiver" if is_receiver else "bluetooth"
 
         result[path] = HidDeviceInfo(
             path,
@@ -215,8 +228,13 @@ def enumerate_hid_devices(vendor_id: int = LOGITECH_VENDOR_ID, product_id: int =
             connection_type,
         )
     _lib.hid_free_enumeration(head)
-    log.debug(f"All suitable hid devices={result}")
+    _log(f"All suitable hid devices={result}", verbose_extra)
     return list(result.values())
+
+
+def _log(msg: str, verbose_extra: bool = False) -> None:
+    if verbose_extra:
+        log.debug(msg)
 
 
 @dataclasses.dataclass

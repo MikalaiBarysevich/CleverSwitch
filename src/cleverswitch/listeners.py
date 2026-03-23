@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import logging
 import threading
 from threading import Thread
+from time import monotonic
+from typing import TYPE_CHECKING
 
 from .errors import TransportError
 from .factory import _make_logi_product
@@ -11,21 +15,37 @@ from .hidpp.constants import (
     DEVICE_TYPE_MOUSE,
     DEVICE_TYPE_TRACKBALL,
     DEVICE_TYPE_TRACKPAD,
+    DISCONNECT_FLAG,
     FEATURE_DEVICE_TYPE_AND_NAME,
+    HID_DEVICE_PAIRING,
     HOST_SWITCH_CIDS,
     REPORT_LONG,
+    REPORT_SHORT,
     SW_ID,
 )
-from .hidpp.protocol import get_device_name, get_device_type, resolve_feature_index, send_change_host, set_cid_divert
+from .hidpp.protocol import (
+    get_device_name,
+    get_device_type,
+    get_host_info_1814,
+    get_paired_hosts_1815,
+    resolve_feature_index,
+    send_change_host,
+    set_cid_divert,
+)
 from .hidpp.transport import HidDeviceInfo, HIDTransport
 from .model import (
     BaseEvent,
+    CachedBTDevice,
     ConnectionEvent,
+    DisconnectEvent,
     ExternalUndivertEvent,
     HostChangeEvent,
     LogiProduct,
     ProductEntry,
 )
+
+if TYPE_CHECKING:
+    from .discovery import BTDeviceCache
 
 log = logging.getLogger(__name__)
 
@@ -62,12 +82,20 @@ class ProductRegistry:
 class BaseListener(Thread):
     """Common event loop: open transport, read packets, parse, dispatch."""
 
-    def __init__(self, hid_device_info: HidDeviceInfo, shutdown: threading.Event, registry: ProductRegistry) -> None:
+    def __init__(
+        self,
+        hid_device_info: HidDeviceInfo,
+        shutdown: threading.Event,
+        registry: ProductRegistry,
+        preferred_host: int | None = None,
+    ) -> None:
         self._hid_device_info = hid_device_info
         self._shutdown = shutdown
         self._registry = registry
+        self._preferred_host = preferred_host
         self._transport: HIDTransport | None = None
         self._products: dict[int, LogiProduct] = {}
+        self._probe_cooldown: dict[int, float] = {}
         self._stopped = False
         super().__init__(daemon=True)
 
@@ -75,8 +103,8 @@ class BaseListener(Thread):
         self._init_transport()
         if self._transport is None:
             return
-        self._detect_products()
         try:
+            self._detect_products()
             self._event_loop()
         except TransportError as e:
             log.debug("Transport error on %s: %s", self._hid_device_info.path, e)
@@ -91,18 +119,24 @@ class BaseListener(Thread):
             event = parse_message(raw, self._products)
             log.debug("parsed event=%s", event)
             if event is None:
+                self._probe_unknown_slot(raw)
                 continue
             self._handle_event(event)
             self._shutdown.wait(0.2)
 
     def _handle_host_change(self, event: HostChangeEvent) -> None:
-        """Send CHANGE_HOST to ALL products in the registry."""
+        """Send CHANGE_HOST to all products except the source device."""
         for entry in self._registry.all_entries():
+            if entry.transport is self._transport and entry.devnumber == event.slot and entry.divert_feat_idx is None:
+                continue
             log.debug("Sending host change event to: %s", entry.name)
             try:
                 send_change_host(entry.transport, entry.devnumber, entry.change_host_feat_idx, event.target_host)
             except Exception as e:
                 log.debug("Host switch failed for %s: %s", entry.name, e)
+
+    def _probe_unknown_slot(self, raw: bytes) -> None:
+        """Override in subclasses to probe unregistered slots on unrecognised traffic."""
 
     def _init_transport(self) -> None: ...
 
@@ -118,11 +152,49 @@ class BaseListener(Thread):
         self._stopped = True
 
 
+# ── Module-level helpers ──────────────────────────────────────────────────────
+
+
+def _refresh_paired_hosts(transport: HIDTransport, product: LogiProduct) -> None:
+    """Re-query x1814 + x1815 to update paired_hosts and current_host on reconnect.
+
+    Extracted to module-level so both ReceiverListener and BTListener can share the
+    logic without one calling into the other. Called whenever a non-divertable keyboard
+    reconnects so that host-change detection uses up-to-date pairing data.
+    """
+    if product.hosts_info_feat_idx is None:
+        return
+    try:
+        host_info = get_host_info_1814(transport, product.slot, product.change_host_feat_idx)
+        if host_info is None:
+            return
+        nb_host, curr_host = host_info
+        paired = get_paired_hosts_1815(transport, product.slot, product.hosts_info_feat_idx, nb_host)
+        if paired is not None:
+            product.paired_hosts = tuple(paired)
+            product.current_host = curr_host
+            log.debug("Refreshed paired_hosts=%s current_host=%d for %s", product.paired_hosts, curr_host, product.name)
+    except Exception as e:
+        log.debug("Failed to refresh paired hosts for %s: %s", product.name, e)
+
+
 # ── Receiver listener ────────────────────────────────────────────────────────
 
 
 class ReceiverListener(BaseListener):
     """Handles a Bolt/Unifying receiver with devices in slots 1-6."""
+
+    def __init__(
+        self,
+        hid_device_info: HidDeviceInfo,
+        shutdown: threading.Event,
+        registry: ProductRegistry,
+        preferred_host: int | None = None,
+        short_hid_device_info: HidDeviceInfo | None = None,
+    ) -> None:
+        super().__init__(hid_device_info, shutdown, registry, preferred_host)
+        self._short_hid_device_info = short_hid_device_info
+        self._short_transport: HIDTransport | None = None
 
     def _init_transport(self) -> None:
         if self._transport is not None:
@@ -140,6 +212,14 @@ class ReceiverListener(BaseListener):
                 self._shutdown.wait(1)
         if self._transport is None:
             log.debug(f"Couldn't open transport. error={last_error}")
+            return
+        if self._short_hid_device_info is not None:
+            try:
+                hid_device = self._short_hid_device_info
+                kind = "bolt" if hid_device.pid == BOLT_PID else "unifying"
+                self._short_transport = HIDTransport(hid_device.path, kind, hid_device.pid)
+            except OSError as e:
+                log.debug(f"Could not open short transport (Windows disconnect notifications): {e}")
 
     def _detect_products(self) -> None:
         for slot in range(1, 7):
@@ -147,6 +227,48 @@ class ReceiverListener(BaseListener):
                 self._add_product(slot)
                 if slot in self._products:
                     self._handle_connection(ConnectionEvent(slot))
+        # Retry slots that failed — a device may have been slow to wake up
+        # and its late response was consumed by a subsequent slot's probe.
+        for slot in range(1, 7):
+            if slot not in self._products:
+                self._add_product(slot)
+                if slot in self._products:
+                    self._handle_connection(ConnectionEvent(slot))
+
+    def _probe_unknown_slot(self, raw: bytes) -> None:
+        if len(raw) < 2 or raw[0] != REPORT_LONG:
+            return
+        slot = raw[1]
+        if slot < 1 or slot > 6 or slot in self._products:
+            return
+        now = monotonic()
+        if now - self._probe_cooldown.get(slot, 0) < 5.0:
+            return
+        self._probe_cooldown[slot] = now
+        log.debug("Traffic from unregistered slot %d — attempting late probe", slot)
+        self._add_product(slot)
+        if slot in self._products:
+            self._handle_connection(ConnectionEvent(slot))
+
+    def _event_loop(self) -> None:
+        while not self._shutdown.is_set() and not self._stopped:
+            raw = self._transport.read(100)
+            if raw is not None:
+                event = parse_message(raw, self._products)
+                log.debug("parsed event=%s", event)
+                if event is None:
+                    self._probe_unknown_slot(raw)
+                else:
+                    self._handle_event(event)
+                    self._shutdown.wait(0.2)
+            # On Windows, poll the short collection (non-blocking) for disconnect notifications.
+            if self._short_transport is not None:
+                short_raw = self._short_transport.read(0)
+                if short_raw is not None:
+                    short_event = parse_message(short_raw, self._products)
+                    log.debug("short transport parsed event=%s", short_event)
+                    if short_event is not None:
+                        self._handle_event(short_event)
 
     def _handle_event(self, event: BaseEvent) -> None:
         if isinstance(event, ConnectionEvent):
@@ -158,6 +280,8 @@ class ReceiverListener(BaseListener):
             self._handle_host_change(event)
         elif isinstance(event, ExternalUndivertEvent):
             self._handle_external_undivert(event)
+        elif isinstance(event, DisconnectEvent):
+            self._handle_disconnect(event)
 
     def _handle_connection(self, event: ConnectionEvent) -> None:
         product = self._products.get(event.slot)
@@ -167,6 +291,45 @@ class ReceiverListener(BaseListener):
         if product.divert_feat_idx is not None:
             log.debug(f"Sending divert host switch keys request for slot={product.slot} name={product.name}")
             _divert_all_es_keys(self._transport, product)
+        if product.divert_feat_idx is None and product.role == "keyboard":
+            self._refresh_paired_hosts(product)
+
+    def _handle_disconnect(self, event: DisconnectEvent) -> None:
+        """Handle a SHORT disconnect notification for a non-divertable keyboard.
+
+        Determines the target host (the other paired host) and delegates to
+        _handle_host_change so all registry devices switch together.
+        For 3-host keyboards, preferred_host must be set in config; if it is not,
+        the app exits with an error message.
+        """
+        product = self._products.get(event.slot)
+        if product is None:
+            return
+        if product.divert_feat_idx is not None:
+            return
+        if product.role != "keyboard":
+            return
+
+        if product.paired_hosts is not None and len(product.paired_hosts) == 2:
+            target = next(h for h in product.paired_hosts if h != product.current_host)
+        elif self._preferred_host is not None:
+            target = self._preferred_host
+        else:
+            log.error(
+                "Non-divertable keyboard '%s' has %s paired hosts but no preferred_host configured. "
+                "Set 'preferred_host' (1-3) in config.yaml settings section.",
+                product.name,
+                len(product.paired_hosts) if product.paired_hosts else "unknown number of",
+            )
+            self._shutdown.set()
+            return
+
+        log.debug("Non-divertable keyboard '%s' disconnected — switching to host %d", product.name, target + 1)
+        self._handle_host_change(HostChangeEvent(slot=event.slot, target_host=target))
+
+    def _refresh_paired_hosts(self, product: LogiProduct) -> None:
+        """Delegate to module-level _refresh_paired_hosts using this listener's transport."""
+        _refresh_paired_hosts(self._transport, product)
 
     def _handle_external_undivert(self, event: ExternalUndivertEvent) -> None:
         product = self._products.get(event.slot)
@@ -198,7 +361,7 @@ class ReceiverListener(BaseListener):
                     name,
                 )
                 self._registry.register((self._hid_device_info.path, slot), entry)
-        except RuntimeError as e:
+        except (TransportError, RuntimeError) as e:
             log.debug("Error occurred during adding new product: %s", e)
             if slot in self._products:
                 self._products.pop(slot)
@@ -209,6 +372,9 @@ class ReceiverListener(BaseListener):
                 _undivert_all_es_keys(self._transport, product)
         for slot in self._products:
             self._registry.unregister((self._hid_device_info.path, slot))
+        if self._short_transport is not None:
+            self._short_transport.close()
+            self._short_transport = None
         super()._cleanup()
 
 
@@ -218,6 +384,17 @@ class ReceiverListener(BaseListener):
 class BTListener(BaseListener):
     """Handles a single Bluetooth-connected Logitech device."""
 
+    def __init__(
+        self,
+        hid_device_info: HidDeviceInfo,
+        shutdown: threading.Event,
+        registry: ProductRegistry,
+        bt_cache: BTDeviceCache | None = None,
+        preferred_host: int | None = None,
+    ) -> None:
+        self._bt_cache = bt_cache
+        super().__init__(hid_device_info, shutdown, registry, preferred_host)
+
     def _init_transport(self) -> None:
         try:
             self._transport = HIDTransport(self._hid_device_info.path, "bluetooth", self._hid_device_info.pid)
@@ -225,6 +402,47 @@ class BTListener(BaseListener):
             log.debug("Cannot open BT device 0x%04X: %s", self._hid_device_info.pid, e)
 
     def _detect_products(self) -> None:
+        pid = self._hid_device_info.pid
+        cached = self._bt_cache.get(pid) if self._bt_cache is not None else None
+        if cached is not None:
+            self._restore_from_cache(cached)
+        else:
+            self._full_probe()
+
+    def _restore_from_cache(self, cached: CachedBTDevice) -> None:
+        """Restore product identity from cache, skipping the HID++ feature-discovery probe.
+
+        Re-registers in the ProductRegistry immediately so host-switch events can
+        reach this device without waiting for the full probe to complete.
+        """
+        product = LogiProduct(
+            slot=DEVICE_RECEIVER,
+            change_host_feat_idx=cached.change_host_feat_idx,
+            divert_feat_idx=cached.divert_feat_idx,
+            role=cached.role,
+            name=cached.name,
+            hosts_info_feat_idx=cached.hosts_info_feat_idx,
+        )
+        self._products[DEVICE_RECEIVER] = product
+        self._registry.register(
+            self._hid_device_info.pid,
+            ProductEntry(
+                self._transport,
+                DEVICE_RECEIVER,
+                product.change_host_feat_idx,
+                product.divert_feat_idx,
+                cached.role,
+                cached.name,
+            ),
+        )
+        if product.divert_feat_idx is not None:
+            _divert_all_es_keys(self._transport, product)
+        if product.divert_feat_idx is None and product.role == "keyboard" and product.hosts_info_feat_idx is not None:
+            _refresh_paired_hosts(self._transport, product)
+        log.info("'%s' restored from cache via transport=%s", cached.name, self._transport.kind)
+
+    def _full_probe(self) -> None:
+        """Query device identity via HID++ and populate the cache on success."""
         try:
             info = _query_device_info(self._transport, DEVICE_RECEIVER)
             if not info:
@@ -246,7 +464,18 @@ class BTListener(BaseListener):
                 )
                 if product.divert_feat_idx is not None:
                     _divert_all_es_keys(self._transport, product)
-        except RuntimeError as e:
+                if self._bt_cache is not None:
+                    self._bt_cache.put(
+                        CachedBTDevice(
+                            pid=self._hid_device_info.pid,
+                            role=role,
+                            name=name,
+                            change_host_feat_idx=product.change_host_feat_idx,
+                            divert_feat_idx=product.divert_feat_idx,
+                            hosts_info_feat_idx=product.hosts_info_feat_idx,
+                        )
+                    )
+        except TransportError as e:
             log.debug("Error probing BT device 0x%04X: %s", self._hid_device_info.pid, e)
 
     def _handle_event(self, event: BaseEvent) -> None:
@@ -271,9 +500,16 @@ class BTListener(BaseListener):
 def parse_message(raw: bytes, products: dict[int, LogiProduct] | None = None) -> BaseEvent | None:
     """Parse a raw HID++ packet into a structured event, or None if irrelevant.
 
+    Handles both SHORT (report 0x10) and LONG (report 0x11) messages:
+    - SHORT + HID_DEVICE_PAIRING + DISCONNECT_FLAG → DisconnectEvent
+      (Windows-only; on Linux/macOS the single long-report handle also receives
+      disconnect notifications, but as LONG messages via x1D4B)
+    - LONG + x1D4B + byte[4]=0x01 → ConnectionEvent
+    - LONG + divert_feat_idx + fn=0x30 from external sw_id → ExternalUndivertEvent
+    - LONG + divert_feat_idx + fn=0x00 + known HOST_SWITCH_CID → HostChangeEvent
+
     When *products* is provided, also detects setCidReporting responses from
-    other applications (e.g. Solaar) that undivert Easy-Switch keys, returning
-    a ConnectionEvent to trigger re-diversion.
+    other applications (e.g. Solaar) that undivert Easy-Switch keys.
     """
     if not raw or len(raw) < 4:
         return None
@@ -283,10 +519,17 @@ def parse_message(raw: bytes, products: dict[int, LogiProduct] | None = None) ->
     report_id = raw[0]
     slot = raw[1]
     feature_id = raw[2]
-    function_id = raw[3]
+
+    # SHORT disconnect notification (Windows: dedicated short HID collection)
+    if report_id == REPORT_SHORT and len(raw) >= 5 and feature_id == HID_DEVICE_PAIRING:
+        if raw[4] & DISCONNECT_FLAG:
+            return DisconnectEvent(slot)
+        return None
 
     if report_id != REPORT_LONG:
         return None
+
+    function_id = raw[3]
 
     if feature_id == 0x04 and raw[4] == 0x01:
         return ConnectionEvent(slot)

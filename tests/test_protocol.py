@@ -25,18 +25,21 @@ from cleverswitch.hidpp.constants import (
     REPORT_SHORT,
     SW_ID,
 )
+from cleverswitch.hidpp.constants import KEY_FLAG_DIVERTABLE
 from cleverswitch.hidpp.protocol import (
     _build_msg,
     _is_relevant,
     _pack_params,
+    are_es_cids_divertable,
     get_device_name,
     get_device_type,
+    get_host_info_1814,
+    get_paired_hosts_1815,
     request,
     resolve_feature_index,
     send_change_host,
     set_cid_divert,
 )
-
 
 # ── _pack_params ───────────────────────────────────────────────────────────────
 
@@ -50,13 +53,13 @@ def test_pack_params_packs_single_int_as_one_byte():
 
 
 def test_pack_params_passes_bytes_through_unchanged():
-    assert _pack_params((b"\xAA\xBB",)) == b"\xAA\xBB"
+    assert _pack_params((b"\xaa\xbb",)) == b"\xaa\xbb"
 
 
 def test_pack_params_concatenates_mixed_int_and_bytes():
     params = (0xFF, b"\x01\x02")
     result = _pack_params(params)
-    assert result == b"\xFF\x01\x02"
+    assert result == b"\xff\x01\x02"
 
 
 # ── _build_msg ─────────────────────────────────────────────────────────────────
@@ -129,10 +132,10 @@ def _make_long_reply(devnumber: int, request_id: int, payload: bytes = b"\x00" *
 
 def test_request_returns_payload_on_successful_reply(make_fake_transport):
     effective_id = (0x0100 & 0xFFF0) | SW_ID  # 0x0108
-    reply = _make_long_reply(1, effective_id, b"\xAA\xBB\xCC")
+    reply = _make_long_reply(1, effective_id, b"\xaa\xbb\xcc")
     t = make_fake_transport(responses=[reply])
     result = request(t, devnumber=1, request_id=0x0100)
-    assert result[:3] == b"\xAA\xBB\xCC"
+    assert result[:3] == b"\xaa\xbb\xcc"
 
 
 def test_request_writes_message_to_transport(make_fake_transport):
@@ -240,7 +243,6 @@ def test_send_change_host_raises_transport_error_on_write_failure(mocker, fake_t
         send_change_host(fake_transport, devnumber=1, feature_idx=4, target_host=2)
 
 
-
 # ── set_cid_divert() ──────────────────────────────────────────────────────────
 
 
@@ -266,8 +268,8 @@ def test_get_device_name_returns_name_from_single_chunk(mocker, fake_transport):
     mocker.patch(
         "cleverswitch.hidpp.protocol.request",
         side_effect=[
-            b"\x07",                          # getDeviceNameCount → nameLen=7
-            b"MX Keys" + b"\x00" * 9,         # getDeviceName(0) → 16-byte chunk
+            b"\x07",  # getDeviceNameCount → nameLen=7
+            b"MX Keys" + b"\x00" * 9,  # getDeviceName(0) → 16-byte chunk
         ],
     )
     result = get_device_name(fake_transport, devnumber=1, feat_idx=2)
@@ -278,11 +280,11 @@ def test_get_device_name_assembles_name_from_multiple_chunks(mocker, fake_transp
     mocker.patch(
         "cleverswitch.hidpp.protocol.request",
         side_effect=[
-            b"\x0b",        # getDeviceNameCount → nameLen=11 ("MX Master 3")
-            b"MX ",         # getDeviceName(0)  → chars 0-2
-            b"Mas",         # getDeviceName(3)  → chars 3-5
-            b"ter",         # getDeviceName(6)  → chars 6-8
-            b" 3\x00",      # getDeviceName(9)  → chars 9-10 + padding
+            b"\x0b",  # getDeviceNameCount → nameLen=11 ("MX Master 3")
+            b"MX ",  # getDeviceName(0)  → chars 0-2
+            b"Mas",  # getDeviceName(3)  → chars 3-5
+            b"ter",  # getDeviceName(6)  → chars 6-8
+            b" 3\x00",  # getDeviceName(9)  → chars 9-10 + padding
         ],
     )
     result = get_device_name(fake_transport, devnumber=1, feat_idx=2)
@@ -303,10 +305,139 @@ def test_get_device_name_returns_partial_name_when_chunk_request_fails(mocker, f
     mocker.patch(
         "cleverswitch.hidpp.protocol.request",
         side_effect=[
-            b"\x07",    # nameLen=7
-            b"MX ",     # chars 0-2
-            None,       # chars 3+ → failure
+            b"\x07",  # nameLen=7
+            b"MX ",  # chars 0-2
+            None,  # chars 3+ → failure
         ],
     )
     result = get_device_name(fake_transport, devnumber=1, feat_idx=2)
     assert result == "MX "
+
+
+# ── are_es_cids_divertable() ────────────────────────────────────────────────
+
+
+def _cid_info_reply(cid: int, flags: int) -> bytes:
+    """Build a getCidInfo reply: CID (2B BE) + task_id (2B) + flags (1B) + padding."""
+    return struct.pack("!HHB", cid, 0, flags) + b"\x00" * 11
+
+
+def test_are_es_cids_divertable_true(mocker, fake_transport):
+    mocker.patch(
+        "cleverswitch.hidpp.protocol.request",
+        side_effect=[
+            b"\x03" + b"\x00" * 15,  # getCidCount → 3
+            _cid_info_reply(0x00D1, KEY_FLAG_DIVERTABLE),
+            _cid_info_reply(0x00D2, KEY_FLAG_DIVERTABLE),
+            _cid_info_reply(0x00D3, KEY_FLAG_DIVERTABLE),
+        ],
+    )
+    assert are_es_cids_divertable(fake_transport, devnumber=1, feat_idx=4) is True
+
+
+def test_are_es_cids_divertable_false_no_flag(mocker, fake_transport):
+    mocker.patch(
+        "cleverswitch.hidpp.protocol.request",
+        side_effect=[
+            b"\x03" + b"\x00" * 15,  # getCidCount → 3
+            _cid_info_reply(0x00D1, 0x00),  # not divertable
+            _cid_info_reply(0x00D2, KEY_FLAG_DIVERTABLE),
+            _cid_info_reply(0x00D3, KEY_FLAG_DIVERTABLE),
+        ],
+    )
+    assert are_es_cids_divertable(fake_transport, devnumber=1, feat_idx=4) is False
+
+
+def test_are_es_cids_divertable_false_no_es_cids(mocker, fake_transport):
+    mocker.patch(
+        "cleverswitch.hidpp.protocol.request",
+        side_effect=[
+            b"\x02" + b"\x00" * 15,  # getCidCount → 2
+            _cid_info_reply(0x0050, KEY_FLAG_DIVERTABLE),  # not an ES CID
+            _cid_info_reply(0x0051, KEY_FLAG_DIVERTABLE),  # not an ES CID
+        ],
+    )
+    assert are_es_cids_divertable(fake_transport, devnumber=1, feat_idx=4) is False
+
+
+def test_are_es_cids_divertable_false_get_cid_count_fails(mocker, fake_transport):
+    mocker.patch("cleverswitch.hidpp.protocol.request", return_value=None)
+    assert are_es_cids_divertable(fake_transport, devnumber=1, feat_idx=4) is False
+
+
+# ── get_host_info_1814() ─────────────────────────────────────────────────────
+
+
+def test_get_host_info_1814_returns_nb_host_and_curr_host(mocker, fake_transport):
+    mocker.patch("cleverswitch.hidpp.protocol.request", return_value=b"\x03\x01" + b"\x00" * 14)
+    result = get_host_info_1814(fake_transport, devnumber=1, feat_idx=5)
+    assert result == (3, 1)
+
+
+def test_get_host_info_1814_returns_none_when_request_fails(mocker, fake_transport):
+    mocker.patch("cleverswitch.hidpp.protocol.request", return_value=None)
+    assert get_host_info_1814(fake_transport, devnumber=1, feat_idx=5) is None
+
+
+def test_get_host_info_1814_returns_none_when_reply_too_short(mocker, fake_transport):
+    mocker.patch("cleverswitch.hidpp.protocol.request", return_value=b"\x03")
+    assert get_host_info_1814(fake_transport, devnumber=1, feat_idx=5) is None
+
+
+# ── get_paired_hosts_1815() ──────────────────────────────────────────────────
+
+
+def test_get_paired_hosts_1815_returns_paired_host_indices(mocker, fake_transport):
+    """Two hosts: index 0 paired (status=1), index 1 empty (status=0)."""
+    mocker.patch(
+        "cleverswitch.hidpp.protocol.request",
+        side_effect=[
+            b"\x00\x01" + b"\x00" * 14,  # host 0: status=1 (paired)
+            b"\x00\x00" + b"\x00" * 14,  # host 1: status=0 (empty)
+        ],
+    )
+    result = get_paired_hosts_1815(fake_transport, devnumber=1, feat_idx=7, num_hosts=2)
+    assert result == [0]
+
+
+def test_get_paired_hosts_1815_returns_all_paired_when_all_slots_filled(mocker, fake_transport):
+    mocker.patch(
+        "cleverswitch.hidpp.protocol.request",
+        side_effect=[
+            b"\x00\x01" + b"\x00" * 14,  # host 0: paired
+            b"\x00\x01" + b"\x00" * 14,  # host 1: paired
+            b"\x00\x01" + b"\x00" * 14,  # host 2: paired
+        ],
+    )
+    result = get_paired_hosts_1815(fake_transport, devnumber=1, feat_idx=7, num_hosts=3)
+    assert result == [0, 1, 2]
+
+
+def test_get_paired_hosts_1815_returns_none_when_any_query_fails(mocker, fake_transport):
+    mocker.patch(
+        "cleverswitch.hidpp.protocol.request",
+        side_effect=[
+            b"\x00\x01" + b"\x00" * 14,  # host 0: ok
+            None,                          # host 1: failure
+        ],
+    )
+    result = get_paired_hosts_1815(fake_transport, devnumber=1, feat_idx=7, num_hosts=2)
+    assert result is None
+
+
+def test_get_paired_hosts_1815_returns_empty_list_when_no_hosts_paired(mocker, fake_transport):
+    mocker.patch(
+        "cleverswitch.hidpp.protocol.request",
+        side_effect=[
+            b"\x00\x00" + b"\x00" * 14,  # host 0: empty
+            b"\x00\x00" + b"\x00" * 14,  # host 1: empty
+        ],
+    )
+    result = get_paired_hosts_1815(fake_transport, devnumber=1, feat_idx=7, num_hosts=2)
+    assert result == []
+
+
+def test_get_paired_hosts_1815_returns_none_when_reply_too_short(mocker, fake_transport):
+    mocker.patch("cleverswitch.hidpp.protocol.request", return_value=b"\x00")
+    result = get_paired_hosts_1815(fake_transport, devnumber=1, feat_idx=7, num_hosts=1)
+    assert result is None
