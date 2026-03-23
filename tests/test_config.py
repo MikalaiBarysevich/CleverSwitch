@@ -91,6 +91,25 @@ def test_parse_empty_dict_falls_back_to_all_defaults():
     assert cfg.settings.read_timeout_ms == defaults.settings.read_timeout_ms
 
 
+def test_parse_preferred_host_converts_to_zero_based():
+    """User-facing value 1/2/3 should be stored as 0-based index 0/1/2."""
+    assert _parse({"settings": {"preferred_host": 1}}, _cli_args()).settings.preferred_host == 0
+    assert _parse({"settings": {"preferred_host": 2}}, _cli_args()).settings.preferred_host == 1
+    assert _parse({"settings": {"preferred_host": 3}}, _cli_args()).settings.preferred_host == 2
+
+
+def test_parse_preferred_host_defaults_to_none():
+    cfg = _parse({}, _cli_args())
+    assert cfg.settings.preferred_host is None
+
+
+def test_parse_preferred_host_raises_for_invalid_value():
+    from cleverswitch.errors import ConfigError
+
+    with pytest.raises(ConfigError, match="preferred_host"):
+        _parse({"settings": {"preferred_host": 4}}, _cli_args())
+
+
 def test_parse_populates_on_switch_hooks_from_mixed_entries():
     raw = {
         "hooks": {

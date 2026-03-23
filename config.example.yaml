@@ -34,3 +34,10 @@ hooks:
 settings:
   # How long to block on HID read before checking for shutdown signal (ms)
   read_timeout_ms: 2000
+
+  # Target host for non-divertable keyboards paired to 3+ hosts.
+  # Set to 1, 2, or 3 to specify which host to switch to.
+  # Required when the keyboard is paired to all 3 hosts; ignored for 2-host setups
+  # or keyboards that support Easy-Switch key diversion.
+
+  # preferred_host: 2
