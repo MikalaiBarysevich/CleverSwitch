@@ -291,7 +291,7 @@ class ReceiverListener(BaseListener):
             self._shutdown.set()
             return
 
-        log.info("Non-divertable keyboard '%s' disconnected — switching to host %d", product.name, target)
+        log.debug("Non-divertable keyboard '%s' disconnected — switching to host %d", product.name, target + 1)
         self._handle_host_change(HostChangeEvent(slot=event.slot, target_host=target))
 
     def _refresh_paired_hosts(self, product: LogiProduct) -> None:
