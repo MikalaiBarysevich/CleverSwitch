@@ -89,6 +89,36 @@ def test_parse_empty_dict_falls_back_to_all_defaults():
     cfg = _parse({}, _cli_args())
     defaults = default_config()
     assert cfg.settings.read_timeout_ms == defaults.settings.read_timeout_ms
+    assert cfg.settings.log_level == defaults.settings.log_level
+
+
+def test_parse_normalises_log_level_to_uppercase():
+    cfg = _parse({"settings": {"log_level": "warning"}})
+    assert cfg.settings.log_level == "WARNING"
+
+
+def test_parse_preferred_host_converts_to_zero_based():
+    """User-facing value 1/2/3 should be stored as 0-based index 0/1/2."""
+    assert _parse({"settings": {"preferred_host": 1}}).settings.preferred_host == 0
+    assert _parse({"settings": {"preferred_host": 2}}).settings.preferred_host == 1
+    assert _parse({"settings": {"preferred_host": 3}}).settings.preferred_host == 2
+
+
+def test_parse_preferred_host_defaults_to_none():
+    cfg = _parse({})
+    assert cfg.settings.preferred_host is None
+
+
+def test_parse_preferred_host_raises_for_invalid_value():
+    from cleverswitch.errors import ConfigError
+
+    with pytest.raises(ConfigError, match="preferred_host"):
+        _parse({"settings": {"preferred_host": 4}})
+
+
+def test_parse_accepts_hex_string_for_receiver_vendor_id():
+    cfg = _parse({"receiver": {"vendor_id": "0x046D"}})
+    assert cfg.receiver.vendor_id == 0x046D
 
 
 def test_parse_populates_on_switch_hooks_from_mixed_entries():

@@ -14,15 +14,34 @@ import logging
 import threading
 
 from .config import Config
-from .hidpp.transport import enumerate_hid_devices
+from .hidpp.constants import HIDPP_USAGES_LONG, HIDPP_USAGES_SHORT
+from .hidpp.transport import HidDeviceInfo, enumerate_hid_devices
 from .listeners import BaseListener, BTListener, ProductRegistry, ReceiverListener
 
 log = logging.getLogger(__name__)
 
 
+def _find_short_device(long_device: HidDeviceInfo, all_devices: list[HidDeviceInfo]) -> HidDeviceInfo | None:
+    """On Windows, find the SHORT-usage HID collection for the same receiver PID.
+
+    The Bolt/Unifying receiver enumerates two HID collections on Windows:
+    - Long collection  (usage 0x0002) — used for normal HID++ 2.0 traffic
+    - Short collection (usage 0x0001) — delivers REPORT_SHORT disconnect notifications
+
+    Returns the short-usage entry for the same PID, or None if not found or not
+    on Windows (Linux/macOS use a single handle that receives all report types).
+    """
+    for device in all_devices:
+        if device.pid == long_device.pid and device.usage in HIDPP_USAGES_SHORT:
+            return device
+    return None
+
+
 def discover(config: Config, shutdown: threading.Event) -> None:
     log.info("Starting device discovery…")
     log.info("Start pressing Easy-Switch buttons once at least 2 devices are discovered.")
+
+    preferred_host = config.settings.preferred_host if config is not None else None
 
     registry = ProductRegistry()
     listeners: dict[bytes, BaseListener] = {}
@@ -31,8 +50,13 @@ def discover(config: Config, shutdown: threading.Event) -> None:
         while not shutdown.is_set():
             devices = enumerate_hid_devices(verbose_extra=config.arguments_settings.verbose_extra)
 
+            # Separate long-usage entries (used for listeners) from short-usage entries
+            # (Windows-only short collection for disconnect notifications).
+            long_devices = [d for d in devices if d.usage in HIDPP_USAGES_LONG]
+            all_devices = devices
+
             # Remove listeners for paths that disappeared or threads that died
-            current_paths = {d.path for d in devices}
+            current_paths = {d.path for d in long_devices}
             removed_paths = set()
             for path, listener in listeners.items():
                 if path not in current_paths:
@@ -44,10 +68,17 @@ def discover(config: Config, shutdown: threading.Event) -> None:
                 listeners.pop(path).stop()
 
             # Add listeners for new paths
-            for device in devices:
+            for device in long_devices:
                 if device.path not in listeners:
                     if device.connection_type == "receiver":
-                        listener = ReceiverListener(device, shutdown, registry)
+                        short_device = _find_short_device(device, all_devices)
+                        listener = ReceiverListener(
+                            device,
+                            shutdown,
+                            registry,
+                            preferred_host=preferred_host,
+                            short_hid_device_info=short_device,
+                        )
                     else:
                         listener = BTListener(device, shutdown, registry)
                     listeners[device.path] = listener

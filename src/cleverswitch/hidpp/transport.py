@@ -24,6 +24,7 @@ from .constants import (
     ALL_RECEIVER_PIDS,
     HIDPP_USAGE_PAGES,
     HIDPP_USAGES_LONG,
+    HIDPP_USAGES_SHORT,
     LOGITECH_VENDOR_ID,
     MAX_READ_SIZE,
 )
@@ -206,11 +207,17 @@ def enumerate_hid_devices(
             continue
 
         usage = hid_device_content.usage
+        is_receiver = pid in ALL_RECEIVER_PIDS
+        # On Windows, receiver devices expose a separate short-report HID collection
+        # (usage 0x0001) in addition to the long-report collection (usage 0x0002).
+        # Accept short-usage entries for receivers on Windows so callers can open
+        # the short collection to receive SHORT disconnect notifications.
         if usage not in HIDPP_USAGES_LONG:
-            _log(f"Usage 0x{usage:04X} not supported. Skipping path={path}, pid=0x{pid:04X}", verbose_extra)
-            continue
+            if not (_IS_WINDOWS and is_receiver and usage in HIDPP_USAGES_SHORT):
+                _log(f"Usage 0x{usage:04X} not supported. Skipping path={path}, pid=0x{pid:04X}", verbose_extra)
+                continue
 
-        connection_type = "receiver" if pid in ALL_RECEIVER_PIDS else "bluetooth"
+        connection_type = "receiver" if is_receiver else "bluetooth"
 
         result[path] = HidDeviceInfo(
             path,

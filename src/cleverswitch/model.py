@@ -26,6 +26,11 @@ class ExternalUndivertEvent(BaseEvent):
 
 
 @dataclass
+class DisconnectEvent(BaseEvent):
+    """Disconnect notification for a receiver-paired device (SHORT report, HID_DEVICE_PAIRING)."""
+
+
+@dataclass
 class LogiProduct:
     """Everything needed to talk to one device."""
 
@@ -35,6 +40,10 @@ class LogiProduct:
     role: str  # "keyboard" or "mouse"
     name: str
     connected: bool = False
+    # Fields for non-divertable keyboard host tracking (x1814 / x1815)
+    paired_hosts: tuple[int, ...] | None = None
+    current_host: int | None = None
+    hosts_info_feat_idx: int | None = None
 
 
 @dataclass

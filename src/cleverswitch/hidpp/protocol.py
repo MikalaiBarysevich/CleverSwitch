@@ -280,6 +280,49 @@ def set_cid_divert(
     request_write_only(transport, devnumber, (feat_idx << 8) | 0x30, params)
 
 
+def get_host_info_1814(
+    transport: HIDTransport,
+    devnumber: int,
+    feat_idx: int,
+) -> tuple[int, int] | None:
+    """Call x1814 getHostInfo [fn 0] and return (nb_host, curr_host).
+
+    Returns the total number of host slots and the 0-based index of the
+    currently active host, or None if the request fails.
+    """
+    request_id = (feat_idx << 8) | 0x00
+    reply = request(transport, devnumber, request_id, timeout=500)
+    if not reply or len(reply) < 2:
+        return None
+    return reply[0], reply[1]
+
+
+def get_paired_hosts_1815(
+    transport: HIDTransport,
+    devnumber: int,
+    feat_idx: int,
+    num_hosts: int,
+) -> list[int] | None:
+    """Query x1815 getHostInfo [fn 1] for each host slot and return paired indices.
+
+    For each host index in range(num_hosts), reads reply byte 1 (status):
+    0 = empty slot, 1 = paired.
+
+    Returns the list of 0-based host indices that are paired (e.g. [0, 2]),
+    or None if any individual query fails.
+    """
+    paired: list[int] = []
+    for host_index in range(num_hosts):
+        request_id = (feat_idx << 8) | 0x10
+        reply = request(transport, devnumber, request_id, host_index, timeout=500)
+        if not reply or len(reply) < 2:
+            return None
+        status = reply[1]
+        if status == 1:
+            paired.append(host_index)
+    return paired
+
+
 def are_es_cids_divertable(transport: HIDTransport, devnumber: int, feat_idx: int) -> bool:
     """Check whether all Easy-Switch CIDs on *devnumber* support temporary diversion.
 

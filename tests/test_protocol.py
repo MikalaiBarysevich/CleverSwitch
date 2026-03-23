@@ -33,6 +33,8 @@ from cleverswitch.hidpp.protocol import (
     are_es_cids_divertable,
     get_device_name,
     get_device_type,
+    get_host_info_1814,
+    get_paired_hosts_1815,
     request,
     resolve_feature_index,
     send_change_host,
@@ -361,3 +363,81 @@ def test_are_es_cids_divertable_false_no_es_cids(mocker, fake_transport):
 def test_are_es_cids_divertable_false_get_cid_count_fails(mocker, fake_transport):
     mocker.patch("cleverswitch.hidpp.protocol.request", return_value=None)
     assert are_es_cids_divertable(fake_transport, devnumber=1, feat_idx=4) is False
+
+
+# ── get_host_info_1814() ─────────────────────────────────────────────────────
+
+
+def test_get_host_info_1814_returns_nb_host_and_curr_host(mocker, fake_transport):
+    mocker.patch("cleverswitch.hidpp.protocol.request", return_value=b"\x03\x01" + b"\x00" * 14)
+    result = get_host_info_1814(fake_transport, devnumber=1, feat_idx=5)
+    assert result == (3, 1)
+
+
+def test_get_host_info_1814_returns_none_when_request_fails(mocker, fake_transport):
+    mocker.patch("cleverswitch.hidpp.protocol.request", return_value=None)
+    assert get_host_info_1814(fake_transport, devnumber=1, feat_idx=5) is None
+
+
+def test_get_host_info_1814_returns_none_when_reply_too_short(mocker, fake_transport):
+    mocker.patch("cleverswitch.hidpp.protocol.request", return_value=b"\x03")
+    assert get_host_info_1814(fake_transport, devnumber=1, feat_idx=5) is None
+
+
+# ── get_paired_hosts_1815() ──────────────────────────────────────────────────
+
+
+def test_get_paired_hosts_1815_returns_paired_host_indices(mocker, fake_transport):
+    """Two hosts: index 0 paired (status=1), index 1 empty (status=0)."""
+    mocker.patch(
+        "cleverswitch.hidpp.protocol.request",
+        side_effect=[
+            b"\x00\x01" + b"\x00" * 14,  # host 0: status=1 (paired)
+            b"\x00\x00" + b"\x00" * 14,  # host 1: status=0 (empty)
+        ],
+    )
+    result = get_paired_hosts_1815(fake_transport, devnumber=1, feat_idx=7, num_hosts=2)
+    assert result == [0]
+
+
+def test_get_paired_hosts_1815_returns_all_paired_when_all_slots_filled(mocker, fake_transport):
+    mocker.patch(
+        "cleverswitch.hidpp.protocol.request",
+        side_effect=[
+            b"\x00\x01" + b"\x00" * 14,  # host 0: paired
+            b"\x00\x01" + b"\x00" * 14,  # host 1: paired
+            b"\x00\x01" + b"\x00" * 14,  # host 2: paired
+        ],
+    )
+    result = get_paired_hosts_1815(fake_transport, devnumber=1, feat_idx=7, num_hosts=3)
+    assert result == [0, 1, 2]
+
+
+def test_get_paired_hosts_1815_returns_none_when_any_query_fails(mocker, fake_transport):
+    mocker.patch(
+        "cleverswitch.hidpp.protocol.request",
+        side_effect=[
+            b"\x00\x01" + b"\x00" * 14,  # host 0: ok
+            None,                          # host 1: failure
+        ],
+    )
+    result = get_paired_hosts_1815(fake_transport, devnumber=1, feat_idx=7, num_hosts=2)
+    assert result is None
+
+
+def test_get_paired_hosts_1815_returns_empty_list_when_no_hosts_paired(mocker, fake_transport):
+    mocker.patch(
+        "cleverswitch.hidpp.protocol.request",
+        side_effect=[
+            b"\x00\x00" + b"\x00" * 14,  # host 0: empty
+            b"\x00\x00" + b"\x00" * 14,  # host 1: empty
+        ],
+    )
+    result = get_paired_hosts_1815(fake_transport, devnumber=1, feat_idx=7, num_hosts=2)
+    assert result == []
+
+
+def test_get_paired_hosts_1815_returns_none_when_reply_too_short(mocker, fake_transport):
+    mocker.patch("cleverswitch.hidpp.protocol.request", return_value=b"\x00")
+    result = get_paired_hosts_1815(fake_transport, devnumber=1, feat_idx=7, num_hosts=1)
+    assert result is None
