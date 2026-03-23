@@ -253,17 +253,17 @@ class HIDTransport:
     event loop is never blocked waiting for HID events.
     """
 
-    def __init__(self, kind: str, pid: int) -> None:
-        self.kind = kind
-        self.pid = pid
+    def __init__(self, kind: str, path: bytes) -> None:
+        self._kind = kind
+        self._path = path
         self._dev = None
         self.try_open()
-        log.debug("Opened %s pid=0x%04X", kind, pid)
+        log.debug("Opened %s pid=0x%04X", kind, path)
 
     # ── sync I/O (used by discovery / protocol layer) ─────────────────────────
 
     def try_open(self) -> None:
-        self._dev: int | None = _lib.hid_open(LOGITECH_VENDOR_ID, self.pid, None)
+        self._dev: int | None = _lib.hid_open_path(self._path)
         if not self._dev:
             raise OSError(_hid_err())
 

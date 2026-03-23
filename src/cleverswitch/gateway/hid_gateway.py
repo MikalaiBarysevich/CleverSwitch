@@ -46,7 +46,7 @@ class HidGateway(Thread, Subscriber):
 
         try:
             if self._transport is None:
-                self._transport = HIDTransport(self._device_info.connection_type, self._device_info.pid)
+                self._transport = HIDTransport(self._device_info.connection_type, self._device_info.path)
             else:
                 self._transport.try_reopen()
             self._connected = True
