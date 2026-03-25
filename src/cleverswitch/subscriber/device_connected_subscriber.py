@@ -11,8 +11,6 @@ from ..topic.topic import Topic
 
 log = logging.getLogger(__name__)
 
-ALL_INFO_STEPS = {"resolve_reprog", "resolve_change_host", "resolve_x0005", "find_divertable_cids", "get_device_type", "get_device_name"}
-
 class DeviceConnectionSubscriber(Subscriber):
 
     def __init__(self, device_registry: LogiDeviceRegistry, topics: dict[str, Topic]) -> None:
@@ -50,7 +48,7 @@ class DeviceConnectionSubscriber(Subscriber):
                 cids=logi_device.divertable_cids,
             ))
 
-        missing = ALL_INFO_STEPS - logi_device.completed_steps
+        missing = logi_device.pending_steps
 
         if missing:
             log.debug(f"Device reconnected with incomplete setup (missing={missing}): wpid=0x{event.wpid:04X}")

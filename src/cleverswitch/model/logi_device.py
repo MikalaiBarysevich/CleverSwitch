@@ -11,4 +11,7 @@ class LogiDevice:
     name: str | None = None
     divertable_cids: set[int] = dataclasses.field(default_factory=set)
     persistently_divertable_cids: set[int] = dataclasses.field(default_factory=set)
-    completed_steps: set[str] = dataclasses.field(default_factory=set)
+    pending_steps: set[str] = dataclasses.field(default_factory=lambda: {
+        "resolve_reprog", "resolve_change_host", "resolve_x0005",
+        "find_divertable_cids", "get_device_type", "get_device_name",
+    })
