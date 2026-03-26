@@ -9,7 +9,6 @@ log = logging.getLogger(__name__)
 
 
 class Topic:
-
     def __init__(self):
         self._subscriber_queues: list[queue.Queue] = []
 
@@ -25,4 +24,7 @@ class Topic:
     def _notify(self, subscriber: Subscriber, q: queue.Queue) -> None:
         while True:
             event = q.get()
-            subscriber.notify(event)
+            try:
+                subscriber.notify(event)
+            except Exception:
+                log.exception("Subscriber %s failed to handle event %s", subscriber, event)

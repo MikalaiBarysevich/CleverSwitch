@@ -31,9 +31,3 @@ class TransportError(CleverSwitchError):
 
 class ConfigError(CleverSwitchError):
     pass
-
-
-class ResponseTimeoutError(CleverSwitchError):
-    """Raised when a HID++ request times out waiting for a response."""
-
-    pass

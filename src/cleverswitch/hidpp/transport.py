@@ -258,7 +258,7 @@ class HIDTransport:
         self._path = path
         self._dev = None
         self.try_open()
-        log.debug("Opened %s pid=0x%04X", kind, path)
+        log.debug("Opened %s path=%s", kind, path)
 
     # ── sync I/O (used by discovery / protocol layer) ─────────────────────────
 
