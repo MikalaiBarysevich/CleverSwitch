@@ -17,6 +17,7 @@ import time
 from .config import Config
 from .event.divert_event import DivertEvent
 from .gateway.hid_gateway import HidGateway
+from .gateway.hid_gateway_bt import HidGatewayBT
 from .hidpp.constants import FEATURE_REPROG_CONTROLS_V4
 from .hidpp.transport import enumerate_hid_devices
 from .listener.bluetooth_listener import BluetoothListener
@@ -47,21 +48,13 @@ def discover(config: Config, shutdown: threading.Event) -> None:
     try:
         while not shutdown.is_set():
             devices = enumerate_hid_devices(verbose_extra=config.arguments_settings.verbose_extra)
-            # for device in devices:
-            #     if device.pid not in gateways:
-            #         event_listener = ReceiverListener(device, topics) if device.connection_type == "receiver" else BluetoothListener(device, topics)
-            #         hid_gateway = HidGateway(device, event_listener, send_event_on_connection=device.connection_type == "bluetooth")
-            #         topics["write_topic"].subscribe(hid_gateway)
-            #         gateways[device.pid] = hid_gateway
-            #         hid_gateway.start()
-            #         event_listener.start()
 
             for pid, collections in devices.items():
                 if pid not in gateways:
                     device = collections[0]
                     event_listener = ReceiverListener(device, topics) if device.connection_type == "receiver" else BluetoothListener(device, topics)
                     for collection in collections:
-                        hid_gateway = HidGateway(collection, event_listener, send_event_on_connection=collection.connection_type == "bluetooth")
+                        hid_gateway = HidGateway(collection, event_listener) if device.connection_type == "receiver" else HidGatewayBT(collection, event_listener)
                         topics["write_topic"].subscribe(hid_gateway)
                         pid_gateways = gateways.get(pid, list())
                         pid_gateways.append(hid_gateway)
