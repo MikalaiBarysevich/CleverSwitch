@@ -23,10 +23,9 @@ _USAGE_TO_REPORT_ID = {
 
 class HidGateway(Thread, Subscriber):
     def __init__(
-        self, device_info: HidDeviceInfo, event_listener: EventListener, send_event_on_connection: bool = False
+        self, device_info: HidDeviceInfo, event_listener: EventListener
     ) -> None:
         super().__init__(daemon=True)
-        self._send_event_on_connection = send_event_on_connection
         self._device_info = device_info
         self._connected: bool = False
         self._ever_connected: bool = False
@@ -44,9 +43,7 @@ class HidGateway(Thread, Subscriber):
                     )
                 except TransportError:
                     log.debug(f"Device disconnected pid={hex(self._device_info.pid)}")
-                    self._connected = False
-                    if self._send_event_on_connection:
-                        self._event_listener.listen(self._create_connection_event())
+                    self._set_connected(False)
             else:
                 self._try_connect()
 
@@ -69,22 +66,15 @@ class HidGateway(Thread, Subscriber):
                 self._transport = HIDTransport(self._device_info.connection_type, self._device_info.path)
             else:
                 self._transport.try_reopen()
-            self._connected = True
-            self._ever_connected = True
-            if self._send_event_on_connection:
-                self._event_listener.listen(self._create_connection_event())
+            self._set_connected(True)
         except OSError as e:
             log.debug(f"Failed to connect to HID device pid={hex(self._device_info.pid)}: {e}")
 
-    def _create_connection_event(self) -> bytes:
-        pid = self._device_info.pid
-        # Synthesize a HID++ 1.0 Device Connection short report (0x41)
-        # Layout: [report_id, slot, 0x41, 0x00, r1, wpid_lo, wpid_hi]
-        # r1: bits[3:0]=device_type (unknown=0), bit[6]: 0=connected, 1=disconnected
-        r1 = 0x00 if self._connected else 0x40
-        wpid_lo = pid & 0xFF
-        wpid_hi = (pid >> 8) & 0xFF
-        return bytes([0x10, 0xFF, 0x41, 0x00, r1, wpid_lo, wpid_hi])
+    def _set_connected(self, state: bool) -> None:
+        self._connected = state
+        if not self._ever_connected:
+            self._ever_connected = state
+
 
     def notify(self, event) -> None:
         if not isinstance(event, WriteEvent):
@@ -114,6 +104,13 @@ class HidGateway(Thread, Subscriber):
             log.debug(f"Cannot write to pid={hex(self._device_info.pid)}: disconnected")
             return
         log.debug(f"Writing to pid={hex(self._device_info.pid)}: {msg.hex()}")
+        try:
+            self._do_write(msg)
+        except TransportError:
+            log.debug(f"Write failed for pid={hex(self._device_info.pid)}, marking disconnected")
+            self._connected = False
+
+    def _do_write(self, msg: bytes) -> None:
         self._transport.write(msg)
 
     def close(self):
