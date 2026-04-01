@@ -165,6 +165,18 @@ _lib.hid_write.argtypes = [
 _lib.hid_error.restype = ctypes.c_wchar_p
 _lib.hid_error.argtypes = [ctypes.c_void_p]
 
+# hid_send_output_report — hidapi >= 0.15, uses HidD_SetOutputReport (control pipe).
+# More reliable for Bluetooth on Windows (GATT Write With Response vs Write Without Response).
+_hid_send_output_report = getattr(_lib, "hid_send_output_report", None)
+if _hid_send_output_report is not None:
+    _hid_send_output_report.restype = ctypes.c_int
+    _hid_send_output_report.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_ubyte),
+        ctypes.c_size_t,
+    ]
+    log.debug("hidapi: hid_send_output_report available (>= 0.15)")
+
 
 def _hid_err(dev: int | None = None) -> str:
     msg = _lib.hid_error(dev)
@@ -197,10 +209,6 @@ def enumerate_hid_devices(
         bus_type = hid_device_content.bus_type
         path = hid_device_content.path
 
-        if path in seen_paths:
-            continue
-        seen_paths.add(path)
-
         if hid_device_content.usage_page not in HIDPP_USAGE_PAGES:
             continue
 
@@ -208,6 +216,10 @@ def enumerate_hid_devices(
         # code multiplatform
         if _IS_LINUX and bus_type == 0x01 and hid_device_content.serial_number is not None and len(hid_device_content.serial_number) > 0:
             continue
+
+        if path in seen_paths:
+            continue
+        seen_paths.add(path)
 
         hid_device_info = HidDeviceInfo(
             hid_device_content.path,
@@ -297,6 +309,20 @@ class HIDTransport:
         n = _lib.hid_write(self._dev, buf, len(msg))
         if n < 0:
             raise TransportError(f"hid_write failed: {_hid_err(self._dev)}")
+
+    def write_output_report(self, msg: bytes) -> None:
+        """Write via HidD_SetOutputReport (control pipe).
+
+        Uses GATT Write With Response on BT — more reliable than WriteFile
+        (GATT Write Without Response). Falls back to hid_write if hidapi < 0.15.
+        """
+        if _hid_send_output_report is None:
+            self.write(msg)
+            return
+        buf = (ctypes.c_ubyte * len(msg))(*msg)
+        n = _hid_send_output_report(self._dev, buf, len(msg))
+        if n < 0:
+            raise TransportError(f"hid_send_output_report failed: {_hid_err(self._dev)}")
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
