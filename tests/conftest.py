@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
-
-from cleverswitch.config import ArgsSettings, Config, HooksConfig, Settings
+from cleverswitch.config.config import default_config
 from cleverswitch.hidpp.constants import BOLT_PID
+from cleverswitch.model.config.config import Config
 
 
 class FakeTransport:
@@ -56,8 +56,4 @@ def make_fake_transport():
 @pytest.fixture
 def default_cfg() -> Config:
     """Minimal valid Config with all defaults."""
-    return Config(
-        hooks=HooksConfig(),
-        settings=Settings(),
-        arguments_settings=ArgsSettings(),
-    )
+    return default_config()

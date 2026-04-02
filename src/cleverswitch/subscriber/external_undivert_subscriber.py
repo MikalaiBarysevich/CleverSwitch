@@ -11,7 +11,6 @@ log = logging.getLogger(__name__)
 
 
 class ExternalUndivertSubscriber(Subscriber):
-
     def __init__(self, device_registry: LogiDeviceRegistry, topics: dict[str, Topic]):
         self._device_registry = device_registry
         self._topics = topics
@@ -40,9 +39,11 @@ class ExternalUndivertSubscriber(Subscriber):
 
         log.info("External undivert detected: CID 0x%04X on slot=%d, re-diverting", event.cid, event.slot)
 
-        self._topics["divert_topic"].publish(DivertEvent(
-            slot=event.slot,
-            pid=device.pid,
-            wpid=device.wpid,
-            cids={event.cid},
-        ))
+        self._topics["divert_topic"].publish(
+            DivertEvent(
+                slot=event.slot,
+                pid=device.pid,
+                wpid=device.wpid,
+                cids={event.cid},
+            )
+        )

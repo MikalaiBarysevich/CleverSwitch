@@ -19,7 +19,10 @@ def parse(pid: int, raw_event: bytes) -> Event | None:
         link_established = (r1 & 0x40) == 0
         wpid = raw_event[6] << 8 | raw_event[5]
         return DeviceConnectedEvent(
-            slot=slot, pid=pid, link_established=link_established, wpid=wpid,
+            slot=slot,
+            pid=pid,
+            link_established=link_established,
+            wpid=wpid,
             device_type=device_type if device_type != 0 else None,
         )
 
@@ -43,14 +46,23 @@ def parse(pid: int, raw_event: bytes) -> Event | None:
         if sw_id & SW_ID_MASK:
             payload = raw_event[4:]
             return HidppResponseEvent(
-                slot=slot, pid=pid, feature_index=feature_id, function=function, sw_id=sw_id, payload=payload,
+                slot=slot,
+                pid=pid,
+                feature_index=feature_id,
+                function=function,
+                sw_id=sw_id,
+                payload=payload,
             )
 
         # Notification from device (sw_id == 0)
         if sw_id == 0:
             payload = raw_event[4:]
             return HidppNotificationEvent(
-                slot=slot, pid=pid, feature_index=feature_id, function=function, payload=payload,
+                slot=slot,
+                pid=pid,
+                feature_index=feature_id,
+                function=function,
+                payload=payload,
             )
 
         # External undivert: setCidReporting (fn=3) from another app, ES key CID, divert cleared

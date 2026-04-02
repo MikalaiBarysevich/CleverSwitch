@@ -11,7 +11,6 @@ log = logging.getLogger(__name__)
 
 
 class WirelessStatusSubscriber(Subscriber):
-
     def __init__(self, device_registry: LogiDeviceRegistry, topics: dict[str, Topic]):
         self._device_registry = device_registry
         self._topics = topics
@@ -48,9 +47,11 @@ class WirelessStatusSubscriber(Subscriber):
         name = f"'{device.name}'" if device.name else f"slot={device.slot}"
         log.info("x1D4B reconfiguration request for %s, re-diverting", name)
 
-        self._topics["divert_topic"].publish(DivertEvent(
-            slot=device.slot,
-            pid=device.pid,
-            wpid=device.wpid,
-            cids=device.divertable_cids,
-        ))
+        self._topics["divert_topic"].publish(
+            DivertEvent(
+                slot=device.slot,
+                pid=device.pid,
+                wpid=device.wpid,
+                cids=device.divertable_cids,
+            )
+        )
