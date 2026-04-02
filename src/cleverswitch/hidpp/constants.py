@@ -51,6 +51,7 @@ FEATURE_ROOT = 0x0000  # Look up feature index by code; also used for ping
 FEATURE_DEVICE_TYPE_AND_NAME = 0x0005  # x0005: getDeviceType(), getDeviceName()
 FEATURE_CHANGE_HOST = 0x1814
 FEATURE_REPROG_CONTROLS_V4 = 0x1B04  # Reprogrammable keys / button diversion
+FEATURE_WIRELESS_DEVICE_STATUS = 0x1D4B  # Wireless device reconnection notifications
 
 # x0005 getDeviceType() return values
 DEVICE_TYPE_KEYBOARD = 0

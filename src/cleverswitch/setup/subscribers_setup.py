@@ -5,6 +5,7 @@ from ..subscriber.divert_subscriber import DivertSubscriber
 from ..subscriber.diverted_host_change_subscriber import DivertedHostChangeSubscriber
 from ..subscriber.external_undivert_subscriber import ExternalUndivertSubscriber
 from ..subscriber.host_change_subscriber import HostChangeSubscriber
+from ..subscriber.wireless_status_subscriber import WirelessStatusSubscriber
 from ..topic.topic import Topic
 
 
@@ -15,3 +16,4 @@ def init_subscribers(topics: dict[str, Topic], device_registry: LogiDeviceRegist
     ExternalUndivertSubscriber(device_registry, topics)
     HostChangeSubscriber(device_registry, topics)
     DivertedHostChangeSubscriber(device_registry, topics)
+    WirelessStatusSubscriber(device_registry, topics)
