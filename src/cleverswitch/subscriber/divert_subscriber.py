@@ -3,7 +3,12 @@ import struct
 
 from ..event.divert_event import DivertEvent
 from ..event.write_event import WriteEvent
-from ..hidpp.constants import FEATURE_REPROG_CONTROLS_V4, MAP_FLAG_DIVERTED, MAP_FLAG_PERSISTENTLY_DIVERTED, SW_ID_DIVERT
+from ..hidpp.constants import (
+    FEATURE_REPROG_CONTROLS_V4,
+    MAP_FLAG_DIVERTED,
+    MAP_FLAG_PERSISTENTLY_DIVERTED,
+    SW_ID_DIVERT,
+)
 from ..hidpp.protocol import build_msg
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
@@ -13,7 +18,6 @@ log = logging.getLogger(__name__)
 
 
 class DivertSubscriber(Subscriber):
-
     def __init__(self, device_registry: LogiDeviceRegistry, topics: dict[str, Topic]):
         self._device_registry = device_registry
         self._topics = topics

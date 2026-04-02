@@ -20,7 +20,12 @@ class InfoTask(ABC, Subscriber, Thread):
     """Base class for device info tasks that subscribe to event_topic and wait for HID++ responses."""
 
     def __init__(
-        self, step_name: str, device: LogiDevice, topics: dict[str, Topic], request_id: int, sw_id: int,
+        self,
+        step_name: str,
+        device: LogiDevice,
+        topics: dict[str, Topic],
+        request_id: int,
+        sw_id: int,
     ) -> None:
         super().__init__(daemon=True)
         self._step_name = step_name
@@ -35,10 +40,12 @@ class InfoTask(ABC, Subscriber, Thread):
         if isinstance(event, HidppErrorEvent) and event.slot == self._device.slot:
             self._response_queue.put(event)
             return
-        if (isinstance(event, HidppResponseEvent)
-                and event.slot == self._device.slot
-                and event.pid == self._device.pid
-                and event.sw_id == self._sw_id):
+        if (
+            isinstance(event, HidppResponseEvent)
+            and event.slot == self._device.slot
+            and event.pid == self._device.pid
+            and event.sw_id == self._sw_id
+        ):
             self._response_queue.put(event)
 
     def run(self) -> None:
@@ -48,22 +55,19 @@ class InfoTask(ABC, Subscriber, Thread):
             self.doTask()
 
         if len(self._device.pending_steps) == 0:
-            #todo(CLEV-51): must publish to another subscriber to track if all tasks completed
+            # todo(CLEV-51): must publish to another subscriber to track if all tasks completed
             log.info(f"REMOVE ME LATER device setup completed device={self._device}")
         else:
             self._fire_dependent_steps()
 
     @abstractmethod
-    def doTask(self) -> None:
-        ...
+    def doTask(self) -> None: ...
 
     def _send_request(self, *params, request_id: int | None = None) -> None:
         params_bytes = pack_params(params)
         rid = ((request_id & 0xFFF0) | self._sw_id) if request_id is not None else self._request_id
         msg = build_msg(self._device.slot, rid, params_bytes)
-        self._topics["write_topic"].publish(
-            WriteEvent(slot=self._device.slot, pid=self._device.pid, hid_message=msg)
-        )
+        self._topics["write_topic"].publish(WriteEvent(slot=self._device.slot, pid=self._device.pid, hid_message=msg))
 
     def _wait_response(self, timeout: float = RESPONSE_TIMEOUT) -> HidppResponseEvent | HidppErrorEvent | None:
         try:

@@ -3,7 +3,7 @@ import platform
 import time
 from threading import Thread
 
-from ..errors import TransportError
+from ..errors.errors import TransportError
 from ..event.write_event import WriteEvent
 from ..hidpp.constants import HIDPP_BT_USAGE_LONG, HIDPP_USAGE_LONG, HIDPP_USAGE_SHORT, REPORT_LONG, REPORT_SHORT
 from ..hidpp.transport import HidDeviceInfo, HIDTransport, enumerate_hid_devices
@@ -22,9 +22,7 @@ _USAGE_TO_REPORT_ID = {
 
 
 class HidGateway(Thread, Subscriber):
-    def __init__(
-        self, device_info: HidDeviceInfo, event_listener: EventListener
-    ) -> None:
+    def __init__(self, device_info: HidDeviceInfo, event_listener: EventListener) -> None:
         super().__init__(daemon=True)
         self._device_info = device_info
         self._connected: bool = False
@@ -74,7 +72,6 @@ class HidGateway(Thread, Subscriber):
         self._connected = state
         if not self._ever_connected:
             self._ever_connected = state
-
 
     def notify(self, event) -> None:
         if not isinstance(event, WriteEvent):

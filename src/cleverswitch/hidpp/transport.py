@@ -19,11 +19,9 @@ import os
 import platform
 import sys
 
-from ..errors import TransportError
+from ..errors.errors import TransportError
 from .constants import (
-    ALL_RECEIVER_PIDS,
     HIDPP_USAGE_PAGES,
-    HIDPP_USAGES_LONG,
     LOGITECH_VENDOR_ID,
     MAX_READ_SIZE,
 )
@@ -212,9 +210,15 @@ def enumerate_hid_devices(
         if hid_device_content.usage_page not in HIDPP_USAGE_PAGES:
             continue
 
-        # in linux all connected receiver devices are opened as separate hid device. We want to skip them to make the rest
+        # in linux all connected receiver devices are opened as separate hid device.
+        # We want to skip them to make the rest
         # code multiplatform
-        if _IS_LINUX and bus_type == 0x01 and hid_device_content.serial_number is not None and len(hid_device_content.serial_number) > 0:
+        if (
+            _IS_LINUX
+            and bus_type == 0x01
+            and hid_device_content.serial_number is not None
+            and len(hid_device_content.serial_number) > 0
+        ):
             continue
 
         if path in seen_paths:

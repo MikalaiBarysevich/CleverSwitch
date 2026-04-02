@@ -1,18 +1,18 @@
 import logging
 
 from ..event.device_connected_event import DeviceConnectedEvent
+from ..event.device_info_request_event import DeviceInfoRequestEvent
 from ..event.divert_event import DivertEvent
 from ..hidpp.constants import FEATURE_REPROG_CONTROLS_V4
-from ..subscriber.subscriber import Subscriber
-from ..event.device_info_request_event import DeviceInfoRequestEvent
 from ..model.logi_device import LogiDevice
 from ..registry.logi_device_registry import LogiDeviceRegistry
+from ..subscriber.subscriber import Subscriber
 from ..topic.topic import Topic
 
 log = logging.getLogger(__name__)
 
-class DeviceConnectionSubscriber(Subscriber):
 
+class DeviceConnectionSubscriber(Subscriber):
     def __init__(self, device_registry: LogiDeviceRegistry, topics: dict[str, Topic]) -> None:
         self._device_registry = device_registry
         self._topics = topics
@@ -41,24 +41,28 @@ class DeviceConnectionSubscriber(Subscriber):
             return
 
         if len(logi_device.divertable_cids) > 0 and FEATURE_REPROG_CONTROLS_V4 in logi_device.available_features:
-            self._topics["divert_topic"].publish(DivertEvent(
-                slot=event.slot,
-                pid=logi_device.pid,
-                wpid=logi_device.wpid,
-                cids=logi_device.divertable_cids,
-            ))
+            self._topics["divert_topic"].publish(
+                DivertEvent(
+                    slot=event.slot,
+                    pid=logi_device.pid,
+                    wpid=logi_device.wpid,
+                    cids=logi_device.divertable_cids,
+                )
+            )
 
         missing = logi_device.pending_steps
 
         if missing:
             log.debug(f"Device reconnected with incomplete setup (missing={missing}): wpid=0x{event.wpid:04X}")
-            self._topics["device_info_topic"].publish(DeviceInfoRequestEvent(
-                slot=event.slot,
-                pid=event.pid,
-                wpid=event.wpid,
-                type=logi_device.role is None,
-                name=logi_device.name is None,
-            ))
+            self._topics["device_info_topic"].publish(
+                DeviceInfoRequestEvent(
+                    slot=event.slot,
+                    pid=event.pid,
+                    wpid=event.wpid,
+                    type=logi_device.role is None,
+                    name=logi_device.name is None,
+                )
+            )
 
     def _new_connection(self, event: DeviceConnectedEvent) -> None:
         role = None
@@ -75,9 +79,11 @@ class DeviceConnectionSubscriber(Subscriber):
 
         self._device_registry.register(event.wpid, device)
 
-        self._topics["device_info_topic"].publish(DeviceInfoRequestEvent(
-            slot=event.slot,
-            pid=event.pid,
-            wpid=event.wpid,
-            type=event.device_type is None,
-        ))
+        self._topics["device_info_topic"].publish(
+            DeviceInfoRequestEvent(
+                slot=event.slot,
+                pid=event.pid,
+                wpid=event.wpid,
+                type=event.device_type is None,
+            )
+        )

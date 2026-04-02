@@ -9,9 +9,11 @@ from ..topic.topic import Topic
 
 log = logging.getLogger(__name__)
 
-class EventListener(Thread):
 
-    def __init__(self, device_info: HidDeviceInfo, topics: dict[str, Topic], connection_trigger: ConnectionTrigger = None):
+class EventListener(Thread):
+    def __init__(
+        self, device_info: HidDeviceInfo, topics: dict[str, Topic], connection_trigger: ConnectionTrigger = None
+    ):
         self._device_info = device_info
         self._event_queue = queue.Queue()
         self._topics = topics

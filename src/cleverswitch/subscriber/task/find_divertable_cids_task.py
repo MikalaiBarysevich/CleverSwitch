@@ -1,17 +1,18 @@
 import logging
 
-from .constants import FIND_DIVERTABLE_CIDS_SW_ID
 from ...event.divert_event import DivertEvent
 from ...event.hidpp_error_event import HidppErrorEvent
 from ...hidpp.constants import (
     FEATURE_REPROG_CONTROLS_V4,
+    FEATURE_ROOT,
     HOST_SWITCH_CIDS,
     KEY_FLAG_DIVERTABLE,
-    KEY_FLAG_PERSISTENTLY_DIVERTABLE, FEATURE_ROOT,
+    KEY_FLAG_PERSISTENTLY_DIVERTABLE,
 )
 from ...model.logi_device import LogiDevice
 from ...subscriber.task.info_task import InfoTask
 from ...topic.topic import Topic
+from .constants import FIND_DIVERTABLE_CIDS_SW_ID
 
 log = logging.getLogger(__name__)
 

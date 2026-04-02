@@ -2,7 +2,13 @@ import logging
 
 from ..event.hidpp_notification_event import HidppNotificationEvent
 from ..event.write_event import WriteEvent
-from ..hidpp.constants import CHANGE_HOST_FN_SET, FEATURE_CHANGE_HOST, FEATURE_REPROG_CONTROLS_V4, HOST_SWITCH_CIDS, SW_ID_HOST_CHANGE
+from ..hidpp.constants import (
+    CHANGE_HOST_FN_SET,
+    FEATURE_CHANGE_HOST,
+    FEATURE_REPROG_CONTROLS_V4,
+    HOST_SWITCH_CIDS,
+    SW_ID_HOST_CHANGE,
+)
 from ..hidpp.protocol import build_msg, pack_params
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
@@ -12,7 +18,6 @@ log = logging.getLogger(__name__)
 
 
 class DivertedHostChangeSubscriber(Subscriber):
-
     def __init__(self, device_registry: LogiDeviceRegistry, topics: dict[str, Topic]):
         self._device_registry = device_registry
         self._topics = topics
@@ -43,7 +48,13 @@ class DivertedHostChangeSubscriber(Subscriber):
             return
 
         target_host = HOST_SWITCH_CIDS[cid]
-        log.info("Diverted host change detected from %s (slot=%d) CID=0x%04X -> host %d", source.name, source.slot, cid, target_host + 1)
+        log.info(
+            "Diverted host change detected from %s (slot=%d) CID=0x%04X -> host %d",
+            source.name,
+            source.slot,
+            cid,
+            target_host + 1,
+        )
 
         # Send to ALL devices including source (source didn't switch because key was diverted)
         for device in self._device_registry.all_entries():

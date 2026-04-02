@@ -1,5 +1,4 @@
 import logging
-from collections.abc import Callable
 
 from ....event.hidpp_error_event import HidppErrorEvent
 from ....model.logi_device import LogiDevice
@@ -10,7 +9,6 @@ log = logging.getLogger(__name__)
 
 
 class FeatureTask(InfoTask):
-
     def __init__(
         self,
         step_name: str,
@@ -37,8 +35,12 @@ class FeatureTask(InfoTask):
             return
 
         if isinstance(event, HidppErrorEvent):
-            log.warning("Error resolving feature 0x%04X for slot=%d: error=0x%02X",
-                        self._feature_code, self._device.slot, event.error_code)
+            log.warning(
+                "Error resolving feature 0x%04X for slot=%d: error=0x%02X",
+                self._feature_code,
+                self._device.slot,
+                event.error_code,
+            )
             return
 
         if event.payload[0] != 0x00:
@@ -49,4 +51,3 @@ class FeatureTask(InfoTask):
             log.info("slot=%d: feature 0x%04X not supported", self._device.slot, self._feature_code)
 
         self._device.pending_steps.discard(self._step_name)
-
