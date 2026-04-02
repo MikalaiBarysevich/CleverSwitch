@@ -15,13 +15,13 @@ import threading
 import time
 
 from .config import Config
+from .connection.trigger.receiver_trigger import ReceiverConnectionTrigger
 from .event.divert_event import DivertEvent
 from .gateway.hid_gateway import HidGateway
 from .gateway.hid_gateway_bt import HidGatewayBT
 from .hidpp.constants import FEATURE_REPROG_CONTROLS_V4
 from .hidpp.transport import enumerate_hid_devices
-from .listener.bluetooth_listener import BluetoothListener
-from .listener.receiver_listener import ReceiverListener
+from .listener.event_listener import EventListener
 from .registry.logi_device_registry import LogiDeviceRegistry
 from .setup.subscribers_setup import init_subscribers
 from .topic.topic import Topic
@@ -52,7 +52,8 @@ def discover(config: Config, shutdown: threading.Event) -> None:
             for pid, collections in devices.items():
                 if pid not in gateways:
                     device = collections[0]
-                    event_listener = ReceiverListener(device, topics) if device.connection_type == "receiver" else BluetoothListener(device, topics)
+                    connection_trigger = ReceiverConnectionTrigger(device, topics) if device.connection_type == "receiver" else None
+                    event_listener = EventListener(device, topics, connection_trigger)
                     for collection in collections:
                         hid_gateway = HidGateway(collection, event_listener) if device.connection_type == "receiver" else HidGatewayBT(collection, event_listener)
                         topics["write_topic"].subscribe(hid_gateway)
