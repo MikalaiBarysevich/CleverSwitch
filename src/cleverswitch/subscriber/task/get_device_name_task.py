@@ -1,11 +1,11 @@
 import logging
 
-from .constants import GET_DEVICE_NAME_SW_ID
 from ...event.hidpp_error_event import HidppErrorEvent
 from ...hidpp.constants import FEATURE_DEVICE_TYPE_AND_NAME, FEATURE_ROOT
 from ...model.logi_device import LogiDevice
 from ...subscriber.task.info_task import InfoTask
 from ...topic.topic import Topic
+from .constants import GET_DEVICE_NAME_SW_ID
 
 log = logging.getLogger(__name__)
 

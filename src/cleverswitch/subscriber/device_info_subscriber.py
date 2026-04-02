@@ -1,12 +1,12 @@
 import logging
 
-from .task.feature.change_host_feature_task import ChangeHostFeatureTask
-from .task.feature.name_and_type_feature_task import NameAndTypeFeatureTask
-from .task.feature.reprog_feature_task import ReprogFeatureTask
 from ..event.device_info_request_event import DeviceInfoRequestEvent
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
 from ..topic.topic import Topic
+from .task.feature.change_host_feature_task import ChangeHostFeatureTask
+from .task.feature.name_and_type_feature_task import NameAndTypeFeatureTask
+from .task.feature.reprog_feature_task import ReprogFeatureTask
 
 log = logging.getLogger(__name__)
 

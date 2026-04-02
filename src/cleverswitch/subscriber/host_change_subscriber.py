@@ -12,7 +12,6 @@ log = logging.getLogger(__name__)
 
 
 class HostChangeSubscriber(Subscriber):
-
     def __init__(self, device_registry: LogiDeviceRegistry, topics: dict[str, Topic]):
         self._device_registry = device_registry
         self._topics = topics

@@ -2,7 +2,6 @@ from ..gateway.hid_gateway import HidGateway
 
 
 class HidGatewayBT(HidGateway):
-
     def _do_write(self, msg: bytes) -> None:
         self._transport.write_output_report(msg)
 

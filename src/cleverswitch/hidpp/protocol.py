@@ -11,7 +11,7 @@ import logging
 import struct
 from time import time
 
-from ..errors import TransportError
+from ..errors.errors import TransportError
 from .constants import (
     CHANGE_HOST_FN_SET,
     FEATURE_ROOT,

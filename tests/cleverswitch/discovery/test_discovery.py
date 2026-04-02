@@ -1,0 +1,205 @@
+"""Unit tests for discovery.py — background device discovery loop."""
+
+from __future__ import annotations
+
+import threading
+from unittest.mock import MagicMock
+
+from cleverswitch.discovery.discovery import _undivert_all, discover
+from cleverswitch.event.divert_event import DivertEvent
+from cleverswitch.hidpp.constants import BOLT_PID, FEATURE_CHANGE_HOST, FEATURE_REPROG_CONTROLS_V4
+from cleverswitch.model.context.app_context import AppContext
+from cleverswitch.model.logi_device import LogiDevice
+from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
+from cleverswitch.topic.topic import Topic
+
+
+def _make_app_context(shutdown=None, registry=None, topics=None):
+    if shutdown is None:
+        shutdown = threading.Event()
+    if registry is None:
+        registry = LogiDeviceRegistry()
+    if topics is None:
+        topics = {
+            "event_topic": MagicMock(spec=Topic),
+            "write_topic": MagicMock(spec=Topic),
+            "device_info_topic": MagicMock(spec=Topic),
+            "divert_topic": MagicMock(spec=Topic),
+        }
+    config = MagicMock()
+    config.arguments_settings.verbose_extra = False
+    return AppContext(device_registry=registry, topics=topics, config=config, shutdown=shutdown)
+
+
+def test_discover_returns_immediately_when_shutdown_is_already_set(mocker):
+    mocker.patch("cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={})
+    shutdown = threading.Event()
+    shutdown.set()
+    ctx = _make_app_context(shutdown=shutdown)
+    discover(ctx)  # must return without hanging
+
+
+def test_discover_creates_gateway_for_receiver_device(mocker):
+    from cleverswitch.hidpp.transport import HidDeviceInfo
+
+    device = HidDeviceInfo(
+        path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=0x0002, connection_type="receiver"
+    )
+    mocker.patch("cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={BOLT_PID: [device]})
+
+    mock_gateway = mocker.MagicMock()
+    mock_gateway_cls = mocker.patch("cleverswitch.discovery.discovery.HidGateway", return_value=mock_gateway)
+    mocker.patch("cleverswitch.discovery.discovery.EventListener")
+    mocker.patch("cleverswitch.discovery.discovery.ReceiverConnectionTrigger")
+
+    shutdown = threading.Event()
+
+    def fake_wait(timeout):
+        shutdown.set()
+
+    shutdown.wait = fake_wait
+
+    ctx = _make_app_context(shutdown=shutdown)
+    discover(ctx)
+
+    mock_gateway_cls.assert_called_once()
+    mock_gateway.start.assert_called_once()
+
+
+def test_discover_creates_bt_gateway_for_bluetooth_device(mocker):
+    from cleverswitch.hidpp.transport import HidDeviceInfo
+
+    device = HidDeviceInfo(
+        path=b"/dev/hidraw1", vid=0x046D, pid=0xB023, usage_page=0xFF43, usage=0x0202, connection_type="bluetooth"
+    )
+    mocker.patch("cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={0xB023: [device]})
+
+    mock_gateway = mocker.MagicMock()
+    mock_bt_cls = mocker.patch("cleverswitch.discovery.discovery.HidGatewayBT", return_value=mock_gateway)
+    mocker.patch("cleverswitch.discovery.discovery.HidGateway")
+    mocker.patch("cleverswitch.discovery.discovery.EventListener")
+
+    shutdown = threading.Event()
+
+    def fake_wait(timeout):
+        shutdown.set()
+
+    shutdown.wait = fake_wait
+
+    ctx = _make_app_context(shutdown=shutdown)
+    discover(ctx)
+
+    mock_bt_cls.assert_called_once()
+    mock_gateway.start.assert_called_once()
+
+
+def test_discover_does_not_create_duplicate_gateways_for_same_pid(mocker):
+    from cleverswitch.hidpp.transport import HidDeviceInfo
+
+    device = HidDeviceInfo(
+        path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=0x0002, connection_type="receiver"
+    )
+    mocker.patch("cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={BOLT_PID: [device]})
+
+    mock_gateway = mocker.MagicMock()
+    mock_gateway_cls = mocker.patch("cleverswitch.discovery.discovery.HidGateway", return_value=mock_gateway)
+    mocker.patch("cleverswitch.discovery.discovery.EventListener")
+    mocker.patch("cleverswitch.discovery.discovery.ReceiverConnectionTrigger")
+
+    shutdown = threading.Event()
+    wait_count = [0]
+
+    def fake_wait(timeout):
+        wait_count[0] += 1
+        if wait_count[0] >= 2:
+            shutdown.set()
+
+    shutdown.wait = fake_wait
+
+    ctx = _make_app_context(shutdown=shutdown)
+    discover(ctx)
+
+    assert mock_gateway_cls.call_count == 1
+
+
+def test_discover_closes_gateways_on_shutdown(mocker):
+    from cleverswitch.hidpp.transport import HidDeviceInfo
+
+    device = HidDeviceInfo(
+        path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=0x0002, connection_type="receiver"
+    )
+    mocker.patch("cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={BOLT_PID: [device]})
+
+    mock_gateway = mocker.MagicMock()
+    mocker.patch("cleverswitch.discovery.discovery.HidGateway", return_value=mock_gateway)
+    mocker.patch("cleverswitch.discovery.discovery.EventListener")
+    mocker.patch("cleverswitch.discovery.discovery.ReceiverConnectionTrigger")
+
+    shutdown = threading.Event()
+
+    def fake_wait(timeout):
+        shutdown.set()
+
+    shutdown.wait = fake_wait
+
+    ctx = _make_app_context(shutdown=shutdown)
+    discover(ctx)
+
+    mock_gateway.close.assert_called_once()
+
+
+# ── _undivert_all ─────────────────────────────────────────────────────────────
+
+
+def test_undivert_all_publishes_divert_false_for_devices_with_cids(mocker):
+    mocker.patch("cleverswitch.discovery.discovery.time.sleep")
+    registry = LogiDeviceRegistry()
+    device = LogiDevice(
+        wpid=0x407B, pid=BOLT_PID, slot=1, role="keyboard",
+        available_features={FEATURE_REPROG_CONTROLS_V4: 8, FEATURE_CHANGE_HOST: 9},
+        divertable_cids={0x00D1, 0x00D2},
+    )
+    registry.register(0x407B, device)
+    divert_topic = MagicMock()
+    topics = {"divert_topic": divert_topic}
+
+    _undivert_all(registry, topics)
+
+    divert_topic.publish.assert_called_once()
+    event = divert_topic.publish.call_args[0][0]
+    assert isinstance(event, DivertEvent)
+    assert event.divert is False
+    assert event.cids == {0x00D1, 0x00D2}
+
+
+def test_undivert_all_skips_device_without_divertable_cids(mocker):
+    mocker.patch("cleverswitch.discovery.discovery.time.sleep")
+    registry = LogiDeviceRegistry()
+    device = LogiDevice(
+        wpid=0x407B, pid=BOLT_PID, slot=2, role="mouse",
+        available_features={FEATURE_CHANGE_HOST: 9},
+    )
+    registry.register(0x407B, device)
+    divert_topic = MagicMock()
+    topics = {"divert_topic": divert_topic}
+
+    _undivert_all(registry, topics)
+
+    divert_topic.publish.assert_not_called()
+
+
+def test_undivert_all_skips_device_without_reprog_feature(mocker):
+    mocker.patch("cleverswitch.discovery.discovery.time.sleep")
+    registry = LogiDeviceRegistry()
+    device = LogiDevice(
+        wpid=0x407B, pid=BOLT_PID, slot=1, role="keyboard",
+        available_features={FEATURE_CHANGE_HOST: 9},
+        divertable_cids={0x00D1},
+    )
+    registry.register(0x407B, device)
+    divert_topic = MagicMock()
+    topics = {"divert_topic": divert_topic}
+
+    _undivert_all(registry, topics)
+
+    divert_topic.publish.assert_not_called()
