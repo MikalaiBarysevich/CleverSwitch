@@ -53,6 +53,7 @@ FEATURE_DEVICE_TYPE_AND_NAME = 0x0005  # x0005: getDeviceType(), getDeviceName()
 FEATURE_CHANGE_HOST = 0x1814
 FEATURE_HOSTS_INFO = 0x1815  # Host info: paired hosts and current host
 FEATURE_REPROG_CONTROLS_V4 = 0x1B04  # Reprogrammable keys / button diversion
+FEATURE_WIRELESS_DEVICE_STATUS = 0x1D4B  # Wireless device reconnection notifications
 
 # x0005 getDeviceType() return values
 DEVICE_TYPE_KEYBOARD = 0
