@@ -11,8 +11,10 @@ from cleverswitch.event.hidpp_notification_event import HidppNotificationEvent
 from cleverswitch.event.hidpp_response_event import HidppResponseEvent
 from cleverswitch.hidpp.constants import (
     BOLT_PID,
+    GET_LONG_REGISTER_RSP,
     HOST_SWITCH_CIDS,
     MAP_FLAG_DIVERTED,
+    REGISTER_PAIRING_INFO,
     REPORT_LONG,
     REPORT_SHORT,
     SW_ID,
@@ -134,6 +136,58 @@ def test_parse_external_undivert_ignored_when_divert_set():
     data = bytes([0x00, 0xD1, bfield]) + bytes(13)
     raw = _long_msg(slot=1, feature_id=5, fn_sw=0x32, data=data)
     assert parse(PID, raw) is None
+
+
+# ── Unknown / None ───────────────────────────────────────────────────────────
+
+
+# ── 0xB5 Pairing Information (GET_LONG_REGISTER_RSP) ────────────────────────
+
+
+def _b5_response(sub_page: int, wpid_msb: int, wpid_lsb: int, device_type: int) -> bytes:
+    raw = bytearray(20)
+    raw[0] = REPORT_LONG
+    raw[1] = 0xFF
+    raw[2] = GET_LONG_REGISTER_RSP
+    raw[3] = REGISTER_PAIRING_INFO
+    raw[4] = sub_page
+    raw[7] = wpid_msb
+    raw[8] = wpid_lsb
+    raw[11] = device_type
+    return bytes(raw)
+
+
+def test_parse_b5_slot1_keyboard():
+    raw = _b5_response(sub_page=0x20, wpid_msb=0x40, wpid_lsb=0x7B, device_type=0x01)
+    event = parse(PID, raw)
+    assert isinstance(event, DeviceConnectedEvent)
+    assert event.slot == 1
+    assert event.wpid == 0x407B
+    assert event.device_type == 1
+    assert event.link_established is True
+
+
+def test_parse_b5_slot6_mouse():
+    raw = _b5_response(sub_page=0x25, wpid_msb=0x40, wpid_lsb=0x82, device_type=0x02)
+    event = parse(PID, raw)
+    assert isinstance(event, DeviceConnectedEvent)
+    assert event.slot == 6
+    assert event.wpid == 0x4082
+    assert event.device_type == 2
+
+
+def test_parse_b5_device_type_zero_becomes_none():
+    raw = _b5_response(sub_page=0x21, wpid_msb=0x40, wpid_lsb=0x7B, device_type=0x00)
+    event = parse(PID, raw)
+    assert isinstance(event, DeviceConnectedEvent)
+    assert event.device_type is None
+
+
+def test_parse_b5_wpid_msb_first():
+    """WPID byte order is MSB-first in 0xB5 (opposite of 0x41)."""
+    raw = _b5_response(sub_page=0x20, wpid_msb=0xAB, wpid_lsb=0xCD, device_type=0x01)
+    event = parse(PID, raw)
+    assert event.wpid == 0xABCD
 
 
 # ── Unknown / None ───────────────────────────────────────────────────────────

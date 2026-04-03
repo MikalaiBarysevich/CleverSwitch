@@ -79,4 +79,8 @@ CHANGE_HOST_FN_SET = 0x10  # SetCurrentHost — switches to target; no reply
 HID_DEVICE_PAIRING = 0x41
 DJ_DEVICE_PAIRING = 0x42
 
-DISCONNECT_FLAG = 0x40  # Set in address byte of SHORT disconnect notification
+# ── HID++ 1.0 register access ──────────────────────────────────────────────
+
+GET_LONG_REGISTER_RSP = 0x83
+REGISTER_PAIRING_INFO = 0xB5
+PAIRING_INFO_SUB_PAGE_BASE = 0x20  # + (slot - 1)

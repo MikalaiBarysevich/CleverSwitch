@@ -12,6 +12,7 @@ from ..model.context.app_context import AppContext
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.device_connected_subscriber import DeviceConnectionSubscriber
 from ..subscriber.device_info_subscriber import DeviceInfoSubscriber
+from ..subscriber.disconnect_poller_subscriber import DisconnectPollerSubscriber
 from ..subscriber.divert_subscriber import DivertSubscriber
 from ..subscriber.diverted_host_change_subscriber import DivertedHostChangeSubscriber
 from ..subscriber.external_undivert_subscriber import ExternalUndivertSubscriber
@@ -75,3 +76,5 @@ def _init_subscribers(topics: dict[str, Topic], device_registry: LogiDeviceRegis
     HostChangeSubscriber(device_registry, topics)
     DivertedHostChangeSubscriber(device_registry, topics)
     WirelessStatusSubscriber(device_registry, topics)
+    if get_system() == "Darwin":
+        DisconnectPollerSubscriber(device_registry, topics)
