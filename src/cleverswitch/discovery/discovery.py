@@ -14,6 +14,7 @@ import logging
 import time
 
 from ..connection.trigger.receiver_trigger import ReceiverConnectionTrigger
+from ..connection.trigger.receiver_trigger_mac import ReceiverConnectionTriggerMac
 from ..event.divert_event import DivertEvent
 from ..gateway.hid_gateway import HidGateway
 from ..gateway.hid_gateway_bt import HidGatewayBT
@@ -23,6 +24,7 @@ from ..listener.event_listener import EventListener
 from ..model.context.app_context import AppContext
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..topic.topic import Topic
+from ..util.util import get_system
 
 log = logging.getLogger(__name__)
 
@@ -42,9 +44,13 @@ def discover(app_context: AppContext) -> None:
             for pid, collections in devices.items():
                 if pid not in gateways:
                     device = collections[0]
-                    connection_trigger = (
-                        ReceiverConnectionTrigger(device, topics) if device.connection_type == "receiver" else None
-                    )
+                    if device.connection_type == "receiver":
+                        if get_system() == "Darwin":
+                            connection_trigger = ReceiverConnectionTriggerMac(device, topics)
+                        else:
+                            connection_trigger = ReceiverConnectionTrigger(device, topics)
+                    else:
+                        connection_trigger = None
                     event_listener = EventListener(device, topics, connection_trigger)
                     for collection in collections:
                         hid_gateway = (
