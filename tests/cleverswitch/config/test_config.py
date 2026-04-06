@@ -136,3 +136,9 @@ def test_parse_hooks_expands_tilde_in_string_entry():
 def test_parse_hooks_expands_tilde_in_dict_entry():
     result = _parse_hooks([{"path": "~/scripts/hook.sh"}])
     assert not result[0].path.startswith("~")
+
+
+def test_verbose_extra_applied_when_no_config_file():
+    args = argparse.Namespace(config=None, verbose_extra=True)
+    config = load(args)
+    assert config.arguments_settings.verbose_extra is True
