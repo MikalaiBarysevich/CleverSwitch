@@ -7,16 +7,16 @@ from ..hidpp.constants import FEATURE_REPROG_CONTROLS_V4
 from ..model.logi_device import LogiDevice
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
-from ..topic.topic import Topic
+from ..topic.topics import Topics
 
 log = logging.getLogger(__name__)
 
 
 class DeviceConnectionSubscriber(Subscriber):
-    def __init__(self, device_registry: LogiDeviceRegistry, topics: dict[str, Topic]) -> None:
+    def __init__(self, device_registry: LogiDeviceRegistry, topics: Topics) -> None:
         self._device_registry = device_registry
         self._topics = topics
-        topics["event_topic"].subscribe(self)
+        topics.hid_event.subscribe(self)
 
     def notify(self, event) -> None:
         if not isinstance(event, DeviceConnectedEvent):
@@ -42,7 +42,7 @@ class DeviceConnectionSubscriber(Subscriber):
             return
 
         if len(logi_device.divertable_cids) > 0 and FEATURE_REPROG_CONTROLS_V4 in logi_device.available_features:
-            self._topics["divert_topic"].publish(
+            self._topics.divert.publish(
                 DivertEvent(
                     slot=event.slot,
                     pid=logi_device.pid,
@@ -55,7 +55,7 @@ class DeviceConnectionSubscriber(Subscriber):
 
         if missing:
             log.debug(f"Device reconnected with incomplete setup (missing={missing}): wpid=0x{event.wpid:04X}")
-            self._topics["device_info_topic"].publish(
+            self._topics.device_info.publish(
                 DeviceInfoRequestEvent(
                     slot=event.slot,
                     pid=event.pid,
@@ -80,7 +80,7 @@ class DeviceConnectionSubscriber(Subscriber):
 
         self._device_registry.register(event.wpid, device)
 
-        self._topics["device_info_topic"].publish(
+        self._topics.device_info.publish(
             DeviceInfoRequestEvent(
                 slot=event.slot,
                 pid=event.pid,

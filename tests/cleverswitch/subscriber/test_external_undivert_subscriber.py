@@ -11,18 +11,20 @@ from cleverswitch.model.logi_device import LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 from cleverswitch.subscriber.external_undivert_subscriber import ExternalUndivertSubscriber
 from cleverswitch.topic.topic import Topic
+from cleverswitch.topic.topics import Topics
 
 PID = BOLT_PID
 REPROG_IDX = 8
 
 
 def _make_topics():
-    return {
-        "event_topic": MagicMock(spec=Topic),
-        "write_topic": MagicMock(spec=Topic),
-        "device_info_topic": MagicMock(spec=Topic),
-        "divert_topic": MagicMock(spec=Topic),
-    }
+    return Topics(
+        hid_event=MagicMock(spec=Topic),
+        write=MagicMock(spec=Topic),
+        device_info=MagicMock(spec=Topic),
+        divert=MagicMock(spec=Topic),
+        info_progress=MagicMock(spec=Topic),
+    )
 
 
 def _make_device(slot=1, reprog_idx=REPROG_IDX, divertable_cids=None):
@@ -47,8 +49,8 @@ def test_external_undivert_rediverts_single_cid():
     event = ExternalUndivertEvent(slot=1, pid=PID, feature_index=REPROG_IDX, cid=0x00D1)
     sub.notify(event)
 
-    topics["divert_topic"].publish.assert_called_once()
-    divert_event = topics["divert_topic"].publish.call_args[0][0]
+    topics.divert.publish.assert_called_once()
+    divert_event = topics.divert.publish.call_args[0][0]
     assert isinstance(divert_event, DivertEvent)
     assert divert_event.cids == {0x00D1}
 
@@ -61,7 +63,7 @@ def test_external_undivert_ignores_unknown_device():
     event = ExternalUndivertEvent(slot=5, pid=PID, feature_index=REPROG_IDX, cid=0x00D1)
     sub.notify(event)
 
-    topics["divert_topic"].publish.assert_not_called()
+    topics.divert.publish.assert_not_called()
 
 
 def test_external_undivert_ignores_wrong_feature_index():
@@ -75,7 +77,7 @@ def test_external_undivert_ignores_wrong_feature_index():
     event = ExternalUndivertEvent(slot=1, pid=PID, feature_index=99, cid=0x00D1)
     sub.notify(event)
 
-    topics["divert_topic"].publish.assert_not_called()
+    topics.divert.publish.assert_not_called()
 
 
 def test_external_undivert_ignores_non_divertable_cid():
@@ -89,7 +91,7 @@ def test_external_undivert_ignores_non_divertable_cid():
     event = ExternalUndivertEvent(slot=1, pid=PID, feature_index=REPROG_IDX, cid=0x00D2)
     sub.notify(event)
 
-    topics["divert_topic"].publish.assert_not_called()
+    topics.divert.publish.assert_not_called()
 
 
 def test_external_undivert_ignores_device_without_reprog():
@@ -103,7 +105,7 @@ def test_external_undivert_ignores_device_without_reprog():
     event = ExternalUndivertEvent(slot=1, pid=PID, feature_index=8, cid=0x00D1)
     sub.notify(event)
 
-    topics["divert_topic"].publish.assert_not_called()
+    topics.divert.publish.assert_not_called()
 
 
 def test_external_undivert_ignores_non_external_undivert_event():

@@ -5,13 +5,21 @@ from unittest.mock import MagicMock
 from cleverswitch.connection.trigger.receiver_trigger_mac import ReceiverConnectionTriggerMac
 from cleverswitch.event.write_event import WriteEvent
 from cleverswitch.hidpp.constants import BOLT_PID, DEVICE_RECEIVER, GET_LONG_REGISTER_RSP, REGISTER_PAIRING_INFO, REPORT_SHORT
+from cleverswitch.topic.topic import Topic
+from cleverswitch.topic.topics import Topics
 
 
 def _make_trigger() -> tuple[ReceiverConnectionTriggerMac, MagicMock]:
     device_info = MagicMock()
     device_info.pid = BOLT_PID
     write_topic = MagicMock()
-    topics = {"write_topic": write_topic}
+    topics = Topics(
+        hid_event=MagicMock(spec=Topic),
+        write=write_topic,
+        device_info=MagicMock(spec=Topic),
+        divert=MagicMock(spec=Topic),
+        info_progress=MagicMock(spec=Topic),
+    )
     trigger = ReceiverConnectionTriggerMac(device_info, topics)
     return trigger, write_topic
 

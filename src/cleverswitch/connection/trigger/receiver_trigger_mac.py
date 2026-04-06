@@ -7,14 +7,14 @@ from ...hidpp.constants import (
     REPORT_SHORT,
 )
 from ...hidpp.transport import HidDeviceInfo
-from ...topic.topic import Topic
+from ...topic.topics import Topics
 from .connection_triger import ConnectionTrigger
 
 MAX_RECEIVER_SLOTS = 6
 
 
 class ReceiverConnectionTriggerMac(ConnectionTrigger):
-    def __init__(self, device_info: HidDeviceInfo, topics: dict[str, Topic]):
+    def __init__(self, device_info: HidDeviceInfo, topics: Topics):
         super().__init__()
         self._topics = topics
         self._device_info = device_info
@@ -25,7 +25,7 @@ class ReceiverConnectionTriggerMac(ConnectionTrigger):
             message = bytes(
                 [REPORT_SHORT, DEVICE_RECEIVER, GET_LONG_REGISTER_RSP, REGISTER_PAIRING_INFO, sub_page, 0x00, 0x00]
             )
-            self._topics["write_topic"].publish(
+            self._topics.write.publish(
                 WriteEvent(
                     slot=-1,
                     pid=self._device_info.pid,

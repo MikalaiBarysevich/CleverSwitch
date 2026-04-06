@@ -23,7 +23,7 @@ from ..hidpp.transport import enumerate_hid_devices
 from ..listener.event_listener import EventListener
 from ..model.context.app_context import AppContext
 from ..registry.logi_device_registry import LogiDeviceRegistry
-from ..topic.topic import Topic
+from ..topic.topics import Topics
 from ..util.util import get_system
 
 log = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ def discover(app_context: AppContext) -> None:
 
     gateways: dict[int, list[HidGateway]] = {}
 
-    topics: dict[str, Topic] = app_context.topics
+    topics: Topics = app_context.topics
     shutdown = app_context.shutdown
 
     try:
@@ -58,7 +58,7 @@ def discover(app_context: AppContext) -> None:
                             if device.connection_type == "receiver"
                             else HidGatewayBT(collection, event_listener)
                         )
-                        topics["write_topic"].subscribe(hid_gateway)
+                        topics.write.subscribe(hid_gateway)
                         pid_gateways = gateways.get(pid, list())
                         pid_gateways.append(hid_gateway)
                         gateways[device.pid] = pid_gateways
@@ -75,13 +75,13 @@ def discover(app_context: AppContext) -> None:
         log.error(f"Error occurred running discovery: {error}")
 
 
-def _undivert_all(device_registry: LogiDeviceRegistry, topics: dict[str, Topic]) -> None:
+def _undivert_all(device_registry: LogiDeviceRegistry, topics: Topics) -> None:
     for device in device_registry.all_entries():
         if not device.divertable_cids:
             continue
         if device.available_features.get(FEATURE_REPROG_CONTROLS_V4) is None:
             continue
-        topics["divert_topic"].publish(
+        topics.divert.publish(
             DivertEvent(
                 slot=device.slot,
                 pid=device.pid,

@@ -11,18 +11,20 @@ from cleverswitch.model.logi_device import LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 from cleverswitch.subscriber.host_change_subscriber import HostChangeSubscriber
 from cleverswitch.topic.topic import Topic
+from cleverswitch.topic.topics import Topics
 
 PID = BOLT_PID
 CHANGE_HOST_IDX = 9
 
 
 def _make_topics():
-    return {
-        "event_topic": MagicMock(spec=Topic),
-        "write_topic": MagicMock(spec=Topic),
-        "device_info_topic": MagicMock(spec=Topic),
-        "divert_topic": MagicMock(spec=Topic),
-    }
+    return Topics(
+        hid_event=MagicMock(spec=Topic),
+        write=MagicMock(spec=Topic),
+        device_info=MagicMock(spec=Topic),
+        divert=MagicMock(spec=Topic),
+        info_progress=MagicMock(spec=Topic),
+    )
 
 
 def _make_device(wpid, slot, role="mouse"):
@@ -52,8 +54,8 @@ def test_host_change_sends_to_other_devices():
     sub.notify(event)
 
     # Should only send to keyboard (not back to source mouse)
-    assert topics["write_topic"].publish.call_count == 1
-    write_event = topics["write_topic"].publish.call_args[0][0]
+    assert topics.write.publish.call_count == 1
+    write_event = topics.write.publish.call_args[0][0]
     assert isinstance(write_event, WriteEvent)
     assert write_event.slot == 1  # keyboard slot
 
@@ -66,7 +68,7 @@ def test_host_change_ignores_unknown_source_device():
     event = _change_host_notification(slot=5, change_host_idx=CHANGE_HOST_IDX, target_host=0)
     sub.notify(event)
 
-    topics["write_topic"].publish.assert_not_called()
+    topics.write.publish.assert_not_called()
 
 
 def test_host_change_ignores_non_change_host_feature():
@@ -80,7 +82,7 @@ def test_host_change_ignores_non_change_host_feature():
     event = HidppNotificationEvent(slot=2, pid=PID, feature_index=99, function=0, payload=bytes(16))
     sub.notify(event)
 
-    topics["write_topic"].publish.assert_not_called()
+    topics.write.publish.assert_not_called()
 
 
 def test_host_change_ignores_non_notification_event():
@@ -104,4 +106,4 @@ def test_host_change_skips_device_without_change_host_feature():
     sub.notify(event)
 
     # no_ch has no CHANGE_HOST so should be skipped
-    topics["write_topic"].publish.assert_not_called()
+    topics.write.publish.assert_not_called()

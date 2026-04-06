@@ -3,7 +3,7 @@ import logging
 from ....event.hidpp_error_event import HidppErrorEvent
 from ....model.logi_device import LogiDevice
 from ....subscriber.task.info_task import InfoTask
-from ....topic.topic import Topic
+from ....topic.topics import Topics
 
 log = logging.getLogger(__name__)
 
@@ -13,7 +13,7 @@ class FeatureTask(InfoTask):
         self,
         step_name: str,
         device: LogiDevice,
-        topics: dict[str, Topic],
+        topics: Topics,
         feature_code: int,
         sw_id: int,
     ) -> None:
