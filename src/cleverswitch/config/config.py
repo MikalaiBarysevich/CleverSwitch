@@ -41,7 +41,7 @@ def load(cli_args: argparse.Namespace) -> Config:
     if not cfg_path.exists():
         if path:
             raise ConfigError(f"Config file not found: {cfg_path}")
-        return default_config()
+        return _parse({}, cli_args)
 
     try:
         with open(cfg_path) as f:
