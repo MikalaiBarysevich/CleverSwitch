@@ -31,7 +31,9 @@ class GetDeviceTypeTask(InfoTask):
         # fn[2] getDeviceType
         self._send_request(request_id=(type_and_name_idx << 8) | 0x20)
         response = self._wait_response()
-        if response is not None and not isinstance(response, HidppErrorEvent):
+        if response is None:
+            return  # timeout — keep step pending for retry
+        if not isinstance(response, HidppErrorEvent):
             device_type = response.payload[0]
             self._device.role = "keyboard" if device_type == 0 else "mouse"
             log.info("slot=%d: type=%s", self._device.slot, self._device.role)

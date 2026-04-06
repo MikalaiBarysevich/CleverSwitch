@@ -29,6 +29,7 @@ def _make_topics():
         "write_topic": MagicMock(spec=Topic),
         "device_info_topic": MagicMock(spec=Topic),
         "divert_topic": MagicMock(spec=Topic),
+        "info_progress_topic": MagicMock(spec=Topic),
     }
 
 
@@ -105,30 +106,30 @@ def test_notify_ignores_unrelated_event():
 # ── run() ─────────────────────────────────────────────────────────────────────
 
 
-def test_run_skips_dotask_when_step_not_pending():
-    device = _make_device(pending=set())  # empty pending — step "test_step" not in it
-    topics = _make_topics()
-    called = []
-    task = _ConcreteTask(device, topics, step_name="test_step", do_task_fn=lambda: called.append(1))
-
-    task.run()
-
-    assert called == []
-
-
-def test_run_calls_dotask_when_step_is_pending():
+def test_run_publishes_success_and_fires_dependents_when_dotask_completes():
     device = _make_device(pending={"test_step"})
     topics = _make_topics()
-    called = []
-    task = _ConcreteTask(device, topics, step_name="test_step", do_task_fn=lambda: called.append(1))
+    fired = []
 
+    class _TaskWithDependent(_ConcreteTask):
+        def _fire_dependent_steps(self):
+            fired.append(1)
+
+    def do_task_fn():
+        device.pending_steps.discard("test_step")
+
+    task = _TaskWithDependent(device, topics, step_name="test_step", do_task_fn=do_task_fn)
     task.run()
 
-    assert called == [1]
+    assert fired == [1]
+    topics["info_progress_topic"].publish.assert_called_once()
+    event = topics["info_progress_topic"].publish.call_args[0][0]
+    assert event.success is True
+    assert event.step_name == "test_step"
 
 
-def test_run_fires_dependent_steps_when_pending_not_empty():
-    device = _make_device(pending={"test_step", "other_step"})
+def test_run_publishes_failure_and_no_dependents_when_dotask_times_out():
+    device = _make_device(pending={"test_step"})
     topics = _make_topics()
     fired = []
 
@@ -139,7 +140,25 @@ def test_run_fires_dependent_steps_when_pending_not_empty():
     task = _TaskWithDependent(device, topics, step_name="test_step")
     task.run()
 
-    assert fired == [1]
+    assert fired == []
+    topics["info_progress_topic"].publish.assert_called_once()
+    event = topics["info_progress_topic"].publish.call_args[0][0]
+    assert event.success is False
+    assert event.step_name == "test_step"
+
+
+def test_run_publishes_success_without_calling_dotask_when_already_done():
+    device = _make_device(pending=set())  # test_step not in pending
+    topics = _make_topics()
+    called = []
+
+    task = _ConcreteTask(device, topics, step_name="test_step", do_task_fn=lambda: called.append(1))
+    task.run()
+
+    assert called == []
+    topics["info_progress_topic"].publish.assert_called_once()
+    event = topics["info_progress_topic"].publish.call_args[0][0]
+    assert event.success is True
 
 
 # ── _send_request() ───────────────────────────────────────────────────────────
