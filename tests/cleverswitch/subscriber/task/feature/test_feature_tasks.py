@@ -19,6 +19,7 @@ from cleverswitch.subscriber.task.feature.change_host_feature_task import Change
 from cleverswitch.subscriber.task.feature.name_and_type_feature_task import NameAndTypeFeatureTask
 from cleverswitch.subscriber.task.feature.reprog_feature_task import ReprogFeatureTask
 from cleverswitch.topic.topic import Topic
+from cleverswitch.topic.topics import Topics
 
 PID = BOLT_PID
 SLOT = 1
@@ -32,13 +33,13 @@ def _make_device(pending=None, features=None):
 
 
 def _make_topics():
-    return {
-        "event_topic": MagicMock(spec=Topic),
-        "write_topic": MagicMock(spec=Topic),
-        "device_info_topic": MagicMock(spec=Topic),
-        "divert_topic": MagicMock(spec=Topic),
-        "info_progress_topic": MagicMock(spec=Topic),
-    }
+    return Topics(
+        hid_event=MagicMock(spec=Topic),
+        write=MagicMock(spec=Topic),
+        device_info=MagicMock(spec=Topic),
+        divert=MagicMock(spec=Topic),
+        info_progress=MagicMock(spec=Topic),
+    )
 
 
 def _response(sw_id, feat_idx):
@@ -114,7 +115,7 @@ def test_change_host_noop_when_feature_code_is_already_an_index():
     task.doTask()
 
     # Task sent the request (did not early-return) then timed out without updating features
-    topics["write_topic"].publish.assert_called_once()
+    topics.write.publish.assert_called_once()
     assert device.available_features.get(FEATURE_CHANGE_HOST) == 9  # unchanged
 
 

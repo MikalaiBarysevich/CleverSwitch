@@ -11,6 +11,7 @@ from cleverswitch.model.logi_device import LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 from cleverswitch.subscriber.diverted_host_change_subscriber import DivertedHostChangeSubscriber
 from cleverswitch.topic.topic import Topic
+from cleverswitch.topic.topics import Topics
 
 PID = BOLT_PID
 WPID_KB = 0x407B
@@ -20,12 +21,13 @@ CHANGE_HOST_IDX = 9
 
 
 def _make_topics():
-    return {
-        "event_topic": MagicMock(spec=Topic),
-        "write_topic": MagicMock(spec=Topic),
-        "device_info_topic": MagicMock(spec=Topic),
-        "divert_topic": MagicMock(spec=Topic),
-    }
+    return Topics(
+        hid_event=MagicMock(spec=Topic),
+        write=MagicMock(spec=Topic),
+        device_info=MagicMock(spec=Topic),
+        divert=MagicMock(spec=Topic),
+        info_progress=MagicMock(spec=Topic),
+    )
 
 
 def _make_device(wpid, slot, role, change_host_idx=CHANGE_HOST_IDX, reprog_idx=None):
@@ -54,8 +56,8 @@ def test_diverted_host_change_sends_to_all_devices():
     sub.notify(event)
 
     # Should send to ALL devices (including source, since key was diverted)
-    assert topics["write_topic"].publish.call_count == 2
-    for call in topics["write_topic"].publish.call_args_list:
+    assert topics.write.publish.call_count == 2
+    for call in topics.write.publish.call_args_list:
         assert isinstance(call[0][0], WriteEvent)
 
 
@@ -70,7 +72,7 @@ def test_diverted_host_change_ignores_non_reprog_feature():
     event = HidppNotificationEvent(slot=1, pid=PID, feature_index=99, function=0, payload=bytes(16))
     sub.notify(event)
 
-    topics["write_topic"].publish.assert_not_called()
+    topics.write.publish.assert_not_called()
 
 
 def test_diverted_host_change_ignores_non_easy_switch_cid():
@@ -84,7 +86,7 @@ def test_diverted_host_change_ignores_non_easy_switch_cid():
     event = _host_switch_notification(slot=1, reprog_idx=REPROG_IDX, cid_hi=0x00, cid_lo=0xAA)
     sub.notify(event)
 
-    topics["write_topic"].publish.assert_not_called()
+    topics.write.publish.assert_not_called()
 
 
 def test_diverted_host_change_ignores_unknown_device():
@@ -95,7 +97,7 @@ def test_diverted_host_change_ignores_unknown_device():
     event = _host_switch_notification(slot=1, reprog_idx=REPROG_IDX, cid_hi=0x00, cid_lo=0xD1)
     sub.notify(event)
 
-    topics["write_topic"].publish.assert_not_called()
+    topics.write.publish.assert_not_called()
 
 
 def test_diverted_host_change_ignores_non_zero_function():
@@ -109,7 +111,7 @@ def test_diverted_host_change_ignores_non_zero_function():
     event = HidppNotificationEvent(slot=1, pid=PID, feature_index=REPROG_IDX, function=1, payload=bytes(16))
     sub.notify(event)
 
-    topics["write_topic"].publish.assert_not_called()
+    topics.write.publish.assert_not_called()
 
 
 def test_diverted_host_change_ignores_non_notification_event():
@@ -133,4 +135,4 @@ def test_diverted_host_change_skips_device_without_change_host():
     sub.notify(event)
 
     # Only 1 write (kb has CHANGE_HOST, no_ch doesn't)
-    assert topics["write_topic"].publish.call_count == 1
+    assert topics.write.publish.call_count == 1

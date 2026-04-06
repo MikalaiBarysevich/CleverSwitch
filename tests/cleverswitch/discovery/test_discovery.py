@@ -12,6 +12,7 @@ from cleverswitch.model.context.app_context import AppContext
 from cleverswitch.model.logi_device import LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 from cleverswitch.topic.topic import Topic
+from cleverswitch.topic.topics import Topics
 
 
 def _make_app_context(shutdown=None, registry=None, topics=None):
@@ -20,12 +21,13 @@ def _make_app_context(shutdown=None, registry=None, topics=None):
     if registry is None:
         registry = LogiDeviceRegistry()
     if topics is None:
-        topics = {
-            "event_topic": MagicMock(spec=Topic),
-            "write_topic": MagicMock(spec=Topic),
-            "device_info_topic": MagicMock(spec=Topic),
-            "divert_topic": MagicMock(spec=Topic),
-        }
+        topics = Topics(
+            hid_event=MagicMock(spec=Topic),
+            write=MagicMock(spec=Topic),
+            device_info=MagicMock(spec=Topic),
+            divert=MagicMock(spec=Topic),
+            info_progress=MagicMock(spec=Topic),
+        )
     config = MagicMock()
     config.arguments_settings.verbose_extra = False
     return AppContext(device_registry=registry, topics=topics, config=config, shutdown=shutdown)
@@ -161,7 +163,13 @@ def test_undivert_all_publishes_divert_false_for_devices_with_cids(mocker):
     )
     registry.register(0x407B, device)
     divert_topic = MagicMock()
-    topics = {"divert_topic": divert_topic}
+    topics = Topics(
+        hid_event=MagicMock(spec=Topic),
+        write=MagicMock(spec=Topic),
+        device_info=MagicMock(spec=Topic),
+        divert=divert_topic,
+        info_progress=MagicMock(spec=Topic),
+    )
 
     _undivert_all(registry, topics)
 
@@ -181,7 +189,13 @@ def test_undivert_all_skips_device_without_divertable_cids(mocker):
     )
     registry.register(0x407B, device)
     divert_topic = MagicMock()
-    topics = {"divert_topic": divert_topic}
+    topics = Topics(
+        hid_event=MagicMock(spec=Topic),
+        write=MagicMock(spec=Topic),
+        device_info=MagicMock(spec=Topic),
+        divert=divert_topic,
+        info_progress=MagicMock(spec=Topic),
+    )
 
     _undivert_all(registry, topics)
 
@@ -198,7 +212,13 @@ def test_undivert_all_skips_device_without_reprog_feature(mocker):
     )
     registry.register(0x407B, device)
     divert_topic = MagicMock()
-    topics = {"divert_topic": divert_topic}
+    topics = Topics(
+        hid_event=MagicMock(spec=Topic),
+        write=MagicMock(spec=Topic),
+        device_info=MagicMock(spec=Topic),
+        divert=divert_topic,
+        info_progress=MagicMock(spec=Topic),
+    )
 
     _undivert_all(registry, topics)
 

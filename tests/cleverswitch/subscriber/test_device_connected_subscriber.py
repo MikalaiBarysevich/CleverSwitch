@@ -12,18 +12,20 @@ from cleverswitch.model.logi_device import LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 from cleverswitch.subscriber.device_connected_subscriber import DeviceConnectionSubscriber
 from cleverswitch.topic.topic import Topic
+from cleverswitch.topic.topics import Topics
 
 PID = BOLT_PID
 WPID = 0x407B
 
 
 def _make_topics():
-    return {
-        "event_topic": MagicMock(spec=Topic),
-        "write_topic": MagicMock(spec=Topic),
-        "device_info_topic": MagicMock(spec=Topic),
-        "divert_topic": MagicMock(spec=Topic),
-    }
+    return Topics(
+        hid_event=MagicMock(spec=Topic),
+        write=MagicMock(spec=Topic),
+        device_info=MagicMock(spec=Topic),
+        divert=MagicMock(spec=Topic),
+        info_progress=MagicMock(spec=Topic),
+    )
 
 
 def _make_device(role="keyboard", divertable_cids=None, pending_steps=None):
@@ -61,8 +63,8 @@ def test_new_connection_publishes_device_info_request():
     event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=None)
     sub.notify(event)
 
-    topics["device_info_topic"].publish.assert_called_once()
-    info_event = topics["device_info_topic"].publish.call_args[0][0]
+    topics.device_info.publish.assert_called_once()
+    info_event = topics.device_info.publish.call_args[0][0]
     assert isinstance(info_event, DeviceInfoRequestEvent)
     assert info_event.type is True  # device_type unknown
 
@@ -75,7 +77,7 @@ def test_new_connection_with_known_type_sets_type_false():
     event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1)
     sub.notify(event)
 
-    info_event = topics["device_info_topic"].publish.call_args[0][0]
+    info_event = topics.device_info.publish.call_args[0][0]
     assert info_event.type is False
 
 
@@ -106,8 +108,8 @@ def test_reconnection_rediverts_if_has_cids_and_reprog():
     event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1)
     sub.notify(event)
 
-    topics["divert_topic"].publish.assert_called_once()
-    divert_event = topics["divert_topic"].publish.call_args[0][0]
+    topics.divert.publish.assert_called_once()
+    divert_event = topics.divert.publish.call_args[0][0]
     assert isinstance(divert_event, DivertEvent)
     assert divert_event.cids == {0x00D1, 0x00D2}
 
@@ -124,7 +126,7 @@ def test_reconnection_does_not_divert_on_disconnect():
     event = DeviceConnectedEvent(slot=1, pid=PID, link_established=False, wpid=WPID, device_type=1)
     sub.notify(event)
 
-    topics["divert_topic"].publish.assert_not_called()
+    topics.divert.publish.assert_not_called()
 
 
 def test_reconnection_requests_info_if_pending_steps():
@@ -138,7 +140,7 @@ def test_reconnection_requests_info_if_pending_steps():
     event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1)
     sub.notify(event)
 
-    topics["device_info_topic"].publish.assert_called_once()
+    topics.device_info.publish.assert_called_once()
 
 
 def test_reconnection_does_not_request_info_if_setup_complete():
@@ -152,7 +154,7 @@ def test_reconnection_does_not_request_info_if_setup_complete():
     event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1)
     sub.notify(event)
 
-    topics["device_info_topic"].publish.assert_not_called()
+    topics.device_info.publish.assert_not_called()
 
 
 # ── connected flag ───────────────────────────────────────────────────────────

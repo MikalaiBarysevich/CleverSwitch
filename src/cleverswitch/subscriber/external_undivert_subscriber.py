@@ -5,16 +5,16 @@ from ..event.external_undivert_event import ExternalUndivertEvent
 from ..hidpp.constants import FEATURE_REPROG_CONTROLS_V4
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
-from ..topic.topic import Topic
+from ..topic.topics import Topics
 
 log = logging.getLogger(__name__)
 
 
 class ExternalUndivertSubscriber(Subscriber):
-    def __init__(self, device_registry: LogiDeviceRegistry, topics: dict[str, Topic]):
+    def __init__(self, device_registry: LogiDeviceRegistry, topics: Topics):
         self._device_registry = device_registry
         self._topics = topics
-        topics["event_topic"].subscribe(self)
+        topics.hid_event.subscribe(self)
 
     def notify(self, event) -> None:
         if not isinstance(event, ExternalUndivertEvent):
@@ -39,7 +39,7 @@ class ExternalUndivertSubscriber(Subscriber):
 
         log.info("External undivert detected: CID 0x%04X on slot=%d, re-diverting", event.cid, event.slot)
 
-        self._topics["divert_topic"].publish(
+        self._topics.divert.publish(
             DivertEvent(
                 slot=event.slot,
                 pid=device.pid,

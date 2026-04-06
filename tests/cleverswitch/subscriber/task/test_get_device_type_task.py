@@ -11,6 +11,7 @@ from cleverswitch.model.logi_device import LogiDevice
 from cleverswitch.subscriber.task.constants import GET_DEVICE_TYPE_SW_ID
 from cleverswitch.subscriber.task.get_device_type_task import GetDeviceTypeTask
 from cleverswitch.topic.topic import Topic
+from cleverswitch.topic.topics import Topics
 
 PID = BOLT_PID
 SLOT = 1
@@ -28,13 +29,13 @@ def _make_device(role=None, pending=None, features=None):
 
 
 def _make_topics():
-    return {
-        "event_topic": MagicMock(spec=Topic),
-        "write_topic": MagicMock(spec=Topic),
-        "device_info_topic": MagicMock(spec=Topic),
-        "divert_topic": MagicMock(spec=Topic),
-        "info_progress_topic": MagicMock(spec=Topic),
-    }
+    return Topics(
+        hid_event=MagicMock(spec=Topic),
+        write=MagicMock(spec=Topic),
+        device_info=MagicMock(spec=Topic),
+        divert=MagicMock(spec=Topic),
+        info_progress=MagicMock(spec=Topic),
+    )
 
 
 def _type_response(device_type: int):
@@ -72,7 +73,7 @@ def test_skips_when_role_already_known():
 
     task.doTask()
 
-    topics["write_topic"].publish.assert_not_called()
+    topics.write.publish.assert_not_called()
     assert "get_device_type" not in device.pending_steps
 
 

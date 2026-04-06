@@ -11,7 +11,7 @@ from ...hidpp.constants import (
 )
 from ...model.logi_device import LogiDevice
 from ...subscriber.task.info_task import InfoTask
-from ...topic.topic import Topic
+from ...topic.topics import Topics
 from .constants import FIND_DIVERTABLE_CIDS_SW_ID
 
 log = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 class FindDivertableCidsTask(InfoTask):
     """Queries REPROG_CONTROLS_V4 to find divertable ES key CIDs, then publishes DivertEvent."""
 
-    def __init__(self, device: LogiDevice, topics: dict[str, Topic]) -> None:
+    def __init__(self, device: LogiDevice, topics: Topics) -> None:
         super().__init__("find_divertable_cids", device, topics, FEATURE_ROOT, FIND_DIVERTABLE_CIDS_SW_ID)
 
     def doTask(self) -> None:
@@ -72,7 +72,7 @@ class FindDivertableCidsTask(InfoTask):
                     self._device.slot,
                     {f"0x{c:04X}" for c in persistently_divertable},
                 )
-            self._topics["divert_topic"].publish(
+            self._topics.divert.publish(
                 DivertEvent(
                     slot=self._device.slot,
                     pid=self._device.pid,

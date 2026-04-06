@@ -12,6 +12,7 @@ from cleverswitch.model.logi_device import LogiDevice
 from cleverswitch.subscriber.task.constants import FIND_DIVERTABLE_CIDS_SW_ID
 from cleverswitch.subscriber.task.find_divertable_cids_task import FindDivertableCidsTask
 from cleverswitch.topic.topic import Topic
+from cleverswitch.topic.topics import Topics
 
 PID = BOLT_PID
 SLOT = 1
@@ -29,13 +30,13 @@ def _make_device(reprog_idx=REPROG_IDX, pending=None):
 
 
 def _make_topics():
-    return {
-        "event_topic": MagicMock(spec=Topic),
-        "write_topic": MagicMock(spec=Topic),
-        "device_info_topic": MagicMock(spec=Topic),
-        "divert_topic": MagicMock(spec=Topic),
-        "info_progress_topic": MagicMock(spec=Topic),
-    }
+    return Topics(
+        hid_event=MagicMock(spec=Topic),
+        write=MagicMock(spec=Topic),
+        device_info=MagicMock(spec=Topic),
+        divert=MagicMock(spec=Topic),
+        info_progress=MagicMock(spec=Topic),
+    )
 
 
 def _count_response(count: int):
@@ -64,7 +65,7 @@ def test_finds_divertable_es_cids():
 
     assert 0x00D1 in device.divertable_cids
     assert "find_divertable_cids" not in device.pending_steps
-    topics["divert_topic"].publish.assert_called_once()
+    topics.divert.publish.assert_called_once()
 
 
 def test_finds_persistently_divertable_es_cids():
@@ -90,7 +91,7 @@ def test_skips_non_es_cids():
     task.doTask()
 
     assert len(device.divertable_cids) == 0
-    topics["divert_topic"].publish.assert_not_called()
+    topics.divert.publish.assert_not_called()
 
 
 def test_no_divert_published_when_no_divertable_cids():
@@ -101,7 +102,7 @@ def test_no_divert_published_when_no_divertable_cids():
     task._response_queue.put(_count_response(0))
     task.doTask()
 
-    topics["divert_topic"].publish.assert_not_called()
+    topics.divert.publish.assert_not_called()
 
 
 # ── Missing reprog feature ────────────────────────────────────────────────────
@@ -114,7 +115,7 @@ def test_returns_early_when_reprog_feature_missing():
 
     task.doTask()
 
-    topics["write_topic"].publish.assert_not_called()
+    topics.write.publish.assert_not_called()
 
 
 # ── Error / timeout handling ──────────────────────────────────────────────────

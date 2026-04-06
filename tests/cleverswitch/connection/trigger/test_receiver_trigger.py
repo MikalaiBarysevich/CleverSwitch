@@ -9,6 +9,7 @@ from cleverswitch.event.write_event import WriteEvent
 from cleverswitch.hidpp.constants import BOLT_PID
 from cleverswitch.hidpp.transport import HidDeviceInfo
 from cleverswitch.topic.topic import Topic
+from cleverswitch.topic.topics import Topics
 
 
 def _device_info():
@@ -18,12 +19,13 @@ def _device_info():
 
 
 def _make_topics():
-    return {
-        "event_topic": MagicMock(spec=Topic),
-        "write_topic": MagicMock(spec=Topic),
-        "device_info_topic": MagicMock(spec=Topic),
-        "divert_topic": MagicMock(spec=Topic),
-    }
+    return Topics(
+        hid_event=MagicMock(spec=Topic),
+        write=MagicMock(spec=Topic),
+        device_info=MagicMock(spec=Topic),
+        divert=MagicMock(spec=Topic),
+        info_progress=MagicMock(spec=Topic),
+    )
 
 
 def test_trigger_publishes_enumerate_message():
@@ -31,8 +33,8 @@ def test_trigger_publishes_enumerate_message():
     trigger = ReceiverConnectionTrigger(_device_info(), topics)
     trigger.trigger()
 
-    topics["write_topic"].publish.assert_called_once()
-    event = topics["write_topic"].publish.call_args[0][0]
+    topics.write.publish.assert_called_once()
+    event = topics.write.publish.call_args[0][0]
     assert isinstance(event, WriteEvent)
     assert event.hid_message == ENUMERATE_CONNECTED_DEVICES_MESSAGE
     assert event.pid == BOLT_PID

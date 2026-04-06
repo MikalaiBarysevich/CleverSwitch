@@ -12,6 +12,8 @@ from cleverswitch.hidpp.constants import BOLT_PID, SW_ID
 from cleverswitch.model.logi_device import LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 from cleverswitch.subscriber.disconnect_poller_subscriber import DisconnectPollerSubscriber
+from cleverswitch.topic.topic import Topic
+from cleverswitch.topic.topics import Topics
 
 WPID = 0x407B
 SLOT = 1
@@ -44,10 +46,14 @@ def registry() -> LogiDeviceRegistry:
 
 
 @pytest.fixture
-def topics() -> dict[str, MagicMock]:
-    event_topic = MagicMock()
-    write_topic = MagicMock()
-    return {"event_topic": event_topic, "write_topic": write_topic}
+def topics() -> Topics:
+    return Topics(
+        hid_event=MagicMock(spec=Topic),
+        write=MagicMock(spec=Topic),
+        device_info=MagicMock(spec=Topic),
+        divert=MagicMock(spec=Topic),
+        info_progress=MagicMock(spec=Topic),
+    )
 
 
 @pytest.fixture
@@ -81,8 +87,8 @@ class TestDisconnectPollerSubscriber:
     def test_poll_sends_ping_for_registered_device(self, subscriber, registry, topics):
         registry.register(WPID, _make_device())
         subscriber._poll_loop_once()
-        topics["write_topic"].publish.assert_called_once()
-        event = topics["write_topic"].publish.call_args[0][0]
+        topics.write.publish.assert_called_once()
+        event = topics.write.publish.call_args[0][0]
         assert isinstance(event, WriteEvent)
         assert event.hid_message[1] == SLOT
         assert event.hid_message[2] == 0x00  # feature index 0
@@ -90,15 +96,15 @@ class TestDisconnectPollerSubscriber:
     def test_poll_skips_bt_device(self, subscriber, registry, topics):
         registry.register(WPID, _make_device(slot=0xFF))
         subscriber._poll_loop_once()
-        topics["write_topic"].publish.assert_not_called()
+        topics.write.publish.assert_not_called()
 
     def test_timeout_publishes_disconnect(self, subscriber, registry, topics):
         registry.register(WPID, _make_device())
         subscriber._last_seen[SLOT] = time.monotonic() - 2.0
         subscriber._connected[SLOT] = True
         subscriber._check_timeouts()
-        topics["event_topic"].publish.assert_called_once()
-        event = topics["event_topic"].publish.call_args[0][0]
+        topics.hid_event.publish.assert_called_once()
+        event = topics.hid_event.publish.call_args[0][0]
         assert isinstance(event, DeviceConnectedEvent)
         assert event.link_established is False
         assert event.wpid == WPID
@@ -110,7 +116,7 @@ class TestDisconnectPollerSubscriber:
         subscriber._connected[SLOT] = True
         subscriber._check_timeouts()
         subscriber._check_timeouts()
-        assert topics["event_topic"].publish.call_count == 1
+        assert topics.hid_event.publish.call_count == 1
 
     def test_reconnect_after_disconnect_resets_state(self, subscriber, registry, topics):
         registry.register(WPID, _make_device())

@@ -9,7 +9,7 @@ from ..subscriber.task.feature.reprog_feature_task import ReprogFeatureTask
 from ..subscriber.task.find_divertable_cids_task import FindDivertableCidsTask
 from ..subscriber.task.get_device_name_task import GetDeviceNameTask
 from ..subscriber.task.get_device_type_task import GetDeviceTypeTask
-from ..topic.topic import Topic
+from ..topic.topics import Topics
 
 log = logging.getLogger(__name__)
 
@@ -24,11 +24,11 @@ _TASK_FACTORIES = {
 
 
 class InfoTaskOrchestrator(Subscriber):
-    def __init__(self, device_registry: LogiDeviceRegistry, topics: dict[str, Topic]) -> None:
+    def __init__(self, device_registry: LogiDeviceRegistry, topics: Topics) -> None:
         self._device_registry = device_registry
         self._topics = topics
         self._announced: set[int] = set()  # wpids already logged as fully discovered
-        topics["info_progress_topic"].subscribe(self)
+        topics.info_progress.subscribe(self)
 
     def notify(self, event) -> None:
         if isinstance(event, InfoTaskProgressEvent):

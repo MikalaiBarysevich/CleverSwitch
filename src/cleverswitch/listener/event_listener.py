@@ -5,15 +5,13 @@ from threading import Thread
 from ..connection.trigger.connection_triger import ConnectionTrigger
 from ..hidpp.transport import HidDeviceInfo
 from ..parser.parser import parse
-from ..topic.topic import Topic
+from ..topic.topics import Topics
 
 log = logging.getLogger(__name__)
 
 
 class EventListener(Thread):
-    def __init__(
-        self, device_info: HidDeviceInfo, topics: dict[str, Topic], connection_trigger: ConnectionTrigger = None
-    ):
+    def __init__(self, device_info: HidDeviceInfo, topics: Topics, connection_trigger: ConnectionTrigger = None):
         self._device_info = device_info
         self._event_queue = queue.Queue()
         self._topics = topics
@@ -33,4 +31,4 @@ class EventListener(Thread):
                 continue
 
             log.debug(f"Parsed event: {parsed_event}")
-            self._topics["event_topic"].publish(parsed_event)
+            self._topics.hid_event.publish(parsed_event)
