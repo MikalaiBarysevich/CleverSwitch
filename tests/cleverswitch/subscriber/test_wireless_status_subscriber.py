@@ -14,6 +14,7 @@ from cleverswitch.hidpp.constants import (
 from cleverswitch.model.logi_device import LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 from cleverswitch.subscriber.wireless_status_subscriber import WirelessStatusSubscriber
+from cleverswitch.topic.topics import Topics
 
 SLOT = 1
 PID = BOLT_PID
@@ -68,7 +69,13 @@ def divert_topic() -> MagicMock:
 @pytest.fixture
 def subscriber(registry, divert_topic) -> WirelessStatusSubscriber:
     event_topic = MagicMock()
-    topics = {"event_topic": event_topic, "divert_topic": divert_topic}
+    topics = Topics(
+        hid_event=event_topic,
+        write=MagicMock(),
+        device_info=MagicMock(),
+        divert=divert_topic,
+        info_progress=MagicMock(),
+    )
     return WirelessStatusSubscriber(registry, topics)
 
 

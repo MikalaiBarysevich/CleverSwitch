@@ -4,16 +4,16 @@ from ..event.device_connected_event import DeviceConnectedEvent
 from ..event.hidpp_notification_event import HidppNotificationEvent
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
-from ..topic.topic import Topic
+from ..topic.topics import Topics
 
 log = logging.getLogger(__name__)
 
 
 class WirelessReconnectSubscriber(Subscriber):
-    def __init__(self, device_registry: LogiDeviceRegistry, topics: dict[str, Topic]) -> None:
+    def __init__(self, device_registry: LogiDeviceRegistry, topics: Topics) -> None:
         self._device_registry = device_registry
         self._topics = topics
-        topics["event_topic"].subscribe(self)
+        topics.hid_event.subscribe(self)
 
     def notify(self, event) -> None:
         if not isinstance(event, HidppNotificationEvent) or event.function != 0:
@@ -34,7 +34,7 @@ class WirelessReconnectSubscriber(Subscriber):
             return
 
         log.info("x1D4B reconnect on slot=%d wpid=0x%04X", device.slot, device.wpid)
-        self._topics["event_topic"].publish(
+        self._topics.hid_event.publish(
             DeviceConnectedEvent(
                 slot=device.slot,
                 pid=device.pid,

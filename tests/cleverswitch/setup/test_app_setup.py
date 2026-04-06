@@ -27,10 +27,10 @@ def test_setup_context_returns_app_context(mocker):
     ctx = setup_context(_cli_args())
     assert isinstance(ctx, AppContext)
     assert ctx.device_registry is not None
-    assert "event_topic" in ctx.topics
-    assert "write_topic" in ctx.topics
-    assert "device_info_topic" in ctx.topics
-    assert "divert_topic" in ctx.topics
+    assert ctx.topics.hid_event is not None
+    assert ctx.topics.write is not None
+    assert ctx.topics.device_info is not None
+    assert ctx.topics.divert is not None
 
 
 def test_setup_context_exits_on_config_error(mocker):

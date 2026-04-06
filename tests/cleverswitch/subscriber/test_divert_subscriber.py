@@ -11,6 +11,7 @@ from cleverswitch.model.logi_device import LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 from cleverswitch.subscriber.divert_subscriber import DivertSubscriber
 from cleverswitch.topic.topic import Topic
+from cleverswitch.topic.topics import Topics
 
 PID = BOLT_PID
 WPID = 0x407B
@@ -18,12 +19,13 @@ REPROG_IDX = 8
 
 
 def _make_topics():
-    return {
-        "event_topic": MagicMock(spec=Topic),
-        "write_topic": MagicMock(spec=Topic),
-        "device_info_topic": MagicMock(spec=Topic),
-        "divert_topic": MagicMock(spec=Topic),
-    }
+    return Topics(
+        hid_event=MagicMock(spec=Topic),
+        write=MagicMock(spec=Topic),
+        device_info=MagicMock(spec=Topic),
+        divert=MagicMock(spec=Topic),
+        info_progress=MagicMock(spec=Topic),
+    )
 
 
 def _make_device(reprog_idx=REPROG_IDX, persistently_divertable=None):
@@ -48,8 +50,8 @@ def test_divert_publishes_write_event_per_cid():
     event = DivertEvent(slot=1, pid=PID, wpid=WPID, cids={0x00D1, 0x00D2})
     sub.notify(event)
 
-    assert topics["write_topic"].publish.call_count == 2
-    for call in topics["write_topic"].publish.call_args_list:
+    assert topics.write.publish.call_count == 2
+    for call in topics.write.publish.call_args_list:
         assert isinstance(call[0][0], WriteEvent)
 
 
@@ -61,7 +63,7 @@ def test_divert_ignores_unknown_device():
     event = DivertEvent(slot=1, pid=PID, wpid=0x9999, cids={0x00D1})
     sub.notify(event)
 
-    topics["write_topic"].publish.assert_not_called()
+    topics.write.publish.assert_not_called()
 
 
 def test_divert_ignores_device_without_reprog():
@@ -75,7 +77,7 @@ def test_divert_ignores_device_without_reprog():
     event = DivertEvent(slot=1, pid=PID, wpid=WPID, cids={0x00D1})
     sub.notify(event)
 
-    topics["write_topic"].publish.assert_not_called()
+    topics.write.publish.assert_not_called()
 
 
 def test_divert_false_publishes_write_events():
@@ -89,7 +91,7 @@ def test_divert_false_publishes_write_events():
     event = DivertEvent(slot=1, pid=PID, wpid=WPID, cids={0x00D1}, divert=False)
     sub.notify(event)
 
-    assert topics["write_topic"].publish.call_count == 1
+    assert topics.write.publish.call_count == 1
 
 
 def test_divert_ignores_non_divert_event():

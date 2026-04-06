@@ -21,6 +21,7 @@ from ..subscriber.info_task_orchestrator import InfoTaskOrchestrator
 from ..subscriber.wireless_reconnect_subscriber import WirelessReconnectSubscriber
 from ..subscriber.wireless_status_subscriber import WirelessStatusSubscriber
 from ..topic.topic import Topic
+from ..topic.topics import Topics
 from ..util.util import get_system
 from .platform_setup import check
 
@@ -57,21 +58,21 @@ def _setup_shutdown() -> threading.Event:
     return shutdown
 
 
-def _setup_topics() -> dict[str, Topic]:
-    return {
-        "event_topic": Topic(),
-        "write_topic": Topic(),
-        "device_info_topic": Topic(),
-        "divert_topic": Topic(),
-        "info_progress_topic": Topic(),
-    }
+def _setup_topics() -> Topics:
+    return Topics(
+        hid_event=Topic(),
+        write=Topic(),
+        device_info=Topic(),
+        divert=Topic(),
+        info_progress=Topic(),
+    )
 
 
 def _setup_logi_device_registry() -> LogiDeviceRegistry:
     return LogiDeviceRegistry()
 
 
-def _init_subscribers(topics: dict[str, Topic], device_registry: LogiDeviceRegistry) -> None:
+def _init_subscribers(topics: Topics, device_registry: LogiDeviceRegistry) -> None:
     DeviceConnectionSubscriber(device_registry, topics)
     DeviceInfoSubscriber(device_registry, topics)
     InfoTaskOrchestrator(device_registry, topics)

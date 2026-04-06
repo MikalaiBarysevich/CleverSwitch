@@ -10,6 +10,7 @@ from cleverswitch.hidpp.constants import BOLT_PID, REPORT_LONG
 from cleverswitch.hidpp.transport import HidDeviceInfo
 from cleverswitch.listener.event_listener import EventListener
 from cleverswitch.topic.topic import Topic
+from cleverswitch.topic.topics import Topics
 
 
 def _device_info():
@@ -19,12 +20,13 @@ def _device_info():
 
 
 def _make_topics():
-    return {
-        "event_topic": MagicMock(spec=Topic),
-        "write_topic": MagicMock(spec=Topic),
-        "device_info_topic": MagicMock(spec=Topic),
-        "divert_topic": MagicMock(spec=Topic),
-    }
+    return Topics(
+        hid_event=MagicMock(spec=Topic),
+        write=MagicMock(spec=Topic),
+        device_info=MagicMock(spec=Topic),
+        divert=MagicMock(spec=Topic),
+        info_progress=MagicMock(spec=Topic),
+    )
 
 
 def test_listen_queues_raw_event():
@@ -38,8 +40,8 @@ def test_listen_queues_raw_event():
     listener.listen(raw)
     time.sleep(0.1)
 
-    topics["event_topic"].publish.assert_called_once()
-    event = topics["event_topic"].publish.call_args[0][0]
+    topics.hid_event.publish.assert_called_once()
+    event = topics.hid_event.publish.call_args[0][0]
     assert isinstance(event, HidppNotificationEvent)
 
 
@@ -54,7 +56,7 @@ def test_listen_skips_unparseable_events():
     listener.listen(raw)
     time.sleep(0.1)
 
-    topics["event_topic"].publish.assert_not_called()
+    topics.hid_event.publish.assert_not_called()
 
 
 def test_connection_trigger_called_on_start():
@@ -78,4 +80,4 @@ def test_no_connection_trigger_runs_fine():
     listener.listen(raw)
     time.sleep(0.1)
 
-    topics["event_topic"].publish.assert_called_once()
+    topics.hid_event.publish.assert_called_once()

@@ -12,16 +12,16 @@ from ..hidpp.constants import (
 from ..hidpp.protocol import build_msg
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
-from ..topic.topic import Topic
+from ..topic.topics import Topics
 
 log = logging.getLogger(__name__)
 
 
 class DivertSubscriber(Subscriber):
-    def __init__(self, device_registry: LogiDeviceRegistry, topics: dict[str, Topic]):
+    def __init__(self, device_registry: LogiDeviceRegistry, topics: Topics):
         self._device_registry = device_registry
         self._topics = topics
-        topics["divert_topic"].subscribe(self)
+        topics.divert.subscribe(self)
 
     def notify(self, event) -> None:
         if not isinstance(event, DivertEvent):
@@ -53,5 +53,5 @@ class DivertSubscriber(Subscriber):
             params = struct.pack("!HBH", cid, bfield, 0)
             request_id = (reprog_idx << 8) | 0x30 | SW_ID_DIVERT
             msg = build_msg(event.slot, request_id, params)
-            self._topics["write_topic"].publish(WriteEvent(slot=event.slot, pid=event.pid, hid_message=msg))
+            self._topics.write.publish(WriteEvent(slot=event.slot, pid=event.pid, hid_message=msg))
             log.info("%s CID 0x%04X on slot=0x%04X", "Diverting" if event.divert else "Undiverting", cid, event.slot)

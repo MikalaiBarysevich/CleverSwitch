@@ -10,6 +10,7 @@ from cleverswitch.hidpp.constants import BOLT_PID
 from cleverswitch.model.logi_device import LogiDevice
 from cleverswitch.subscriber.task.info_task import InfoTask
 from cleverswitch.topic.topic import Topic
+from cleverswitch.topic.topics import Topics
 
 PID = BOLT_PID
 SLOT = 1
@@ -24,13 +25,13 @@ def _make_device(pending=None):
 
 
 def _make_topics():
-    return {
-        "event_topic": MagicMock(spec=Topic),
-        "write_topic": MagicMock(spec=Topic),
-        "device_info_topic": MagicMock(spec=Topic),
-        "divert_topic": MagicMock(spec=Topic),
-        "info_progress_topic": MagicMock(spec=Topic),
-    }
+    return Topics(
+        hid_event=MagicMock(spec=Topic),
+        write=MagicMock(spec=Topic),
+        device_info=MagicMock(spec=Topic),
+        divert=MagicMock(spec=Topic),
+        info_progress=MagicMock(spec=Topic),
+    )
 
 
 class _ConcreteTask(InfoTask):
@@ -122,8 +123,8 @@ def test_run_publishes_success_and_fires_dependents_when_dotask_completes():
     task.run()
 
     assert fired == [1]
-    topics["info_progress_topic"].publish.assert_called_once()
-    event = topics["info_progress_topic"].publish.call_args[0][0]
+    topics.info_progress.publish.assert_called_once()
+    event = topics.info_progress.publish.call_args[0][0]
     assert event.success is True
     assert event.step_name == "test_step"
 
@@ -141,8 +142,8 @@ def test_run_publishes_failure_and_no_dependents_when_dotask_times_out():
     task.run()
 
     assert fired == []
-    topics["info_progress_topic"].publish.assert_called_once()
-    event = topics["info_progress_topic"].publish.call_args[0][0]
+    topics.info_progress.publish.assert_called_once()
+    event = topics.info_progress.publish.call_args[0][0]
     assert event.success is False
     assert event.step_name == "test_step"
 
@@ -156,8 +157,8 @@ def test_run_publishes_success_without_calling_dotask_when_already_done():
     task.run()
 
     assert called == []
-    topics["info_progress_topic"].publish.assert_called_once()
-    event = topics["info_progress_topic"].publish.call_args[0][0]
+    topics.info_progress.publish.assert_called_once()
+    event = topics.info_progress.publish.call_args[0][0]
     assert event.success is True
 
 
@@ -171,7 +172,7 @@ def test_send_request_publishes_write_event():
 
     task._send_request(0x18, 0x14, 0x00)
 
-    topics["write_topic"].publish.assert_called_once()
+    topics.write.publish.assert_called_once()
 
 
 def test_send_request_with_custom_request_id():
@@ -181,7 +182,7 @@ def test_send_request_with_custom_request_id():
 
     task._send_request(request_id=0x0500)
 
-    topics["write_topic"].publish.assert_called_once()
+    topics.write.publish.assert_called_once()
 
 
 # ── _wait_response() ──────────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ from cleverswitch.hidpp.constants import BOLT_PID, FEATURE_CHANGE_HOST, FEATURE_
 from cleverswitch.model.logi_device import LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 from cleverswitch.subscriber.wireless_reconnect_subscriber import WirelessReconnectSubscriber
+from cleverswitch.topic.topics import Topics
 
 SLOT = 1
 PID = BOLT_PID
@@ -34,7 +35,13 @@ def _make_x1d4b_event(*, feature_index: int = UNKNOWN_FEAT_IDX, function: int = 
 
 def _make_subscriber(registry):
     event_topic = MagicMock()
-    topics = {"event_topic": event_topic}
+    topics = Topics(
+        hid_event=event_topic,
+        write=MagicMock(),
+        device_info=MagicMock(),
+        divert=MagicMock(),
+        info_progress=MagicMock(),
+    )
     sub = WirelessReconnectSubscriber(registry, topics)
     return sub, event_topic
 

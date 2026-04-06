@@ -3,7 +3,7 @@ import logging
 from ..event.device_info_request_event import DeviceInfoRequestEvent
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
-from ..topic.topic import Topic
+from ..topic.topics import Topics
 from .task.feature.change_host_feature_task import ChangeHostFeatureTask
 from .task.feature.name_and_type_feature_task import NameAndTypeFeatureTask
 from .task.feature.reprog_feature_task import ReprogFeatureTask
@@ -12,10 +12,10 @@ log = logging.getLogger(__name__)
 
 
 class DeviceInfoSubscriber(Subscriber):
-    def __init__(self, device_registry: LogiDeviceRegistry, topics: dict[str, Topic]) -> None:
+    def __init__(self, device_registry: LogiDeviceRegistry, topics: Topics) -> None:
         self._device_registry = device_registry
         self._topics = topics
-        topics["device_info_topic"].subscribe(self)
+        topics.device_info.subscribe(self)
 
     def notify(self, event) -> None:
         if isinstance(event, DeviceInfoRequestEvent):
