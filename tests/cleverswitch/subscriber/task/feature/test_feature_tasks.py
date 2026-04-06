@@ -37,6 +37,7 @@ def _make_topics():
         "write_topic": MagicMock(spec=Topic),
         "device_info_topic": MagicMock(spec=Topic),
         "divert_topic": MagicMock(spec=Topic),
+        "info_progress_topic": MagicMock(spec=Topic),
     }
 
 

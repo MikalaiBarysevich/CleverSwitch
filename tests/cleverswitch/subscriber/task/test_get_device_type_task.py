@@ -33,6 +33,7 @@ def _make_topics():
         "write_topic": MagicMock(spec=Topic),
         "device_info_topic": MagicMock(spec=Topic),
         "divert_topic": MagicMock(spec=Topic),
+        "info_progress_topic": MagicMock(spec=Topic),
     }
 
 
@@ -100,7 +101,7 @@ def test_discards_step_on_error_response():
     assert "get_device_type" not in device.pending_steps
 
 
-def test_discards_step_on_timeout():
+def test_keeps_step_pending_on_timeout():
     device = _make_device(pending={"get_device_type"})
     topics = _make_topics()
     task = GetDeviceTypeTask(device, topics)
@@ -109,4 +110,4 @@ def test_discards_step_on_timeout():
     task.doTask()
 
     assert device.role is None
-    assert "get_device_type" not in device.pending_steps
+    assert "get_device_type" in device.pending_steps
