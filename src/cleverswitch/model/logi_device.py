@@ -21,3 +21,4 @@ class LogiDevice:
             "get_device_name",
         }
     )
+    connected: bool = True

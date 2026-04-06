@@ -155,6 +155,39 @@ def test_reconnection_does_not_request_info_if_setup_complete():
     topics["device_info_topic"].publish.assert_not_called()
 
 
+# ── connected flag ───────────────────────────────────────────────────────────
+
+
+def test_sets_connected_false_on_disconnect():
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = DeviceConnectionSubscriber(registry, topics)
+
+    device = _make_device()
+    device.connected = True
+    registry.register(WPID, device)
+
+    event = DeviceConnectedEvent(slot=1, pid=PID, link_established=False, wpid=WPID, device_type=1)
+    sub.notify(event)
+
+    assert device.connected is False
+
+
+def test_sets_connected_true_on_reconnect():
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = DeviceConnectionSubscriber(registry, topics)
+
+    device = _make_device(pending_steps=set())
+    device.connected = False
+    registry.register(WPID, device)
+
+    event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1)
+    sub.notify(event)
+
+    assert device.connected is True
+
+
 # ── Ignored events ───────────────────────────────────────────────────────────
 
 

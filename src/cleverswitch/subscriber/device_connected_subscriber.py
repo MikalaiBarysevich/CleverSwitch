@@ -37,6 +37,7 @@ class DeviceConnectionSubscriber(Subscriber):
 
         log.info(message)
 
+        logi_device.connected = event.link_established
         if not event.link_established:
             return
 

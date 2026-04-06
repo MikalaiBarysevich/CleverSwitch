@@ -5,6 +5,7 @@ from threading import Thread
 
 from ...event.hidpp_error_event import HidppErrorEvent
 from ...event.hidpp_response_event import HidppResponseEvent
+from ...event.info_task_progress_event import InfoTaskProgressEvent
 from ...event.write_event import WriteEvent
 from ...hidpp.protocol import build_msg, pack_params
 from ...model.logi_device import LogiDevice
@@ -49,16 +50,21 @@ class InfoTask(ABC, Subscriber, Thread):
             self._response_queue.put(event)
 
     def run(self) -> None:
-        if self._step_name not in self._device.pending_steps:
-            log.info(f"Task {self._step_name} is already complete")
-        else:
+        already_done = self._step_name not in self._device.pending_steps
+        if not already_done:
             self.doTask()
-
-        if len(self._device.pending_steps) == 0:
-            # todo(CLEV-51): must publish to another subscriber to track if all tasks completed
-            log.info(f"REMOVE ME LATER device setup completed device={self._device}")
-        else:
+        success = already_done or self._step_name not in self._device.pending_steps
+        if success:
             self._fire_dependent_steps()
+        self._topics["info_progress_topic"].publish(
+            InfoTaskProgressEvent(
+                slot=self._device.slot,
+                pid=self._device.pid,
+                step_name=self._step_name,
+                success=success,
+                device=self._device,
+            )
+        )
 
     @abstractmethod
     def doTask(self) -> None: ...

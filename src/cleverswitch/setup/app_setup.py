@@ -17,6 +17,8 @@ from ..subscriber.divert_subscriber import DivertSubscriber
 from ..subscriber.diverted_host_change_subscriber import DivertedHostChangeSubscriber
 from ..subscriber.external_undivert_subscriber import ExternalUndivertSubscriber
 from ..subscriber.host_change_subscriber import HostChangeSubscriber
+from ..subscriber.info_task_orchestrator import InfoTaskOrchestrator
+from ..subscriber.wireless_reconnect_subscriber import WirelessReconnectSubscriber
 from ..subscriber.wireless_status_subscriber import WirelessStatusSubscriber
 from ..topic.topic import Topic
 from ..util.util import get_system
@@ -61,6 +63,7 @@ def _setup_topics() -> dict[str, Topic]:
         "write_topic": Topic(),
         "device_info_topic": Topic(),
         "divert_topic": Topic(),
+        "info_progress_topic": Topic(),
     }
 
 
@@ -71,6 +74,7 @@ def _setup_logi_device_registry() -> LogiDeviceRegistry:
 def _init_subscribers(topics: dict[str, Topic], device_registry: LogiDeviceRegistry) -> None:
     DeviceConnectionSubscriber(device_registry, topics)
     DeviceInfoSubscriber(device_registry, topics)
+    InfoTaskOrchestrator(device_registry, topics)
     DivertSubscriber(device_registry, topics)
     ExternalUndivertSubscriber(device_registry, topics)
     HostChangeSubscriber(device_registry, topics)
@@ -78,3 +82,4 @@ def _init_subscribers(topics: dict[str, Topic], device_registry: LogiDeviceRegis
     WirelessStatusSubscriber(device_registry, topics)
     if get_system() == "Darwin":
         DisconnectPollerSubscriber(device_registry, topics)
+        WirelessReconnectSubscriber(device_registry, topics)
