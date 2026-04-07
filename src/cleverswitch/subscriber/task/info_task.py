@@ -55,6 +55,7 @@ class InfoTask(ABC, Subscriber, Thread):
             self.doTask()
         success = already_done or self._step_name not in self._device.pending_steps
         if success:
+            self._device.connected = True
             self._fire_dependent_steps()
         self._topics.info_progress.publish(
             InfoTaskProgressEvent(
