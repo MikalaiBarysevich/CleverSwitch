@@ -39,7 +39,11 @@ class DeviceInfoSubscriber(Subscriber):
             device.pending_steps.discard("get_device_type")
         if not event.name:
             device.pending_steps.discard("get_device_name")
+        if device.role != "keyboard":
+            device.pending_steps.discard("resolve_reprog")
+            device.pending_steps.discard("find_divertable_cids")
 
-        ReprogFeatureTask(device, self._topics).start()
+        if device.role == "keyboard":
+            ReprogFeatureTask(device, self._topics).start()
         ChangeHostFeatureTask(device, self._topics).start()
         NameAndTypeFeatureTask(device, self._topics).start()
