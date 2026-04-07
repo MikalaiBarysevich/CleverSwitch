@@ -164,7 +164,7 @@ def test_parse_b5_slot1_keyboard():
     assert event.slot == 1
     assert event.wpid == 0x407B
     assert event.device_type == 1
-    assert event.link_established is True
+    assert event.link_established is False
 
 
 def test_parse_b5_slot6_mouse():

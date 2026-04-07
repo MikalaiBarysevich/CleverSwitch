@@ -76,6 +76,7 @@ class DeviceConnectionSubscriber(Subscriber):
             slot=event.slot,
             role=role,
             available_features={},
+            connected=event.link_established,
         )
 
         self._device_registry.register(event.wpid, device)
