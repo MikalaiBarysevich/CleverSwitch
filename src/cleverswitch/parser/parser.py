@@ -49,7 +49,7 @@ def parse(pid: int, raw_event: bytes) -> Event | None:
         return DeviceConnectedEvent(
             slot=slot,
             pid=pid,
-            link_established=True,
+            link_established=False,
             wpid=wpid,
             device_type=device_type if device_type != 0 else None,
         )
