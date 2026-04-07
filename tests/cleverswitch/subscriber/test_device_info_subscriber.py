@@ -26,8 +26,8 @@ def _make_topics():
     )
 
 
-def _make_device():
-    return LogiDevice(wpid=WPID, pid=PID, slot=1, role=None, available_features={})
+def _make_device(role="keyboard"):
+    return LogiDevice(wpid=WPID, pid=PID, slot=1, role=role, available_features={})
 
 
 def test_handle_setup_starts_tasks(mocker):
