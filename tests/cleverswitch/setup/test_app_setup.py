@@ -30,7 +30,7 @@ def test_setup_context_returns_app_context(mocker):
     assert ctx.topics.hid_event is not None
     assert ctx.topics.write is not None
     assert ctx.topics.device_info is not None
-    assert ctx.topics.divert is not None
+    assert ctx.topics.flags is not None
 
 
 def test_setup_context_exits_on_config_error(mocker):

@@ -17,7 +17,7 @@ def _make_trigger() -> tuple[ReceiverConnectionTriggerMac, MagicMock]:
         hid_event=MagicMock(spec=Topic),
         write=write_topic,
         device_info=MagicMock(spec=Topic),
-        divert=MagicMock(spec=Topic),
+        flags=MagicMock(spec=Topic),
         info_progress=MagicMock(spec=Topic),
     )
     trigger = ReceiverConnectionTriggerMac(device_info, topics)

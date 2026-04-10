@@ -15,10 +15,10 @@ import time
 
 from ..connection.trigger.receiver_trigger import ReceiverConnectionTrigger
 from ..connection.trigger.receiver_trigger_mac import ReceiverConnectionTriggerMac
-from ..event.divert_event import DivertEvent
+from ..event.set_report_flag_event import SetReportFlagEvent
 from ..gateway.hid_gateway import HidGateway
 from ..gateway.hid_gateway_bt import HidGatewayBT
-from ..hidpp.constants import FEATURE_REPROG_CONTROLS_V4
+from ..hidpp.constants import FEATURE_REPROG_CONTROLS_V4, KEY_FLAG_ANALYTICS
 from ..hidpp.transport import enumerate_hid_devices
 from ..listener.event_listener import EventListener
 from ..model.context.app_context import AppContext
@@ -77,17 +77,16 @@ def discover(app_context: AppContext) -> None:
 
 def _undivert_all(device_registry: LogiDeviceRegistry, topics: Topics) -> None:
     for device in device_registry.all_entries():
-        if not device.divertable_cids:
+        if KEY_FLAG_ANALYTICS in device.supported_flags:
             continue
         if device.available_features.get(FEATURE_REPROG_CONTROLS_V4) is None:
             continue
-        topics.divert.publish(
-            DivertEvent(
+        topics.flags.publish(
+            SetReportFlagEvent(
                 slot=device.slot,
                 pid=device.pid,
                 wpid=device.wpid,
-                cids=device.divertable_cids,
-                divert=False,
+                enable=False,
             )
         )
     time.sleep(0.1)

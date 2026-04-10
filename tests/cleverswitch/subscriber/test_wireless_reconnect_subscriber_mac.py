@@ -39,7 +39,7 @@ def _make_subscriber(registry):
         hid_event=event_topic,
         write=MagicMock(),
         device_info=MagicMock(),
-        divert=MagicMock(),
+        flags=MagicMock(),
         info_progress=MagicMock(),
     )
     sub = WirelessReconnectSubscriber(registry, topics)

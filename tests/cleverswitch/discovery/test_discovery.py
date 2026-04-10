@@ -6,8 +6,8 @@ import threading
 from unittest.mock import MagicMock
 
 from cleverswitch.discovery.discovery import _undivert_all, discover
-from cleverswitch.event.divert_event import DivertEvent
-from cleverswitch.hidpp.constants import BOLT_PID, FEATURE_CHANGE_HOST, FEATURE_REPROG_CONTROLS_V4
+from cleverswitch.event.set_report_flag_event import SetReportFlagEvent
+from cleverswitch.hidpp.constants import BOLT_PID, FEATURE_CHANGE_HOST, FEATURE_REPROG_CONTROLS_V4, KEY_FLAG_ANALYTICS
 from cleverswitch.model.context.app_context import AppContext
 from cleverswitch.model.logi_device import LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
@@ -25,7 +25,7 @@ def _make_app_context(shutdown=None, registry=None, topics=None):
             hid_event=MagicMock(spec=Topic),
             write=MagicMock(spec=Topic),
             device_info=MagicMock(spec=Topic),
-            divert=MagicMock(spec=Topic),
+            flags=MagicMock(spec=Topic),
             info_progress=MagicMock(spec=Topic),
         )
     config = MagicMock()
@@ -153,13 +153,12 @@ def test_discover_closes_gateways_on_shutdown(mocker):
 # ── _undivert_all ─────────────────────────────────────────────────────────────
 
 
-def test_undivert_all_publishes_divert_false_for_devices_with_cids(mocker):
+def test_undivert_all_publishes_set_report_flag_event_with_enable_false(mocker):
     mocker.patch("cleverswitch.discovery.discovery.time.sleep")
     registry = LogiDeviceRegistry()
     device = LogiDevice(
         wpid=0x407B, pid=BOLT_PID, slot=1, role="keyboard",
         available_features={FEATURE_REPROG_CONTROLS_V4: 8, FEATURE_CHANGE_HOST: 9},
-        divertable_cids={0x00D1, 0x00D2},
     )
     registry.register(0x407B, device)
     divert_topic = MagicMock()
@@ -167,7 +166,7 @@ def test_undivert_all_publishes_divert_false_for_devices_with_cids(mocker):
         hid_event=MagicMock(spec=Topic),
         write=MagicMock(spec=Topic),
         device_info=MagicMock(spec=Topic),
-        divert=divert_topic,
+        flags=divert_topic,
         info_progress=MagicMock(spec=Topic),
     )
 
@@ -175,12 +174,11 @@ def test_undivert_all_publishes_divert_false_for_devices_with_cids(mocker):
 
     divert_topic.publish.assert_called_once()
     event = divert_topic.publish.call_args[0][0]
-    assert isinstance(event, DivertEvent)
-    assert event.divert is False
-    assert event.cids == {0x00D1, 0x00D2}
+    assert isinstance(event, SetReportFlagEvent)
+    assert event.enable is False
 
 
-def test_undivert_all_skips_device_without_divertable_cids(mocker):
+def test_undivert_all_skips_device_without_reprog_feature(mocker):
     mocker.patch("cleverswitch.discovery.discovery.time.sleep")
     registry = LogiDeviceRegistry()
     device = LogiDevice(
@@ -193,7 +191,7 @@ def test_undivert_all_skips_device_without_divertable_cids(mocker):
         hid_event=MagicMock(spec=Topic),
         write=MagicMock(spec=Topic),
         device_info=MagicMock(spec=Topic),
-        divert=divert_topic,
+        flags=divert_topic,
         info_progress=MagicMock(spec=Topic),
     )
 
@@ -202,21 +200,21 @@ def test_undivert_all_skips_device_without_divertable_cids(mocker):
     divert_topic.publish.assert_not_called()
 
 
-def test_undivert_all_skips_device_without_reprog_feature(mocker):
+def test_undivert_all_skips_device_with_analytics_flag(mocker):
     mocker.patch("cleverswitch.discovery.discovery.time.sleep")
     registry = LogiDeviceRegistry()
     device = LogiDevice(
         wpid=0x407B, pid=BOLT_PID, slot=1, role="keyboard",
-        available_features={FEATURE_CHANGE_HOST: 9},
-        divertable_cids={0x00D1},
+        available_features={FEATURE_REPROG_CONTROLS_V4: 8, FEATURE_CHANGE_HOST: 9},
     )
+    device.supported_flags = {KEY_FLAG_ANALYTICS}
     registry.register(0x407B, device)
     divert_topic = MagicMock()
     topics = Topics(
         hid_event=MagicMock(spec=Topic),
         write=MagicMock(spec=Topic),
         device_info=MagicMock(spec=Topic),
-        divert=divert_topic,
+        flags=divert_topic,
         info_progress=MagicMock(spec=Topic),
     )
 

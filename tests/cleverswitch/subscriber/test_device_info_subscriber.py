@@ -21,7 +21,7 @@ def _make_topics():
         hid_event=MagicMock(spec=Topic),
         write=MagicMock(spec=Topic),
         device_info=MagicMock(spec=Topic),
-        divert=MagicMock(spec=Topic),
+        flags=MagicMock(spec=Topic),
         info_progress=MagicMock(spec=Topic),
     )
 
@@ -38,7 +38,7 @@ def test_handle_setup_starts_tasks(mocker):
     device = _make_device()
     registry.register(WPID, device)
 
-    mock_reprog = mocker.patch("cleverswitch.subscriber.device_info_subscriber.ReprogFeatureTask")
+    mock_reprog = mocker.patch("cleverswitch.subscriber.device_info_subscriber.CidReportingFeatureTask")
     mock_change_host = mocker.patch("cleverswitch.subscriber.device_info_subscriber.ChangeHostFeatureTask")
     mock_name_type = mocker.patch("cleverswitch.subscriber.device_info_subscriber.NameAndTypeFeatureTask")
 
@@ -58,7 +58,7 @@ def test_handle_setup_skips_when_device_not_found(mocker):
     topics = _make_topics()
     sub = DeviceInfoSubscriber(registry, topics)
 
-    mock_reprog = mocker.patch("cleverswitch.subscriber.device_info_subscriber.ReprogFeatureTask")
+    mock_reprog = mocker.patch("cleverswitch.subscriber.device_info_subscriber.CidReportingFeatureTask")
 
     event = DeviceInfoRequestEvent(slot=1, pid=PID, wpid=0x9999, type=True, name=True)
     sub.notify(event)
@@ -74,7 +74,7 @@ def test_handle_setup_discards_type_step_when_not_needed(mocker):
     device = _make_device()
     registry.register(WPID, device)
 
-    mocker.patch("cleverswitch.subscriber.device_info_subscriber.ReprogFeatureTask")
+    mocker.patch("cleverswitch.subscriber.device_info_subscriber.CidReportingFeatureTask")
     mocker.patch("cleverswitch.subscriber.device_info_subscriber.ChangeHostFeatureTask")
     mocker.patch("cleverswitch.subscriber.device_info_subscriber.NameAndTypeFeatureTask")
 
@@ -92,7 +92,7 @@ def test_handle_setup_discards_name_step_when_not_needed(mocker):
     device = _make_device()
     registry.register(WPID, device)
 
-    mocker.patch("cleverswitch.subscriber.device_info_subscriber.ReprogFeatureTask")
+    mocker.patch("cleverswitch.subscriber.device_info_subscriber.CidReportingFeatureTask")
     mocker.patch("cleverswitch.subscriber.device_info_subscriber.ChangeHostFeatureTask")
     mocker.patch("cleverswitch.subscriber.device_info_subscriber.NameAndTypeFeatureTask")
 

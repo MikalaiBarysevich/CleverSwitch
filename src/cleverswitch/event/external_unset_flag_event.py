@@ -4,6 +4,6 @@ from ..event.event import Event
 
 
 @dataclasses.dataclass
-class ExternalUndivertEvent(Event):
+class ExternalUnsetFlagEvent(Event):
     feature_index: int
     cid: int

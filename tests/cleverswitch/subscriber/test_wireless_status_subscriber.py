@@ -1,10 +1,10 @@
-"""Tests for WirelessStatusSubscriber — re-diverts on x1D4B reconfiguration requests."""
+"""Tests for WirelessStatusSubscriber — re-applies report flags on x1D4B reconfiguration requests."""
 
 from unittest.mock import MagicMock
 
 import pytest
 
-from cleverswitch.event.divert_event import DivertEvent
+from cleverswitch.event.set_report_flag_event import SetReportFlagEvent
 from cleverswitch.event.hidpp_notification_event import HidppNotificationEvent
 from cleverswitch.hidpp.constants import (
     BOLT_PID,
@@ -22,13 +22,11 @@ WPID = 0x407B
 UNKNOWN_FEAT_IDX = 4  # feature index not in available_features.values()
 REPROG_IDX = 8
 CHANGE_HOST_IDX = 9
-DIVERTABLE_CIDS = {0x00D1, 0x00D2, 0x00D3}
 
 
 def _make_device(
     *,
     reprog_idx: int | None = REPROG_IDX,
-    divertable_cids: set[int] | None = None,
 ) -> LogiDevice:
     features: dict[int, int] = {}
     if reprog_idx is not None:
@@ -40,7 +38,6 @@ def _make_device(
         slot=SLOT,
         role="keyboard",
         available_features=features,
-        divertable_cids=divertable_cids if divertable_cids is not None else DIVERTABLE_CIDS.copy(),
     )
 
 
@@ -73,7 +70,7 @@ def subscriber(registry, divert_topic) -> WirelessStatusSubscriber:
         hid_event=event_topic,
         write=MagicMock(),
         device_info=MagicMock(),
-        divert=divert_topic,
+        flags=divert_topic,
         info_progress=MagicMock(),
     )
     return WirelessStatusSubscriber(registry, topics)
@@ -81,17 +78,16 @@ def subscriber(registry, divert_topic) -> WirelessStatusSubscriber:
 
 class TestWirelessStatusSubscriber:
 
-    def test_reconfig_request_publishes_divert(self, subscriber, registry, divert_topic):
+    def test_reconfig_request_publishes_set_report_flag_event(self, subscriber, registry, divert_topic):
         registry.register(WPID, _make_device())
         subscriber.notify(_make_x1d4b_event())
 
         divert_topic.publish.assert_called_once()
         event = divert_topic.publish.call_args[0][0]
-        assert isinstance(event, DivertEvent)
+        assert isinstance(event, SetReportFlagEvent)
         assert event.slot == SLOT
         assert event.pid == PID
         assert event.wpid == WPID
-        assert event.cids == DIVERTABLE_CIDS
 
     def test_no_reconfig_request_ignored(self, subscriber, registry, divert_topic):
         registry.register(WPID, _make_device())
@@ -104,8 +100,8 @@ class TestWirelessStatusSubscriber:
 
         divert_topic.publish.assert_not_called()
 
-    def test_no_divertable_cids_ignored(self, subscriber, registry, divert_topic):
-        registry.register(WPID, _make_device(divertable_cids=set()))
+    def test_no_reprog_controls_v4_feature_no_publish(self, subscriber, registry, divert_topic):
+        registry.register(WPID, _make_device(reprog_idx=None))
         subscriber.notify(_make_x1d4b_event())
 
         divert_topic.publish.assert_not_called()
@@ -123,19 +119,13 @@ class TestWirelessStatusSubscriber:
 
         divert_topic.publish.assert_not_called()
 
-    def test_no_reprog_feature_ignored(self, subscriber, registry, divert_topic):
-        registry.register(WPID, _make_device(reprog_idx=None))
-        subscriber.notify(_make_x1d4b_event())
-
-        divert_topic.publish.assert_not_called()
-
     def test_non_notification_event_ignored(self, subscriber, registry, divert_topic):
         registry.register(WPID, _make_device())
         subscriber.notify("not a HidppNotificationEvent")
 
         divert_topic.publish.assert_not_called()
 
-    def test_status_unknown_with_reconfig_request_still_diverts(self, subscriber, registry, divert_topic):
+    def test_status_unknown_with_reconfig_request_still_publishes(self, subscriber, registry, divert_topic):
         registry.register(WPID, _make_device())
         subscriber.notify(_make_x1d4b_event(status=0x00, request=0x01))
 
