@@ -5,11 +5,13 @@ from __future__ import annotations
 import struct
 
 from cleverswitch.event.device_connected_event import DeviceConnectedEvent
-from cleverswitch.event.external_undivert_event import ExternalUndivertEvent
+from cleverswitch.event.external_unset_flag_event import ExternalUnsetFlagEvent
 from cleverswitch.event.hidpp_error_event import HidppErrorEvent
 from cleverswitch.event.hidpp_notification_event import HidppNotificationEvent
 from cleverswitch.event.hidpp_response_event import HidppResponseEvent
 from cleverswitch.hidpp.constants import (
+    ANALYTICS_AVALID,
+    ANALYTICS_KEY_EVT,
     BOLT_PID,
     GET_LONG_REGISTER_RSP,
     HOST_SWITCH_CIDS,
@@ -110,35 +112,52 @@ def test_parse_notification():
     assert event.function == 0
 
 
-# ── External undivert (fn=3, ES CID, divert cleared) ────────────────────────
+# ── External unset flag (fn=3, ES CID, divert cleared) ───────────────────────
 
 
-def test_parse_external_undivert():
+def test_parse_external_unset_flag_divert_cleared():
     # fn=3, sw_id=0x02 → fn_sw = 0x32; CID=0x00D1; bfield: valid bit set, divert cleared
     bfield = MAP_FLAG_DIVERTED << 1  # valid=1, divert=0
     data = bytes([0x00, 0xD1, bfield]) + bytes(13)
     raw = _long_msg(slot=1, feature_id=5, fn_sw=0x32, data=data)
     event = parse(PID, raw)
-    assert isinstance(event, ExternalUndivertEvent)
+    assert isinstance(event, ExternalUnsetFlagEvent)
     assert event.cid == 0x00D1
     assert event.feature_index == 5
 
 
-def test_parse_external_undivert_ignored_for_non_es_cid():
+def test_parse_external_unset_flag_ignored_for_non_es_cid():
     bfield = MAP_FLAG_DIVERTED << 1
     data = bytes([0x00, 0xAA, bfield]) + bytes(13)
     raw = _long_msg(slot=1, feature_id=5, fn_sw=0x32, data=data)
     assert parse(PID, raw) is None
 
 
-def test_parse_external_undivert_ignored_when_divert_set():
+def test_parse_external_unset_flag_ignored_when_divert_set():
     bfield = (MAP_FLAG_DIVERTED << 1) | MAP_FLAG_DIVERTED  # valid=1, divert=1
     data = bytes([0x00, 0xD1, bfield]) + bytes(13)
     raw = _long_msg(slot=1, feature_id=5, fn_sw=0x32, data=data)
     assert parse(PID, raw) is None
 
 
-# ── Unknown / None ───────────────────────────────────────────────────────────
+def test_parse_external_unset_flag_analytics_clear_detected():
+    # raw_event[9] = data[5], so byte9 goes in data[5]
+    # byte9 has ANALYTICS_AVALID set but ANALYTICS_KEY_EVT clear → analytics being cleared
+    byte9 = ANALYTICS_AVALID  # 0x04 set, 0x02 clear
+    # data: [CID_HI, CID_LO, bfield, pad, pad, byte9, ...]
+    data = bytes([0x00, 0xD2, 0x00, 0x00, 0x00, byte9]) + bytes(10)
+    raw = _long_msg(slot=1, feature_id=5, fn_sw=0x32, data=data)
+    event = parse(PID, raw)
+    assert isinstance(event, ExternalUnsetFlagEvent)
+    assert event.cid == 0x00D2
+
+
+def test_parse_external_unset_flag_both_analytics_bits_set_no_event():
+    # byte9 has both ANALYTICS_AVALID and ANALYTICS_KEY_EVT set → not being cleared
+    byte9 = ANALYTICS_AVALID | ANALYTICS_KEY_EVT  # 0x06
+    data = bytes([0x00, 0xD2, 0x00, 0x00, 0x00, byte9]) + bytes(10)
+    raw = _long_msg(slot=1, feature_id=5, fn_sw=0x32, data=data)
+    assert parse(PID, raw) is None
 
 
 # ── 0xB5 Pairing Information (GET_LONG_REGISTER_RSP) ────────────────────────

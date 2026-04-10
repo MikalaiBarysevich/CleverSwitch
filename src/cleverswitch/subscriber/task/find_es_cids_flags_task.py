@@ -1,27 +1,28 @@
 import logging
 
-from ...event.divert_event import DivertEvent
 from ...event.hidpp_error_event import HidppErrorEvent
+from ...event.set_report_flag_event import SetReportFlagEvent
 from ...hidpp.constants import (
     FEATURE_REPROG_CONTROLS_V4,
     FEATURE_ROOT,
     HOST_SWITCH_CIDS,
+    KEY_FLAG_ANALYTICS,
     KEY_FLAG_DIVERTABLE,
     KEY_FLAG_PERSISTENTLY_DIVERTABLE,
 )
 from ...model.logi_device import LogiDevice
 from ...subscriber.task.info_task import InfoTask
 from ...topic.topics import Topics
-from .constants import FIND_DIVERTABLE_CIDS_SW_ID
+from .constants import FIND_ES_CIDS_FLAGS_SW_ID
 
 log = logging.getLogger(__name__)
 
 
-class FindDivertableCidsTask(InfoTask):
+class FindESCidsFlagsTask(InfoTask):
     """Queries REPROG_CONTROLS_V4 to find divertable ES key CIDs, then publishes DivertEvent."""
 
     def __init__(self, device: LogiDevice, topics: Topics) -> None:
-        super().__init__("find_divertable_cids", device, topics, FEATURE_ROOT, FIND_DIVERTABLE_CIDS_SW_ID)
+        super().__init__("find_es_cids_flags", device, topics, FEATURE_ROOT, FIND_ES_CIDS_FLAGS_SW_ID)
 
     def doTask(self) -> None:
         reprog_idx = self._device.available_features.get(FEATURE_REPROG_CONTROLS_V4)
@@ -37,46 +38,48 @@ class FindDivertableCidsTask(InfoTask):
             return
         count = response.payload[0]
 
-        divertable: set[int] = set()
-        persistently_divertable: set[int] = set()
-        all_read = True
+        cid_seen = False
         for index in range(count):
             # fn[1] getCidInfo(index)
             self._send_request(index, request_id=(reprog_idx << 8) | 0x10)
             response = self._wait_response()
             if response is None or isinstance(response, HidppErrorEvent):
-                all_read = False
                 continue
             cid = (response.payload[0] << 8) | response.payload[1]
             if cid not in HOST_SWITCH_CIDS:
                 continue
             flags = response.payload[4]
             if flags & KEY_FLAG_DIVERTABLE:
-                divertable.add(cid)
+                self._device.supported_flags.add(KEY_FLAG_DIVERTABLE)
             if flags & KEY_FLAG_PERSISTENTLY_DIVERTABLE:
-                persistently_divertable.add(cid)
+                self._device.supported_flags.add(KEY_FLAG_PERSISTENTLY_DIVERTABLE)
+            if flags & KEY_FLAG_ANALYTICS:
+                self._device.supported_flags.add(KEY_FLAG_ANALYTICS)
+            cid_seen = True
+            break
 
-        self._device.divertable_cids = divertable
-        self._device.persistently_divertable_cids = persistently_divertable
+        if not cid_seen:
+            log.warning("Failed to collect ES keys info. Switching may not work. Reconnection required")
+            return
 
-        if all_read:
-            self._device.pending_steps.discard(self._step_name)
-        else:
-            log.warning("slot=%d: incomplete CID scan, will retry on reconnection", self._device.slot)
+        self._device.pending_steps.discard(self._step_name)
 
-        if divertable:
-            log.info("slot=%d: divertable ES CIDs: %s", self._device.slot, {f"0x{c:04X}" for c in divertable})
-            if persistently_divertable:
-                log.info(
-                    "slot=%d: persistently divertable ES CIDs: %s",
-                    self._device.slot,
-                    {f"0x{c:04X}" for c in persistently_divertable},
-                )
-            self._topics.divert.publish(
-                DivertEvent(
-                    slot=self._device.slot,
-                    pid=self._device.pid,
-                    wpid=self._device.wpid,
-                    cids=divertable,
-                )
+        if (
+            KEY_FLAG_ANALYTICS not in self._device.supported_flags
+            and KEY_FLAG_DIVERTABLE not in self._device.supported_flags
+        ):
+            log.error(
+                f"{hex(self._device.wpid)}: No analytics or divertable ES CIDs found — host switching unavailable"
             )
+            return
+
+        self._topics.flags.publish(
+            SetReportFlagEvent(
+                slot=self._device.slot,
+                pid=self._device.pid,
+                wpid=self._device.wpid,
+            )
+        )
+
+        flags_str = ", ".join(f"0x{x:04X}" for x in sorted(self._device.supported_flags))
+        log.info(f"{hex(self._device.wpid)}: supported flags: {flags_str}")

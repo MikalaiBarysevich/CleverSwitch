@@ -25,8 +25,8 @@ Use `MagicMock(spec=Topic)` — not bare `MagicMock()` — so that incorrect met
 
 ```python
 # Assert exactly one publish with a specific event type
-topics.divert.publish.assert_called_once()
-event = topics.divert.publish.call_args[0][0]
+topics.enable.publish.assert_called_once()
+event = topics.enable.publish.call_args[0][0]
 assert isinstance(event, DivertEvent)
 assert event.slot == SLOT
 

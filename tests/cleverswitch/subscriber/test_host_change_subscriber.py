@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 from cleverswitch.event.hidpp_notification_event import HidppNotificationEvent
 from cleverswitch.event.write_event import WriteEvent
-from cleverswitch.hidpp.constants import BOLT_PID, FEATURE_CHANGE_HOST
+from cleverswitch.hidpp.constants import BOLT_PID, FEATURE_CHANGE_HOST, FEATURE_REPROG_CONTROLS_V4
 from cleverswitch.model.logi_device import LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 from cleverswitch.subscriber.host_change_subscriber import HostChangeSubscriber
@@ -14,6 +14,9 @@ from cleverswitch.topic.topic import Topic
 from cleverswitch.topic.topics import Topics
 
 PID = BOLT_PID
+WPID_KB = 0x407B
+WPID_MOUSE = 0x4082
+REPROG_IDX = 8
 CHANGE_HOST_IDX = 9
 
 
@@ -22,64 +25,124 @@ def _make_topics():
         hid_event=MagicMock(spec=Topic),
         write=MagicMock(spec=Topic),
         device_info=MagicMock(spec=Topic),
-        divert=MagicMock(spec=Topic),
+        flags=MagicMock(spec=Topic),
         info_progress=MagicMock(spec=Topic),
     )
 
 
-def _make_device(wpid, slot, role="mouse"):
-    return LogiDevice(
-        wpid=wpid, pid=PID, slot=slot, role=role,
-        available_features={FEATURE_CHANGE_HOST: CHANGE_HOST_IDX},
-        name=role,
-    )
+def _make_device(wpid, slot, role, change_host_idx=CHANGE_HOST_IDX, reprog_idx=None):
+    features = {FEATURE_CHANGE_HOST: change_host_idx}
+    if reprog_idx is not None:
+        features[FEATURE_REPROG_CONTROLS_V4] = reprog_idx
+    return LogiDevice(wpid=wpid, pid=PID, slot=slot, role=role, available_features=features, name=role)
 
 
-def _change_host_notification(slot, change_host_idx, target_host):
-    payload = bytes([target_host]) + bytes(15)
-    return HidppNotificationEvent(slot=slot, pid=PID, feature_index=change_host_idx, function=0, payload=payload)
+def _host_switch_notification(slot, reprog_idx, cid_hi, cid_lo):
+    payload = bytes([cid_hi, cid_lo]) + bytes(14)
+    return HidppNotificationEvent(slot=slot, pid=PID, feature_index=reprog_idx, function=0, payload=payload)
 
 
-def test_host_change_sends_to_other_devices():
+def test_host_change_sends_to_all_devices():
     registry = LogiDeviceRegistry()
     topics = _make_topics()
     sub = HostChangeSubscriber(registry, topics)
 
-    mouse = _make_device(0x4082, slot=2, role="mouse")
-    kb = _make_device(0x407B, slot=1, role="keyboard")
-    registry.register(0x4082, mouse)
-    registry.register(0x407B, kb)
+    kb = _make_device(WPID_KB, slot=1, role="keyboard", reprog_idx=REPROG_IDX)
+    mouse = _make_device(WPID_MOUSE, slot=2, role="mouse")
+    registry.register(WPID_KB, kb)
+    registry.register(WPID_MOUSE, mouse)
 
-    event = _change_host_notification(slot=2, change_host_idx=CHANGE_HOST_IDX, target_host=1)
+    event = _host_switch_notification(slot=1, reprog_idx=REPROG_IDX, cid_hi=0x00, cid_lo=0xD1)
     sub.notify(event)
 
-    # Should only send to keyboard (not back to source mouse)
-    assert topics.write.publish.call_count == 1
-    write_event = topics.write.publish.call_args[0][0]
-    assert isinstance(write_event, WriteEvent)
-    assert write_event.slot == 1  # keyboard slot
+    # Should send to ALL devices (including source, since key was diverted)
+    assert topics.write.publish.call_count == 2
+    for call in topics.write.publish.call_args_list:
+        assert isinstance(call[0][0], WriteEvent)
 
 
-def test_host_change_ignores_unknown_source_device():
+def test_host_change_ignores_non_reprog_feature():
     registry = LogiDeviceRegistry()
     topics = _make_topics()
     sub = HostChangeSubscriber(registry, topics)
 
-    event = _change_host_notification(slot=5, change_host_idx=CHANGE_HOST_IDX, target_host=0)
+    kb = _make_device(WPID_KB, slot=1, role="keyboard", reprog_idx=REPROG_IDX)
+    registry.register(WPID_KB, kb)
+
+    event = HidppNotificationEvent(slot=1, pid=PID, feature_index=99, function=0, payload=bytes(16))
     sub.notify(event)
 
     topics.write.publish.assert_not_called()
 
 
-def test_host_change_ignores_non_change_host_feature():
+def test_host_change_ignores_non_easy_switch_cid():
     registry = LogiDeviceRegistry()
     topics = _make_topics()
     sub = HostChangeSubscriber(registry, topics)
 
-    mouse = _make_device(0x4082, slot=2)
-    registry.register(0x4082, mouse)
+    kb = _make_device(WPID_KB, slot=1, role="keyboard", reprog_idx=REPROG_IDX)
+    registry.register(WPID_KB, kb)
 
-    event = HidppNotificationEvent(slot=2, pid=PID, feature_index=99, function=0, payload=bytes(16))
+    event = _host_switch_notification(slot=1, reprog_idx=REPROG_IDX, cid_hi=0x00, cid_lo=0xAA)
+    sub.notify(event)
+
+    topics.write.publish.assert_not_called()
+
+
+def test_host_change_ignores_unknown_device():
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = HostChangeSubscriber(registry, topics)
+
+    event = _host_switch_notification(slot=1, reprog_idx=REPROG_IDX, cid_hi=0x00, cid_lo=0xD1)
+    sub.notify(event)
+
+    topics.write.publish.assert_not_called()
+
+
+def test_host_change_ignores_non_zero_and_non_two_function():
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = HostChangeSubscriber(registry, topics)
+
+    kb = _make_device(WPID_KB, slot=1, role="keyboard", reprog_idx=REPROG_IDX)
+    registry.register(WPID_KB, kb)
+
+    event = HidppNotificationEvent(slot=1, pid=PID, feature_index=REPROG_IDX, function=1, payload=bytes(16))
+    sub.notify(event)
+
+    topics.write.publish.assert_not_called()
+
+
+def test_analytics_host_change_press_sends_to_all_devices():
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = HostChangeSubscriber(registry, topics)
+
+    kb = _make_device(WPID_KB, slot=1, role="keyboard", reprog_idx=REPROG_IDX)
+    mouse = _make_device(WPID_MOUSE, slot=2, role="mouse")
+    registry.register(WPID_KB, kb)
+    registry.register(WPID_MOUSE, mouse)
+
+    # function=2, payload[0:2]=CID, payload[2]=0x01 (press)
+    payload = bytes([0x00, 0xD2, 0x01]) + bytes(13)
+    event = HidppNotificationEvent(slot=1, pid=PID, feature_index=REPROG_IDX, function=2, payload=payload)
+    sub.notify(event)
+
+    assert topics.write.publish.call_count == 2
+
+
+def test_analytics_host_change_release_ignored():
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = HostChangeSubscriber(registry, topics)
+
+    kb = _make_device(WPID_KB, slot=1, role="keyboard", reprog_idx=REPROG_IDX)
+    registry.register(WPID_KB, kb)
+
+    # function=2, payload[2]=0x00 (release)
+    payload = bytes([0x00, 0xD2, 0x00]) + bytes(13)
+    event = HidppNotificationEvent(slot=1, pid=PID, feature_index=REPROG_IDX, function=2, payload=payload)
     sub.notify(event)
 
     topics.write.publish.assert_not_called()
@@ -89,21 +152,21 @@ def test_host_change_ignores_non_notification_event():
     registry = LogiDeviceRegistry()
     topics = _make_topics()
     sub = HostChangeSubscriber(registry, topics)
-    sub.notify("not an event")  # must not raise
+    sub.notify("not a notification")  # must not raise
 
 
-def test_host_change_skips_device_without_change_host_feature():
+def test_host_change_skips_device_without_change_host():
     registry = LogiDeviceRegistry()
     topics = _make_topics()
     sub = HostChangeSubscriber(registry, topics)
 
-    source = _make_device(0x4082, slot=2)
+    kb = _make_device(WPID_KB, slot=1, role="keyboard", reprog_idx=REPROG_IDX)
     no_ch = LogiDevice(wpid=0x9999, pid=PID, slot=3, role="mouse", available_features={}, name="no-ch")
-    registry.register(0x4082, source)
+    registry.register(WPID_KB, kb)
     registry.register(0x9999, no_ch)
 
-    event = _change_host_notification(slot=2, change_host_idx=CHANGE_HOST_IDX, target_host=1)
+    event = _host_switch_notification(slot=1, reprog_idx=REPROG_IDX, cid_hi=0x00, cid_lo=0xD1)
     sub.notify(event)
 
-    # no_ch has no CHANGE_HOST so should be skipped
-    topics.write.publish.assert_not_called()
+    # Only 1 write (kb has CHANGE_HOST, no_ch doesn't)
+    assert topics.write.publish.call_count == 1

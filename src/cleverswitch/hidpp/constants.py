@@ -67,6 +67,10 @@ HOST_SWITCH_CIDS = {0x00D1: 0, 0x00D2: 1, 0x00D3: 2}
 # REPROG_CONTROLS_V4 key capability flag (byte 4 of getCidInfo response)
 KEY_FLAG_DIVERTABLE = 0x20  # key can be temporarily diverted
 KEY_FLAG_PERSISTENTLY_DIVERTABLE = 0x40  # key can be persistently diverted
+KEY_FLAG_ANALYTICS = 0x04  # getCidInfo response payload[4] bit 2 — CID supports analyticsKeyEvt
+ANALYTICS_BYTE9 = 0x03  # setCidReporting byte 9: avalid+analyticsKeyEvt (hardware-confirmed)
+ANALYTICS_AVALID = 0x04  # setCidReporting byte 9 bit 2 — analytics valid mask
+ANALYTICS_KEY_EVT = 0x02  # setCidReporting byte 9 bit 1 — analyticsKeyEvt action
 
 # Mapping flag bit for setCidReporting (byte 2 of request payload)
 MAP_FLAG_DIVERTED = 0x01  # temporarily divert (cleared on device reset)

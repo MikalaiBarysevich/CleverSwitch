@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 from cleverswitch.event.device_connected_event import DeviceConnectedEvent
 from cleverswitch.event.device_info_request_event import DeviceInfoRequestEvent
-from cleverswitch.event.divert_event import DivertEvent
+from cleverswitch.event.set_report_flag_event import SetReportFlagEvent
 from cleverswitch.hidpp.constants import BOLT_PID, FEATURE_CHANGE_HOST, FEATURE_REPROG_CONTROLS_V4
 from cleverswitch.model.logi_device import LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
@@ -23,16 +23,15 @@ def _make_topics():
         hid_event=MagicMock(spec=Topic),
         write=MagicMock(spec=Topic),
         device_info=MagicMock(spec=Topic),
-        divert=MagicMock(spec=Topic),
+        flags=MagicMock(spec=Topic),
         info_progress=MagicMock(spec=Topic),
     )
 
 
-def _make_device(role="keyboard", divertable_cids=None, pending_steps=None):
+def _make_device(role="keyboard", pending_steps=None):
     device = LogiDevice(
         wpid=WPID, pid=PID, slot=1, role=role,
         available_features={FEATURE_REPROG_CONTROLS_V4: 8, FEATURE_CHANGE_HOST: 9},
-        divertable_cids=divertable_cids or set(),
     )
     if pending_steps is not None:
         device.pending_steps = pending_steps
@@ -96,22 +95,20 @@ def test_new_connection_device_type_not_1_is_mouse():
 # ── Reconnection ─────────────────────────────────────────────────────────────
 
 
-def test_reconnection_rediverts_if_has_cids_and_reprog():
+def test_reconnection_publishes_set_report_flag_event_when_reprog_available():
     registry = LogiDeviceRegistry()
     topics = _make_topics()
     sub = DeviceConnectionSubscriber(registry, topics)
 
-    device = _make_device(divertable_cids={0x00D1, 0x00D2})
-    device.pending_steps = set()
+    device = _make_device(pending_steps=set())
     registry.register(WPID, device)
 
     event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1)
     sub.notify(event)
 
-    topics.divert.publish.assert_called_once()
-    divert_event = topics.divert.publish.call_args[0][0]
-    assert isinstance(divert_event, DivertEvent)
-    assert divert_event.cids == {0x00D1, 0x00D2}
+    topics.flags.publish.assert_called_once()
+    published = topics.flags.publish.call_args[0][0]
+    assert isinstance(published, SetReportFlagEvent)
 
 
 def test_reconnection_does_not_divert_on_disconnect():
@@ -119,14 +116,31 @@ def test_reconnection_does_not_divert_on_disconnect():
     topics = _make_topics()
     sub = DeviceConnectionSubscriber(registry, topics)
 
-    device = _make_device(divertable_cids={0x00D1})
-    device.pending_steps = set()
+    device = _make_device(pending_steps=set())
     registry.register(WPID, device)
 
     event = DeviceConnectedEvent(slot=1, pid=PID, link_established=False, wpid=WPID, device_type=1)
     sub.notify(event)
 
-    topics.divert.publish.assert_not_called()
+    topics.flags.publish.assert_not_called()
+
+
+def test_reconnection_does_not_publish_when_no_reprog_feature():
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = DeviceConnectionSubscriber(registry, topics)
+
+    device = LogiDevice(
+        wpid=WPID, pid=PID, slot=1, role="keyboard",
+        available_features={FEATURE_CHANGE_HOST: 9},
+    )
+    device.pending_steps = set()
+    registry.register(WPID, device)
+
+    event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1)
+    sub.notify(event)
+
+    topics.flags.publish.assert_not_called()
 
 
 def test_reconnection_requests_info_if_pending_steps():

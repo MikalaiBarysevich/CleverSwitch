@@ -1,7 +1,7 @@
 import logging
 
-from ..event.divert_event import DivertEvent
 from ..event.hidpp_notification_event import HidppNotificationEvent
+from ..event.set_report_flag_event import SetReportFlagEvent
 from ..hidpp.constants import FEATURE_REPROG_CONTROLS_V4
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
@@ -41,17 +41,16 @@ class WirelessStatusSubscriber(Subscriber):
         if len(event.payload) < 2 or event.payload[1] != 0x01:
             return
 
-        if not device.divertable_cids or FEATURE_REPROG_CONTROLS_V4 not in device.available_features:
+        if FEATURE_REPROG_CONTROLS_V4 not in device.available_features:
             return
 
         name = f"'{device.name}'" if device.name else f"slot={device.slot}"
         log.info("x1D4B reconfiguration request for %s, re-diverting", name)
 
-        self._topics.divert.publish(
-            DivertEvent(
+        self._topics.flags.publish(
+            SetReportFlagEvent(
                 slot=device.slot,
                 pid=device.pid,
                 wpid=device.wpid,
-                cids=device.divertable_cids,
             )
         )

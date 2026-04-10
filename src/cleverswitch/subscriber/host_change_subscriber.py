@@ -2,7 +2,13 @@ import logging
 
 from ..event.hidpp_notification_event import HidppNotificationEvent
 from ..event.write_event import WriteEvent
-from ..hidpp.constants import CHANGE_HOST_FN_SET, FEATURE_CHANGE_HOST, SW_ID_HOST_CHANGE
+from ..hidpp.constants import (
+    CHANGE_HOST_FN_SET,
+    FEATURE_CHANGE_HOST,
+    FEATURE_REPROG_CONTROLS_V4,
+    HOST_SWITCH_CIDS,
+    SW_ID_HOST_CHANGE,
+)
 from ..hidpp.protocol import build_msg, pack_params
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
@@ -20,8 +26,10 @@ class HostChangeSubscriber(Subscriber):
     def notify(self, event) -> None:
         if not isinstance(event, HidppNotificationEvent):
             return
+        if event.function not in (0, 2):
+            return
 
-        # Find source device to check if this notification is from CHANGE_HOST feature
+        # Find source device to check if this is a REPROG_CONTROLS_V4 notification
         source = None
         for device in self._device_registry.all_entries():
             if device.pid == event.pid and device.slot == event.slot:
@@ -31,24 +39,35 @@ class HostChangeSubscriber(Subscriber):
         if source is None:
             return
 
-        change_host_idx = source.available_features.get(FEATURE_CHANGE_HOST)
-        if change_host_idx is None or event.feature_index != change_host_idx:
+        reprog_idx = source.available_features.get(FEATURE_REPROG_CONTROLS_V4)
+        if reprog_idx is None or event.feature_index != reprog_idx:
             return
 
-        target_host = event.payload[0]
-        log.info("Host change detected from %s (slot=%d) -> host %d", source.name, source.slot, target_host)
+        cid = (event.payload[0] << 8) | event.payload[1]
+        if event.function == 2:
+            event_code = event.payload[2]
+            if event_code != 0x01:  # ignore release, only process press
+                return
+        if cid not in HOST_SWITCH_CIDS:
+            return
 
+        target_host = HOST_SWITCH_CIDS[cid]
+        log.info(
+            "Host change detected from %s (slot=%d) CID=0x%04X -> host %d",
+            source.name,
+            source.slot,
+            cid,
+            target_host + 1,
+        )
+
+        # Send to ALL devices including source (source didn't switch because key was diverted)
         for device in self._device_registry.all_entries():
-            # Source already switched on its own
-            if device.pid == event.pid and device.slot == event.slot:
+            change_host_idx = device.available_features.get(FEATURE_CHANGE_HOST)
+            if change_host_idx is None:
                 continue
 
-            dev_change_host_idx = device.available_features.get(FEATURE_CHANGE_HOST)
-            if dev_change_host_idx is None:
-                continue
-
-            request_id = (dev_change_host_idx << 8) | (CHANGE_HOST_FN_SET & 0xF0) | SW_ID_HOST_CHANGE
+            request_id = (change_host_idx << 8) | (CHANGE_HOST_FN_SET & 0xF0) | SW_ID_HOST_CHANGE
             params = pack_params((target_host,))
             msg = build_msg(device.slot, request_id, params)
             self._topics.write.publish(WriteEvent(slot=device.slot, pid=device.pid, hid_message=msg))
-            log.info("Sending host change to %s (slot=%d) -> host %d", device.name, device.slot, target_host)
+            log.info("Sending host change to %s (slot=%d) -> host %d", device.name, device.slot, target_host + 1)

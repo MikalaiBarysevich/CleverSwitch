@@ -5,8 +5,8 @@ from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
 from ..topic.topics import Topics
 from .task.feature.change_host_feature_task import ChangeHostFeatureTask
+from .task.feature.cid_reporting_feature_task import CidReportingFeatureTask
 from .task.feature.name_and_type_feature_task import NameAndTypeFeatureTask
-from .task.feature.reprog_feature_task import ReprogFeatureTask
 
 log = logging.getLogger(__name__)
 
@@ -24,26 +24,21 @@ class DeviceInfoSubscriber(Subscriber):
     def _handle_setup(self, event: DeviceInfoRequestEvent) -> None:
         device = self._device_registry.get_by_wpid(event.wpid)
         if device is None:
-            log.warning("DeviceInfoSubscriber: device wpid=0x%04X not found in registry", event.wpid)
+            log.warning("Device wpid=0x%04X not found in registry", event.wpid)
             return
 
-        log.info(
-            "Starting device info setup for slot=%d wpid=0x%04X (pending=%s)",
-            event.slot,
-            event.wpid,
-            device.pending_steps,
-        )
+        log.info(f"Found new device with wpid={hex(event.wpid)} on slot={event.slot}. Configuring...")
 
         # Skip-marks for info we don't need to query
         if not event.type:
             device.pending_steps.discard("get_device_type")
         if not event.name:
             device.pending_steps.discard("get_device_name")
-        if device.role != "keyboard":
+        if device.role is not None and device.role != "keyboard":
             device.pending_steps.discard("resolve_reprog")
-            device.pending_steps.discard("find_divertable_cids")
+            device.pending_steps.discard("find_es_cids_flags")
 
         if device.role == "keyboard":
-            ReprogFeatureTask(device, self._topics).start()
+            CidReportingFeatureTask(device, self._topics).start()
         ChangeHostFeatureTask(device, self._topics).start()
         NameAndTypeFeatureTask(device, self._topics).start()
