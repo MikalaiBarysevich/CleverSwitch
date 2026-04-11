@@ -1,10 +1,12 @@
 from ..event.device_connected_event import DeviceConnectedEvent
 from ..event.event import Event
-from ..event.external_undivert_event import ExternalUndivertEvent
+from ..event.external_unset_flag_event import ExternalUnsetFlagEvent
 from ..event.hidpp_error_event import HidppErrorEvent
 from ..event.hidpp_notification_event import HidppNotificationEvent
 from ..event.hidpp_response_event import HidppResponseEvent
 from ..hidpp.constants import (
+    ANALYTICS_AVALID,
+    ANALYTICS_KEY_EVT,
     GET_LONG_REGISTER_RSP,
     HOST_SWITCH_CIDS,
     MAP_FLAG_DIVERTED,
@@ -87,13 +89,15 @@ def parse(pid: int, raw_event: bytes) -> Event | None:
                 payload=payload,
             )
 
-        # External undivert: setCidReporting (fn=3) from another app, ES key CID, divert cleared
+        # External undivert/analytics-unset: setCidReporting (fn=3) from another app, ES key CID
         if function == 3:
             cid = (raw_event[4] << 8) | raw_event[5]
-            bfield = raw_event[6]
-            divert_valid = bfield & (MAP_FLAG_DIVERTED << 1)
-            divert_set = bfield & MAP_FLAG_DIVERTED
-            if cid in HOST_SWITCH_CIDS and divert_valid and not divert_set:
-                return ExternalUndivertEvent(slot=slot, pid=pid, feature_index=feature_id, cid=cid)
+            if cid in HOST_SWITCH_CIDS:
+                byte9 = raw_event[9]
+                bfield = raw_event[6]
+                divert_valid = bfield & (MAP_FLAG_DIVERTED << 1)
+                divert_set = bfield & MAP_FLAG_DIVERTED
+                if (byte9 & ANALYTICS_AVALID and not (byte9 & ANALYTICS_KEY_EVT)) or (divert_valid and not divert_set):
+                    return ExternalUnsetFlagEvent(slot=slot, pid=pid, feature_index=feature_id, cid=cid)
 
     return None

@@ -8,5 +8,5 @@ class Topics:
     hid_event: Topic
     write: Topic
     device_info: Topic
-    divert: Topic
+    flags: Topic
     info_progress: Topic

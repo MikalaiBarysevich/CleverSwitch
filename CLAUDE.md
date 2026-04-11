@@ -33,7 +33,7 @@ Communication is via **HID++ 2.0** directly over the Logitech **Bolt USB receive
 pytest --no-cov -x
 
 # Run a single test by name
-pytest -k test_reconnection_rediverts_if_has_cids_and_reprog
+pytest -k test_reconnection_publishes_set_report_flag_event_when_reprog_available
 
 # Run a single test file
 pytest tests/cleverswitch/subscriber/test_device_connected_subscriber.py
@@ -49,7 +49,7 @@ The core of the architecture is a typed pub-sub system with one daemon thread pe
 - `hid_event` — all inbound HID++ events (DeviceConnectedEvent, HidppResponseEvent, HidppNotificationEvent, HidppErrorEvent, etc.)
 - `write` — outbound HID messages (WriteEvent)
 - `device_info` — triggers device setup (DeviceInfoRequestEvent)
-- `divert` — apply/re-apply key diversion (DivertEvent)
+- `flags` — apply/re-apply key reporting flags (SetReportFlagEvent); `SetReportFlagSubscriber` selects analytics mode (byte 9) or divert mode (byte 6) based on `device.supported_flags`
 - `info_progress` — task completion feedback (InfoTaskProgressEvent)
 
 **`Topic`** (`topic/topic.py`) — each `subscribe(subscriber)` call creates a private `queue.Queue` and a daemon thread that drains it by calling `subscriber.notify(event)`. `publish(event)` enqueues on all subscriber queues simultaneously.
@@ -67,10 +67,10 @@ discovery.py
 
 DeviceConnectionSubscriber.notify(DeviceConnectedEvent)
   ├── new device  → LogiDevice registered, DeviceInfoRequestEvent published to device_info
-  └── reconnect  → logi_device.connected updated, DivertEvent re-published if cids known
+  └── reconnect  → logi_device.connected updated, SetReportFlagEvent re-published if supported_flags known
 
 DeviceInfoSubscriber.notify(DeviceInfoRequestEvent)
-  └── starts InfoTask threads: ReprogFeatureTask, ChangeHostFeatureTask, NameAndTypeFeatureTask
+  └── starts InfoTask threads: CidReportingFeatureTask, ChangeHostFeatureTask, NameAndTypeFeatureTask
 
 InfoTask (Thread + Subscriber)
   ├── doTask() — sends HID++ requests via write topic, blocks on response queue
@@ -91,7 +91,7 @@ InfoTaskOrchestrator.notify(InfoTaskProgressEvent)
 - `run()` checks `step_name in device.pending_steps`; skips `doTask()` if already complete; always publishes `InfoTaskProgressEvent`
 
 Task dependency chain:
-- `ReprogFeatureTask` → fires `FindDivertableCidsTask`
+- `CidReportingFeatureTask` → fires `FindESCidsFlagsTask`
 - `NameAndTypeFeatureTask` → fires `GetDeviceTypeTask` + `GetDeviceNameTask`
 - `ChangeHostFeatureTask` has no dependents
 
@@ -110,13 +110,19 @@ On macOS the receiver does not send spontaneous device connection events, so two
 `model/logi_device.py` — mutable dataclass tracking:
 - `available_features: dict[int, int]` — feature code → feature index (populated by feature tasks)
 - `pending_steps: set[str]` — setup steps not yet completed
-- `divertable_cids / persistently_divertable_cids: set[int]` — discovered ES key CIDs
+- `supported_flags: set[int]` — ES key capability flags (KEY_FLAG_DIVERTABLE, KEY_FLAG_PERSISTENTLY_DIVERTABLE, KEY_FLAG_ANALYTICS); populated by `FindESCidsFlagsTask`; all ES CIDs share the same flags so this is per-device, not per-CID
 - `connected: bool` — current connection state (gates orchestrator retries)
 - `role`, `name` — populated during setup
 
 ### Wiring
 
 `setup/app_setup.py:setup_context()` creates Topics, LogiDeviceRegistry, and all subscribers. It is the single place where components are connected. Platform-specific subscribers (`DisconnectPollerSubscriber`, `WirelessReconnectSubscriber`) are guarded with `if get_system() == "Darwin"`.
+
+Active subscribers: `DeviceConnectionSubscriber`, `DeviceInfoSubscriber`, `InfoTaskOrchestrator`, `SetReportFlagSubscriber`, `ExternalUnsetFlagSubscriber`, `HostChangeSubscriber`, `WirelessStatusSubscriber` (+ macOS-only: `DisconnectPollerSubscriber`, `WirelessReconnectSubscriber`).
+
+`HostChangeSubscriber` handles two notification paths on the `hid_event` channel: fn=0 (diverted key press, `HidppNotificationEvent`) and fn=2 (analytics key press, payload[2]=0x01 for press only). Both send CHANGE_HOST to all registered devices.
+
+`ExternalUnsetFlagSubscriber` detects when an external app (Solaar, logiops) clears the ES key reporting flag via `setCidReporting` (fn=3, sw_id in 1–7). The parser emits `ExternalUnsetFlagEvent`; the subscriber re-publishes `SetReportFlagEvent` to restore the flag.
 
 ## Testing conventions
 

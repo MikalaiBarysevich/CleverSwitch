@@ -16,8 +16,8 @@ from cleverswitch.subscriber.task.constants import (
     FEATURE_REPROG_CONTROLS_V4_SW_ID,
 )
 from cleverswitch.subscriber.task.feature.change_host_feature_task import ChangeHostFeatureTask
+from cleverswitch.subscriber.task.feature.cid_reporting_feature_task import CidReportingFeatureTask
 from cleverswitch.subscriber.task.feature.name_and_type_feature_task import NameAndTypeFeatureTask
-from cleverswitch.subscriber.task.feature.reprog_feature_task import ReprogFeatureTask
 from cleverswitch.topic.topic import Topic
 from cleverswitch.topic.topics import Topics
 
@@ -37,7 +37,7 @@ def _make_topics():
         hid_event=MagicMock(spec=Topic),
         write=MagicMock(spec=Topic),
         device_info=MagicMock(spec=Topic),
-        divert=MagicMock(spec=Topic),
+        flags=MagicMock(spec=Topic),
         info_progress=MagicMock(spec=Topic),
     )
 
@@ -119,13 +119,13 @@ def test_change_host_noop_when_feature_code_is_already_an_index():
     assert device.available_features.get(FEATURE_CHANGE_HOST) == 9  # unchanged
 
 
-# ── ReprogFeatureTask ────────────────────────────────────────────────────────
+# ── CidReportingFeatureTask ───────────────────────────────────────────────────
 
 
 def test_reprog_resolves_feature_index():
     device = _make_device(pending={"resolve_reprog"})
     topics = _make_topics()
-    task = ReprogFeatureTask(device, topics)
+    task = CidReportingFeatureTask(device, topics)
 
     task._response_queue.put(_response(FEATURE_REPROG_CONTROLS_V4_SW_ID, 8))
     task.doTask()
@@ -137,9 +137,9 @@ def test_reprog_resolves_feature_index():
 def test_reprog_fires_dependent_steps(mocker):
     device = _make_device(pending={"resolve_reprog"})
     topics = _make_topics()
-    task = ReprogFeatureTask(device, topics)
+    task = CidReportingFeatureTask(device, topics)
 
-    mock_find = mocker.patch("cleverswitch.subscriber.task.feature.reprog_feature_task.FindDivertableCidsTask")
+    mock_find = mocker.patch("cleverswitch.subscriber.task.feature.cid_reporting_feature_task.FindESCidsFlagsTask")
     task._fire_dependent_steps()
 
     mock_find.assert_called_once_with(device, topics)

@@ -30,7 +30,7 @@ def _make_topics():
         hid_event=MagicMock(spec=Topic),
         write=MagicMock(spec=Topic),
         device_info=MagicMock(spec=Topic),
-        divert=MagicMock(spec=Topic),
+        flags=MagicMock(spec=Topic),
         info_progress=MagicMock(spec=Topic),
     )
 

@@ -2,7 +2,7 @@ import logging
 
 from ..event.device_connected_event import DeviceConnectedEvent
 from ..event.device_info_request_event import DeviceInfoRequestEvent
-from ..event.divert_event import DivertEvent
+from ..event.set_report_flag_event import SetReportFlagEvent
 from ..hidpp.constants import FEATURE_REPROG_CONTROLS_V4
 from ..model.logi_device import LogiDevice
 from ..registry.logi_device_registry import LogiDeviceRegistry
@@ -41,13 +41,12 @@ class DeviceConnectionSubscriber(Subscriber):
         if not event.link_established:
             return
 
-        if len(logi_device.divertable_cids) > 0 and FEATURE_REPROG_CONTROLS_V4 in logi_device.available_features:
-            self._topics.divert.publish(
-                DivertEvent(
+        if FEATURE_REPROG_CONTROLS_V4 in logi_device.available_features:
+            self._topics.flags.publish(
+                SetReportFlagEvent(
                     slot=event.slot,
                     pid=logi_device.pid,
                     wpid=logi_device.wpid,
-                    cids=logi_device.divertable_cids,
                 )
             )
 

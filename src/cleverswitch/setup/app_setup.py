@@ -13,11 +13,10 @@ from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.device_connected_subscriber import DeviceConnectionSubscriber
 from ..subscriber.device_info_subscriber import DeviceInfoSubscriber
 from ..subscriber.disconnect_poller_subscriber import DisconnectPollerSubscriber
-from ..subscriber.divert_subscriber import DivertSubscriber
-from ..subscriber.diverted_host_change_subscriber import DivertedHostChangeSubscriber
-from ..subscriber.external_undivert_subscriber import ExternalUndivertSubscriber
+from ..subscriber.external_unset_flag_subscriber import ExternalUnsetFlagSubscriber
 from ..subscriber.host_change_subscriber import HostChangeSubscriber
 from ..subscriber.info_task_orchestrator import InfoTaskOrchestrator
+from ..subscriber.set_report_flag_subscriber import SetReportFlagSubscriber
 from ..subscriber.wireless_reconnect_subscriber import WirelessReconnectSubscriber
 from ..subscriber.wireless_status_subscriber import WirelessStatusSubscriber
 from ..topic.topic import Topic
@@ -63,7 +62,7 @@ def _setup_topics() -> Topics:
         hid_event=Topic(),
         write=Topic(),
         device_info=Topic(),
-        divert=Topic(),
+        flags=Topic(),
         info_progress=Topic(),
     )
 
@@ -76,10 +75,9 @@ def _init_subscribers(topics: Topics, device_registry: LogiDeviceRegistry) -> No
     DeviceConnectionSubscriber(device_registry, topics)
     DeviceInfoSubscriber(device_registry, topics)
     InfoTaskOrchestrator(device_registry, topics)
-    DivertSubscriber(device_registry, topics)
-    ExternalUndivertSubscriber(device_registry, topics)
+    SetReportFlagSubscriber(device_registry, topics)
+    ExternalUnsetFlagSubscriber(device_registry, topics)
     HostChangeSubscriber(device_registry, topics)
-    DivertedHostChangeSubscriber(device_registry, topics)
     WirelessStatusSubscriber(device_registry, topics)
     if get_system() == "Darwin":
         DisconnectPollerSubscriber(device_registry, topics)

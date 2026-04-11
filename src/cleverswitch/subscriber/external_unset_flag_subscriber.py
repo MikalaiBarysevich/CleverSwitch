@@ -1,7 +1,7 @@
 import logging
 
-from ..event.divert_event import DivertEvent
-from ..event.external_undivert_event import ExternalUndivertEvent
+from ..event.external_unset_flag_event import ExternalUnsetFlagEvent
+from ..event.set_report_flag_event import SetReportFlagEvent
 from ..hidpp.constants import FEATURE_REPROG_CONTROLS_V4
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
@@ -10,14 +10,14 @@ from ..topic.topics import Topics
 log = logging.getLogger(__name__)
 
 
-class ExternalUndivertSubscriber(Subscriber):
+class ExternalUnsetFlagSubscriber(Subscriber):
     def __init__(self, device_registry: LogiDeviceRegistry, topics: Topics):
         self._device_registry = device_registry
         self._topics = topics
         topics.hid_event.subscribe(self)
 
     def notify(self, event) -> None:
-        if not isinstance(event, ExternalUndivertEvent):
+        if not isinstance(event, ExternalUnsetFlagEvent):
             return
 
         # Find the device by slot to verify feature_index matches REPROG_CONTROLS_V4
@@ -34,13 +34,9 @@ class ExternalUndivertSubscriber(Subscriber):
         if reprog_idx is None or reprog_idx != event.feature_index:
             return
 
-        if event.cid not in device.divertable_cids:
-            return
-
-        log.info("External undivert detected: CID 0x%04X on slot=%d, re-diverting", event.cid, event.slot)
-
-        self._topics.divert.publish(
-            DivertEvent(
+        log.info("External reprog unset detected: CID 0x%04X on slot=%d, re-enabling", event.cid, event.slot)
+        self._topics.flags.publish(
+            SetReportFlagEvent(
                 slot=event.slot,
                 pid=device.pid,
                 wpid=device.wpid,

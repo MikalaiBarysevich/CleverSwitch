@@ -3,6 +3,7 @@ import logging
 from ...event.hidpp_error_event import HidppErrorEvent
 from ...hidpp.constants import FEATURE_DEVICE_TYPE_AND_NAME, FEATURE_ROOT
 from ...model.logi_device import LogiDevice
+from ...subscriber.task.feature.cid_reporting_feature_task import CidReportingFeatureTask
 from ...subscriber.task.info_task import InfoTask
 from ...topic.topics import Topics
 from .constants import GET_DEVICE_TYPE_SW_ID
@@ -37,4 +38,10 @@ class GetDeviceTypeTask(InfoTask):
             device_type = response.payload[0]
             self._device.role = "keyboard" if device_type == 0 else "mouse"
             log.info("slot=%d: type=%s", self._device.slot, self._device.role)
+
         self._device.pending_steps.discard(self._step_name)
+
+    def _fire_dependent_steps(self):
+        if self._device.role != "keyboard" or "resolve_reprog" not in self._device.pending_steps:
+            return
+        CidReportingFeatureTask(self._device, self._topics).start()
