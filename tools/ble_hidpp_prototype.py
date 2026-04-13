@@ -178,8 +178,15 @@ class HidppBlePrototype:
 
 
 async def scan_for_logitech(name_filter: str | None = None, timeout: float = 10.0):
-    """Scan for Logitech BLE devices."""
+    """Scan for Logitech BLE devices.
+
+    Note: On macOS, already-paired/connected BLE devices do NOT advertise,
+    so they won't appear in scan results. Use --address with the CoreBluetooth
+    UUID instead (find it in Bluetooth system log or System Information).
+    """
     log.info("Scanning for Logitech BLE devices (%0.0fs)...", timeout)
+    log.info("NOTE: Already-connected devices won't appear in scan on macOS.")
+    log.info("Use --address <CoreBluetooth-UUID> to connect to a paired device directly.")
 
     devices = await BleakScanner.discover(timeout=timeout, return_adv=True)
 
@@ -197,6 +204,10 @@ async def scan_for_logitech(name_filter: str | None = None, timeout: float = 10.
         if adv.manufacturer_data and LOGI_COMPANY_ID in adv.manufacturer_data:
             is_logi = True
 
+        # Check by Logitech HID++ service UUID
+        if LOGI_HIDPP_SERVICE in [u.lower() for u in adv.service_uuids]:
+            is_logi = True
+
         if is_logi:
             if name_filter and name_filter.lower() not in (d.name or "").lower():
                 continue
@@ -207,8 +218,18 @@ async def scan_for_logitech(name_filter: str | None = None, timeout: float = 10.
 
 
 async def main():
-    parser = argparse.ArgumentParser(description="Logitech HID++ BLE GATT prototype")
-    parser.add_argument("--address", help="BLE device address to connect to directly")
+    parser = argparse.ArgumentParser(
+        description="Logitech HID++ BLE GATT prototype",
+        epilog=(
+            "On macOS, use the CoreBluetooth UUID as --address (not MAC).\n"
+            "Find it via: sudo log stream --predicate 'subsystem == \"com.apple.bluetooth\"' --level debug\n"
+            "Look for CBDevice lines with VID 0x046D, e.g.:\n"
+            "  CBDevice B9840933-D989-39F7-57CE-792EFCA7D70C ... modU MX Keys\n"
+            "Then run: python tools/ble_hidpp_prototype.py --address B9840933-D989-39F7-57CE-792EFCA7D70C"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--address", help="BLE device address (CoreBluetooth UUID on macOS)")
     parser.add_argument("--name", help="Filter scanned devices by name (e.g., 'MX Keys')")
     parser.add_argument("--scan-timeout", type=float, default=10.0, help="BLE scan timeout in seconds")
     args = parser.parse_args()
@@ -220,7 +241,9 @@ async def main():
     else:
         devices = await scan_for_logitech(name_filter=args.name, timeout=args.scan_timeout)
         if not devices:
-            log.error("No Logitech BLE devices found. Make sure device is awake and in range.")
+            log.error("No Logitech BLE devices found.")
+            log.error("On macOS, paired/connected devices don't appear in scans.")
+            log.error("Use --address with the CoreBluetooth UUID instead. Run with --help for details.")
             sys.exit(1)
 
         if len(devices) == 1:
