@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from cleverswitch.event.device_connected_event import DeviceConnectedEvent
-from cleverswitch.event.device_info_request_event import DeviceInfoRequestEvent
-from cleverswitch.event.set_report_flag_event import SetReportFlagEvent
-from cleverswitch.hidpp.constants import BOLT_PID, FEATURE_CHANGE_HOST, FEATURE_REPROG_CONTROLS_V4
-from cleverswitch.model.logi_device import LogiDevice
-from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
-from cleverswitch.subscriber.device_connected_subscriber import DeviceConnectionSubscriber
-from cleverswitch.topic.topic import Topic
-from cleverswitch.topic.topics import Topics
+from src.cleverswitch.event.device_connected_event import DeviceConnectedEvent
+from src.cleverswitch.event.device_info_request_event import DeviceInfoRequestEvent
+from src.cleverswitch.event.set_report_flag_event import SetReportFlagEvent
+from src.cleverswitch.hidpp.constants import BOLT_PID, FEATURE_CHANGE_HOST, FEATURE_REPROG_CONTROLS_V4
+from src.cleverswitch.model.logi_device import LogiDevice
+from src.cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
+from src.cleverswitch.subscriber.device_connected_subscriber import DeviceConnectionSubscriber
+from src.cleverswitch.subscriber.task.constants import Task
+from src.cleverswitch.topic.topic import Topic
+from src.cleverswitch.topic.topics import Topics
 
 PID = BOLT_PID
 WPID = 0x407B
@@ -148,7 +149,7 @@ def test_reconnection_requests_info_if_pending_steps():
     topics = _make_topics()
     sub = DeviceConnectionSubscriber(registry, topics)
 
-    device = _make_device(pending_steps={"resolve_reprog"})
+    device = _make_device(pending_steps={Task.Feature.Name.CID_REPORTING})
     registry.register(WPID, device)
 
     event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1)

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from cleverswitch.connection.trigger.receiver_trigger import ENUMERATE_CONNECTED_DEVICES_MESSAGE, ReceiverConnectionTrigger
-from cleverswitch.event.write_event import WriteEvent
-from cleverswitch.hidpp.constants import BOLT_PID
-from cleverswitch.hidpp.transport import HidDeviceInfo
-from cleverswitch.topic.topic import Topic
-from cleverswitch.topic.topics import Topics
+from src.cleverswitch.connection.trigger.receiver_trigger import ENUMERATE_CONNECTED_DEVICES_MESSAGE, ReceiverConnectionTrigger
+from src.cleverswitch.event.write_event import WriteEvent
+from src.cleverswitch.hidpp.constants import BOLT_PID
+from src.cleverswitch.hidpp.transport import HidDeviceInfo
+from src.cleverswitch.topic.topic import Topic
+from src.cleverswitch.topic.topics import Topics
 
 
 def _device_info():

@@ -1,5 +1,7 @@
 import dataclasses
 
+from ..subscriber.task.constants import Task
+
 
 @dataclasses.dataclass
 class LogiDevice:
@@ -12,12 +14,12 @@ class LogiDevice:
     supported_flags: set[int] = dataclasses.field(default_factory=set)
     pending_steps: set[str] = dataclasses.field(
         default_factory=lambda: {
-            "resolve_reprog",
-            "resolve_change_host",
-            "resolve_x0005",
-            "find_es_cids_flags",
-            "get_device_type",
-            "get_device_name",
+            Task.Feature.Name.CID_REPORTING,
+            Task.Feature.Name.CHANGE_HOST,
+            Task.Feature.Name.NAME_AND_TYPE,
+            Task.Name.FIND_ES_CIDS_FLAGS,
+            Task.Name.GET_DEVICE_TYPE,
+            Task.Name.GET_DEVICE_NAME,
         }
     )
     connected: bool = True
