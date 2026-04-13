@@ -126,26 +126,14 @@ class HidppBlePrototype:
         """Connect, subscribe, and listen for HID++ events."""
         log.info("Connecting to %s ...", device_address)
 
-        # On macOS, already-connected devices don't advertise, so BleakScanner
-        # can't find them. Use CoreBluetooth to get the CBPeripheral, then wrap
-        # it in a BLEDevice with bleak's CentralManagerDelegate so BleakClient works.
-        ble_device = None
-        if platform.system() == "Darwin":
-            cb_peripheral = _get_connected_peripheral(device_address)
-            if cb_peripheral:
-                log.info("Found already-connected peripheral via CoreBluetooth")
-                from bleak.backends.corebluetooth.CentralManagerDelegate import CentralManagerDelegate
+        # Let Bleak handle the CoreBluetooth lookup by UUID
+        device = await BleakScanner.find_device_by_address(device_address, timeout=5.0)
 
-                delegate = CentralManagerDelegate()
-                await delegate.wait_until_ready()
-                ble_device = BLEDevice(
-                    address=cb_peripheral.identifier().UUIDString(),
-                    name=cb_peripheral.name() or "unknown",
-                    details=(cb_peripheral, delegate),
-                )
+        if not device:
+            log.error(f"Could not find device with address {device_address}")
+            return
 
-        client_arg = ble_device if ble_device else device_address
-        async with BleakClient(client_arg) as client:
+        async with BleakClient(device) as client:
             self.client = client
             log.info("Connected: %s", client.is_connected)
 
