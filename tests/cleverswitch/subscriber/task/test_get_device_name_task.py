@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from cleverswitch.event.hidpp_error_event import HidppErrorEvent
-from cleverswitch.event.hidpp_response_event import HidppResponseEvent
-from cleverswitch.hidpp.constants import BOLT_PID, FEATURE_DEVICE_TYPE_AND_NAME
-from cleverswitch.model.logi_device import LogiDevice
-from cleverswitch.subscriber.task.constants import GET_DEVICE_NAME_SW_ID
-from cleverswitch.subscriber.task.get_device_name_task import GetDeviceNameTask
-from cleverswitch.topic.topic import Topic
-from cleverswitch.topic.topics import Topics
+from src.cleverswitch.event.hidpp_error_event import HidppErrorEvent
+from src.cleverswitch.event.hidpp_response_event import HidppResponseEvent
+from src.cleverswitch.hidpp.constants import BOLT_PID, FEATURE_DEVICE_TYPE_AND_NAME
+from src.cleverswitch.model.logi_device import LogiDevice
+from src.cleverswitch.subscriber.task.constants import GET_DEVICE_NAME_SW_ID, Task
+from src.cleverswitch.subscriber.task.get_device_name_task import GetDeviceNameTask
+from src.cleverswitch.topic.topic import Topic
+from src.cleverswitch.topic.topics import Topics
 
 PID = BOLT_PID
 SLOT = 1
@@ -44,7 +44,7 @@ def _response(payload: bytes):
 
 
 def test_reads_device_name():
-    device = _make_device(pending={"get_device_name"})
+    device = _make_device(pending={Task.Name.GET_DEVICE_NAME})
     topics = _make_topics()
     task = GetDeviceNameTask(device, topics)
 
@@ -54,11 +54,11 @@ def test_reads_device_name():
     task.doTask()
 
     assert device.name == "MX Keys"
-    assert "get_device_name" not in device.pending_steps
+    assert Task.Name.GET_DEVICE_NAME not in device.pending_steps
 
 
 def test_assembles_name_from_multiple_chunks():
-    device = _make_device(pending={"get_device_name"})
+    device = _make_device(pending={Task.Name.GET_DEVICE_NAME})
     topics = _make_topics()
     task = GetDeviceNameTask(device, topics)
 
@@ -75,29 +75,29 @@ def test_assembles_name_from_multiple_chunks():
 
 
 def test_skips_when_name_already_known():
-    device = _make_device(name="MX Keys", pending={"get_device_name"})
+    device = _make_device(name="MX Keys", pending={Task.Name.GET_DEVICE_NAME})
     topics = _make_topics()
     task = GetDeviceNameTask(device, topics)
 
     task.doTask()
 
     topics.write.publish.assert_not_called()
-    assert "get_device_name" not in device.pending_steps
+    assert Task.Name.GET_DEVICE_NAME not in device.pending_steps
 
 
 def test_skips_when_feature_not_available():
-    device = _make_device(pending={"get_device_name"}, features={})
+    device = _make_device(pending={Task.Name.GET_DEVICE_NAME}, features={})
     topics = _make_topics()
-    device.pending_steps.discard("resolve_x0005")
+    device.pending_steps.discard(Task.Feature.Name.NAME_AND_TYPE)
     task = GetDeviceNameTask(device, topics)
 
     task.doTask()
 
-    assert "get_device_name" not in device.pending_steps
+    assert Task.Name.GET_DEVICE_NAME not in device.pending_steps
 
 
 def test_sets_name_none_on_count_error():
-    device = _make_device(pending={"get_device_name"})
+    device = _make_device(pending={Task.Name.GET_DEVICE_NAME})
     topics = _make_topics()
     task = GetDeviceNameTask(device, topics)
 
@@ -108,7 +108,7 @@ def test_sets_name_none_on_count_error():
 
 
 def test_sets_name_none_on_count_timeout():
-    device = _make_device(pending={"get_device_name"})
+    device = _make_device(pending={Task.Name.GET_DEVICE_NAME})
     topics = _make_topics()
     task = GetDeviceNameTask(device, topics)
 
@@ -119,18 +119,18 @@ def test_sets_name_none_on_count_timeout():
 
 
 def test_discards_step_when_count_is_zero():
-    device = _make_device(pending={"get_device_name"})
+    device = _make_device(pending={Task.Name.GET_DEVICE_NAME})
     topics = _make_topics()
     task = GetDeviceNameTask(device, topics)
 
     task._response_queue.put(_response(bytes([0])))
     task.doTask()
 
-    assert "get_device_name" not in device.pending_steps
+    assert Task.Name.GET_DEVICE_NAME not in device.pending_steps
 
 
 def test_sets_name_none_on_chunk_error():
-    device = _make_device(pending={"get_device_name"})
+    device = _make_device(pending={Task.Name.GET_DEVICE_NAME})
     topics = _make_topics()
     task = GetDeviceNameTask(device, topics)
 

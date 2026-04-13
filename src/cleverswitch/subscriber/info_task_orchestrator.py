@@ -10,16 +10,17 @@ from ..subscriber.task.find_es_cids_flags_task import FindESCidsFlagsTask
 from ..subscriber.task.get_device_name_task import GetDeviceNameTask
 from ..subscriber.task.get_device_type_task import GetDeviceTypeTask
 from ..topic.topics import Topics
+from .task.constants import Task
 
 log = logging.getLogger(__name__)
 
 _TASK_FACTORIES = {
-    "resolve_reprog": CidReportingFeatureTask,
-    "resolve_change_host": ChangeHostFeatureTask,
-    "resolve_x0005": NameAndTypeFeatureTask,
-    "find_es_cids_flags": FindESCidsFlagsTask,
-    "get_device_type": GetDeviceTypeTask,
-    "get_device_name": GetDeviceNameTask,
+    Task.Feature.Name.CID_REPORTING: CidReportingFeatureTask,
+    Task.Feature.Name.CHANGE_HOST: ChangeHostFeatureTask,
+    Task.Feature.Name.NAME_AND_TYPE: NameAndTypeFeatureTask,
+    Task.Name.FIND_ES_CIDS_FLAGS: FindESCidsFlagsTask,
+    Task.Name.GET_DEVICE_TYPE: GetDeviceTypeTask,
+    Task.Name.GET_DEVICE_NAME: GetDeviceNameTask,
 }
 
 

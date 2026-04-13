@@ -19,7 +19,6 @@ class FeatureTask(InfoTask):
     ) -> None:
         super().__init__(step_name, device, topics, 0x0000, sw_id)  # ROOT GetFeature: feat_idx=0, fn=0
         self._feature_code = feature_code
-        # self._on_resolved = on_resolved or []
 
     def doTask(self) -> None:
         if self._feature_code in self._device.available_features.values():

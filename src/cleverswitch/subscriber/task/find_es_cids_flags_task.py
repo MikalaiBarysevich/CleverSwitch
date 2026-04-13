@@ -13,7 +13,7 @@ from ...hidpp.constants import (
 from ...model.logi_device import LogiDevice
 from ...subscriber.task.info_task import InfoTask
 from ...topic.topics import Topics
-from .constants import FIND_ES_CIDS_FLAGS_SW_ID
+from .constants import FIND_ES_CIDS_FLAGS_SW_ID, Task
 
 log = logging.getLogger(__name__)
 
@@ -22,12 +22,12 @@ class FindESCidsFlagsTask(InfoTask):
     """Queries REPROG_CONTROLS_V4 to find divertable ES key CIDs, then publishes DivertEvent."""
 
     def __init__(self, device: LogiDevice, topics: Topics) -> None:
-        super().__init__("find_es_cids_flags", device, topics, FEATURE_ROOT, FIND_ES_CIDS_FLAGS_SW_ID)
+        super().__init__(Task.Name.FIND_ES_CIDS_FLAGS, device, topics, FEATURE_ROOT, FIND_ES_CIDS_FLAGS_SW_ID)
 
     def doTask(self) -> None:
         reprog_idx = self._device.available_features.get(FEATURE_REPROG_CONTROLS_V4)
         if reprog_idx is None:
-            if "resolve_reprog" not in self._device.pending_steps:
+            if Task.Feature.Name.CID_REPORTING not in self._device.pending_steps:
                 self._device.pending_steps.discard(self._step_name)
             return
 

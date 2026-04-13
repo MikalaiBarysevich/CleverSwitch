@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from cleverswitch.event.hidpp_error_event import HidppErrorEvent
-from cleverswitch.event.hidpp_response_event import HidppResponseEvent
-from cleverswitch.event.set_report_flag_event import SetReportFlagEvent
-from cleverswitch.hidpp.constants import (
+from src.cleverswitch.event.hidpp_response_event import HidppResponseEvent
+from src.cleverswitch.event.set_report_flag_event import SetReportFlagEvent
+from src.cleverswitch.hidpp.constants import (
     BOLT_PID,
     FEATURE_CHANGE_HOST,
     FEATURE_REPROG_CONTROLS_V4,
@@ -15,11 +14,12 @@ from cleverswitch.hidpp.constants import (
     KEY_FLAG_DIVERTABLE,
     KEY_FLAG_PERSISTENTLY_DIVERTABLE,
 )
-from cleverswitch.model.logi_device import LogiDevice
-from cleverswitch.subscriber.task.constants import FIND_ES_CIDS_FLAGS_SW_ID
-from cleverswitch.subscriber.task.find_es_cids_flags_task import FindESCidsFlagsTask
-from cleverswitch.topic.topic import Topic
-from cleverswitch.topic.topics import Topics
+from src.cleverswitch.model.logi_device import LogiDevice
+from src.cleverswitch.subscriber.task.constants import FIND_ES_CIDS_FLAGS_SW_ID
+from src.cleverswitch.subscriber.task.constants import Task
+from src.cleverswitch.subscriber.task.find_es_cids_flags_task import FindESCidsFlagsTask
+from src.cleverswitch.topic.topic import Topic
+from src.cleverswitch.topic.topics import Topics
 
 PID = BOLT_PID
 SLOT = 1
@@ -48,12 +48,14 @@ def _make_topics():
 
 def _count_response(count: int):
     payload = bytes([count]) + bytes(15)
-    return HidppResponseEvent(slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=FIND_ES_CIDS_FLAGS_SW_ID, payload=payload)
+    return HidppResponseEvent(slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=FIND_ES_CIDS_FLAGS_SW_ID,
+                              payload=payload)
 
 
 def _cid_info_response(cid: int, flags: int):
     body = bytes([(cid >> 8) & 0xFF, cid & 0xFF, 0x00, 0x00, flags]) + bytes(11)
-    return HidppResponseEvent(slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=FIND_ES_CIDS_FLAGS_SW_ID, payload=body)
+    return HidppResponseEvent(slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=FIND_ES_CIDS_FLAGS_SW_ID,
+                              payload=body)
 
 
 # ── Happy path: both KEY_FLAG_ANALYTICS and KEY_FLAG_DIVERTABLE ───────────────
@@ -61,7 +63,7 @@ def _cid_info_response(cid: int, flags: int):
 
 def test_both_analytics_and_divertable_flags_publish_set_report_flag_event():
     """Both KEY_FLAG_ANALYTICS and KEY_FLAG_DIVERTABLE present → publishes SetReportFlagEvent."""
-    device = _make_device(pending={"find_es_cids_flags"})
+    device = _make_device(pending={Task.Name.FIND_ES_CIDS_FLAGS})
     topics = _make_topics()
     task = FindESCidsFlagsTask(device, topics)
 
@@ -81,7 +83,7 @@ def test_both_analytics_and_divertable_flags_publish_set_report_flag_event():
 
 def test_analytics_flag_only_publishes():
     """Only KEY_FLAG_ANALYTICS → publishes SetReportFlagEvent (analytics mode works alone)."""
-    device = _make_device(pending={"find_es_cids_flags"})
+    device = _make_device(pending={Task.Name.FIND_ES_CIDS_FLAGS})
     topics = _make_topics()
     task = FindESCidsFlagsTask(device, topics)
 
@@ -99,7 +101,7 @@ def test_analytics_flag_only_publishes():
 
 def test_divertable_flag_only_publishes():
     """Only KEY_FLAG_DIVERTABLE → publishes SetReportFlagEvent (divert mode works alone)."""
-    device = _make_device(pending={"find_es_cids_flags"})
+    device = _make_device(pending={Task.Name.FIND_ES_CIDS_FLAGS})
     topics = _make_topics()
     task = FindESCidsFlagsTask(device, topics)
 
@@ -116,7 +118,7 @@ def test_divertable_flag_only_publishes():
 
 
 def test_persistently_divertable_flag_added_to_supported_flags():
-    device = _make_device(pending={"find_es_cids_flags"})
+    device = _make_device(pending={Task.Name.FIND_ES_CIDS_FLAGS})
     topics = _make_topics()
     task = FindESCidsFlagsTask(device, topics)
 
@@ -131,7 +133,7 @@ def test_persistently_divertable_flag_added_to_supported_flags():
 
 
 def test_es_cid_with_no_flags_no_publish():
-    device = _make_device(pending={"find_es_cids_flags"})
+    device = _make_device(pending={Task.Name.FIND_ES_CIDS_FLAGS})
     topics = _make_topics()
     task = FindESCidsFlagsTask(device, topics)
 
@@ -146,7 +148,7 @@ def test_es_cid_with_no_flags_no_publish():
 
 
 def test_timeout_on_count_no_publish_step_pending():
-    device = _make_device(pending={"find_es_cids_flags"})
+    device = _make_device(pending={Task.Name.FIND_ES_CIDS_FLAGS})
     topics = _make_topics()
     task = FindESCidsFlagsTask(device, topics)
 
@@ -154,14 +156,14 @@ def test_timeout_on_count_no_publish_step_pending():
     task.doTask()
 
     topics.flags.publish.assert_not_called()
-    assert "find_es_cids_flags" in device.pending_steps
+    assert Task.Name.FIND_ES_CIDS_FLAGS in device.pending_steps
 
 
 # ── Timeout on getCidInfo → incomplete scan, step stays pending ───────────────
 
 
 def test_timeout_on_cid_info_keeps_step_pending():
-    device = _make_device(pending={"find_es_cids_flags"})
+    device = _make_device(pending={Task.Name.FIND_ES_CIDS_FLAGS})
     topics = _make_topics()
     task = FindESCidsFlagsTask(device, topics)
 
@@ -177,7 +179,7 @@ def test_timeout_on_cid_info_keeps_step_pending():
     task._wait_response = fake_wait
     task.doTask()
 
-    assert "find_es_cids_flags" in device.pending_steps
+    assert Task.Name.FIND_ES_CIDS_FLAGS in device.pending_steps
     topics.flags.publish.assert_not_called()
 
 
@@ -185,7 +187,7 @@ def test_timeout_on_cid_info_keeps_step_pending():
 
 
 def test_step_already_complete_skips_dotask():
-    device = _make_device(pending=set())  # "find_es_cids_flags" not in pending_steps
+    device = _make_device(pending=set())  # Task.Name.FIND_ES_CIDS_FLAGS not in pending_steps
     topics = _make_topics()
     task = FindESCidsFlagsTask(device, topics)
 

@@ -8,14 +8,14 @@ from pathlib import Path
 
 import pytest
 
-from cleverswitch.config.config import (
+from src.cleverswitch.config.config import (
     _parse,
     _parse_hooks,
     default_config,
     load,
 )
-from cleverswitch.errors.errors import ConfigError
-from cleverswitch.model.config.config import Config
+from src.cleverswitch.errors.errors import ConfigError
+from src.cleverswitch.model.config.config import Config
 
 
 def _cli_args(**overrides) -> argparse.Namespace:
