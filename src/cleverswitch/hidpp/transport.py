@@ -181,6 +181,20 @@ def _hid_err(dev: int | None = None) -> str:
     return msg if msg else "unknown hidapi error"
 
 
+# IOKit kIOReturnAborted (0xE00002EB) — another caller on the same device aborted the operation.
+_IOKIT_ABORTED = "0xe00002eb"
+
+
+def _log_iokit_abort(err_msg: str, call_name: str) -> None:
+    if _IOKIT_ABORTED in err_msg.lower():
+        log.warning(
+            "%s aborted by another application (kIOReturnAborted) — likely Logi Options+ interference",
+            call_name,
+        )
+    else:
+        log.debug("%s failed: %s", call_name, err_msg)
+
+
 # ── Platform helpers ──────────────────────────────────────────────────────────
 
 _IS_LINUX = _SYSTEM == "Linux"
@@ -302,9 +316,9 @@ class HIDTransport:
         buf = (ctypes.c_ubyte * MAX_READ_SIZE)()
         n = _lib.hid_read_timeout(self._dev, buf, MAX_READ_SIZE, timeout)
         if n < 0:
-            log.debug(f"hid_read_timeout failed: {_hid_err(self._dev)}")
-
-            raise TransportError(f"hid_read_timeout failed: {_hid_err(self._dev)}")
+            err_msg = _hid_err(self._dev)
+            _log_iokit_abort(err_msg, "hid_read_timeout")
+            raise TransportError(f"hid_read_timeout failed: {err_msg}")
         return bytes(buf[:n]) if n > 0 else None
 
     def write(self, msg: bytes) -> None:
@@ -312,7 +326,9 @@ class HIDTransport:
         buf = (ctypes.c_ubyte * len(msg))(*msg)
         n = _lib.hid_write(self._dev, buf, len(msg))
         if n < 0:
-            raise TransportError(f"hid_write failed: {_hid_err(self._dev)}")
+            err_msg = _hid_err(self._dev)
+            _log_iokit_abort(err_msg, "hid_write")
+            raise TransportError(f"hid_write failed: {err_msg}")
 
     def write_output_report(self, msg: bytes) -> None:
         """Write via HidD_SetOutputReport (control pipe).
@@ -326,7 +342,9 @@ class HIDTransport:
         buf = (ctypes.c_ubyte * len(msg))(*msg)
         n = _hid_send_output_report(self._dev, buf, len(msg))
         if n < 0:
-            raise TransportError(f"hid_send_output_report failed: {_hid_err(self._dev)}")
+            err_msg = _hid_err(self._dev)
+            _log_iokit_abort(err_msg, "hid_send_output_report")
+            raise TransportError(f"hid_send_output_report failed: {err_msg}")
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
