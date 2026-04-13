@@ -6,10 +6,10 @@ Purpose: Test whether GATT-level notification subscription receives HID++ events
 reliably when Logitech Options+ is running — bypassing hidapi/IOHIDManager/BTLEServer.
 
 Usage:
-    pip install bleak
-    python tools/ble_hidpp_prototype.py                    # scan + connect to first Logitech device
-    python tools/ble_hidpp_prototype.py --name "MX Keys"   # connect to specific device
-    python tools/ble_hidpp_prototype.py --address XX:XX:XX  # connect by BLE address
+    pip install bleak pyobjc-framework-CoreBluetooth
+    python tools/ble_hidpp_prototype.py                    # list connected Logitech devices + scan
+    python tools/ble_hidpp_prototype.py --name "MX Keys"   # connect to specific device by name
+    python tools/ble_hidpp_prototype.py --address <UUID>    # connect by CoreBluetooth UUID
 
 Press ES (Easy-Switch) keys while this runs. Compare notification delivery
 with CS running via hidapi on the same device.
@@ -18,6 +18,7 @@ with CS running via hidapi on the same device.
 import argparse
 import asyncio
 import logging
+import platform
 import struct
 import sys
 import time
@@ -125,7 +126,17 @@ class HidppBlePrototype:
         """Connect, subscribe, and listen for HID++ events."""
         log.info("Connecting to %s ...", device_address)
 
-        async with BleakClient(device_address) as client:
+        # On macOS, already-connected devices need the CBPeripheral from
+        # retrieveConnectedPeripherals, not a scan. BleakClient accepts
+        # a CBPeripheral object directly on the CoreBluetooth backend.
+        cb_peripheral = None
+        if platform.system() == "Darwin":
+            cb_peripheral = _get_connected_peripheral(device_address)
+            if cb_peripheral:
+                log.info("Found already-connected peripheral via CoreBluetooth")
+
+        client_arg = cb_peripheral if cb_peripheral else device_address
+        async with BleakClient(client_arg) as client:
             self.client = client
             log.info("Connected: %s", client.is_connected)
 
@@ -175,6 +186,83 @@ class HidppBlePrototype:
             "Done. Received %d notifications, %d responses.",
             self.notification_count, self.response_count,
         )
+
+
+def _get_connected_peripheral(address: str):
+    """Use CoreBluetooth to retrieve an already-connected peripheral by UUID.
+
+    Returns a CBPeripheral object that BleakClient can use directly,
+    or None if not found. macOS only.
+    """
+    try:
+        from CoreBluetooth import CBCentralManager, CBUUID
+        from Foundation import NSUUID
+        import objc
+        import time as _time
+    except ImportError:
+        log.warning("pyobjc-framework-CoreBluetooth not installed. Run: pip install pyobjc-framework-CoreBluetooth")
+        return None
+
+    # CBCentralManager needs a run loop tick to initialize
+    manager = CBCentralManager.alloc().initWithDelegate_queue_(None, None)
+
+    # Wait for CBCentralManager to be ready (state == .poweredOn == 5)
+    deadline = _time.monotonic() + 3.0
+    while manager.state() != 5 and _time.monotonic() < deadline:
+        from Foundation import NSRunLoop, NSDate
+        NSRunLoop.currentRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(0.1))
+
+    if manager.state() != 5:
+        log.warning("CoreBluetooth not powered on (state=%d)", manager.state())
+        return None
+
+    # Try retrieveConnectedPeripherals with the Logitech HID++ service UUID
+    logi_service = CBUUID.UUIDWithString_(LOGI_HIDPP_SERVICE)
+    connected = manager.retrieveConnectedPeripheralsWithServices_([logi_service])
+
+    if connected:
+        log.info("Found %d connected peripheral(s) with Logitech HID++ service:", len(connected))
+        for p in connected:
+            log.info("  %s — %s", p.identifier().UUIDString(), p.name() or "unnamed")
+            if p.identifier().UUIDString().upper() == address.upper():
+                return p
+
+    # Also try retrievePeripherals by known UUID
+    ns_uuid = NSUUID.alloc().initWithUUIDString_(address)
+    if ns_uuid:
+        known = manager.retrievePeripheralsWithIdentifiers_([ns_uuid])
+        if known and len(known) > 0:
+            log.info("Found peripheral by UUID: %s", known[0].name() or "unnamed")
+            return known[0]
+
+    log.info("Peripheral %s not found via CoreBluetooth", address)
+    return None
+
+
+def _list_connected_logitech():
+    """List all connected peripherals advertising the Logitech HID++ service. macOS only."""
+    try:
+        from CoreBluetooth import CBCentralManager, CBUUID
+        import time as _time
+    except ImportError:
+        return []
+
+    manager = CBCentralManager.alloc().initWithDelegate_queue_(None, None)
+    deadline = _time.monotonic() + 3.0
+    while manager.state() != 5 and _time.monotonic() < deadline:
+        from Foundation import NSRunLoop, NSDate
+        NSRunLoop.currentRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(0.1))
+
+    if manager.state() != 5:
+        return []
+
+    logi_service = CBUUID.UUIDWithString_(LOGI_HIDPP_SERVICE)
+    connected = manager.retrieveConnectedPeripheralsWithServices_([logi_service])
+
+    results = []
+    for p in connected or []:
+        results.append((p.identifier().UUIDString(), p.name() or "unnamed"))
+    return results
 
 
 async def scan_for_logitech(name_filter: str | None = None, timeout: float = 10.0):
@@ -239,11 +327,37 @@ async def main():
     if args.address:
         await proto.run(args.address)
     else:
+        # On macOS, try listing already-connected Logitech devices first
+        connected = []
+        if platform.system() == "Darwin":
+            connected = _list_connected_logitech()
+            if connected:
+                log.info("Connected Logitech BLE devices (via CoreBluetooth):")
+                for uuid, name in connected:
+                    log.info("  %s — %s", uuid, name)
+
+                # Filter by name if provided
+                if args.name:
+                    connected = [(u, n) for u, n in connected if args.name.lower() in n.lower()]
+
+                if len(connected) == 1:
+                    log.info("Connecting to: %s (%s)", connected[0][1], connected[0][0])
+                    await proto.run(connected[0][0])
+                    return
+                elif len(connected) > 1:
+                    log.info("\nMultiple connected devices. Select one:")
+                    for i, (uuid, name) in enumerate(connected):
+                        log.info("  [%d] %s (%s)", i, name, uuid)
+                    choice = int(input("Enter number: "))
+                    await proto.run(connected[choice][0])
+                    return
+
+        # Fall back to BLE scan for advertising devices
         devices = await scan_for_logitech(name_filter=args.name, timeout=args.scan_timeout)
         if not devices:
             log.error("No Logitech BLE devices found.")
-            log.error("On macOS, paired/connected devices don't appear in scans.")
-            log.error("Use --address with the CoreBluetooth UUID instead. Run with --help for details.")
+            if not connected:
+                log.error("No connected devices found either. Is the device awake and paired?")
             sys.exit(1)
 
         if len(devices) == 1:
