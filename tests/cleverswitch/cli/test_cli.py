@@ -7,7 +7,8 @@ import sys
 
 import pytest
 
-from cleverswitch.cli.cli_module import _parse_args, _setup_logging, main
+from src.cleverswitch.cli.cli_module import _parse_args, _setup_logging, main
+from src.cleverswitch.errors.errors import CleverSwitchError
 
 
 # ── _parse_args() ─────────────────────────────────────────────────────────────
@@ -84,13 +85,12 @@ def test_main_starts_discovery_thread_in_normal_mode(mocker, monkeypatch):
 
 
 def test_main_exits_with_code_1_on_clever_switch_error(mocker, monkeypatch):
-    from cleverswitch.errors.errors import CleverSwitchError
 
     monkeypatch.setattr(sys, "argv", ["cleverswitch"])
     mock_context = mocker.MagicMock()
-    mocker.patch("cleverswitch.cli.cli_module.setup_context", return_value=mock_context)
-    mocker.patch("cleverswitch.cli.cli_module._setup_logging")
-    mock_thread_cls = mocker.patch("cleverswitch.cli.cli_module.threading.Thread")
+    mocker.patch("src.cleverswitch.cli.cli_module.setup_context", return_value=mock_context)
+    mocker.patch("src.cleverswitch.cli.cli_module._setup_logging")
+    mock_thread_cls = mocker.patch("src.cleverswitch.cli.cli_module.threading.Thread")
     mock_thread_cls.return_value.start.side_effect = CleverSwitchError("boom")
 
     with pytest.raises(SystemExit) as exc:

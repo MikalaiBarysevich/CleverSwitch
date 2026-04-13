@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from cleverswitch.event.device_info_request_event import DeviceInfoRequestEvent
-from cleverswitch.hidpp.constants import BOLT_PID
-from cleverswitch.model.logi_device import LogiDevice
-from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
-from cleverswitch.subscriber.device_info_subscriber import DeviceInfoSubscriber
-from cleverswitch.topic.topic import Topic
-from cleverswitch.topic.topics import Topics
+from src.cleverswitch.event.device_info_request_event import DeviceInfoRequestEvent
+from src.cleverswitch.hidpp.constants import BOLT_PID
+from src.cleverswitch.model.logi_device import LogiDevice
+from src.cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
+from src.cleverswitch.subscriber.device_info_subscriber import DeviceInfoSubscriber
+from src.cleverswitch.subscriber.task.constants import Task
+from src.cleverswitch.topic.topic import Topic
+from src.cleverswitch.topic.topics import Topics
 
 PID = BOLT_PID
 WPID = 0x407B
@@ -38,9 +39,9 @@ def test_handle_setup_starts_tasks(mocker):
     device = _make_device()
     registry.register(WPID, device)
 
-    mock_reprog = mocker.patch("cleverswitch.subscriber.device_info_subscriber.CidReportingFeatureTask")
-    mock_change_host = mocker.patch("cleverswitch.subscriber.device_info_subscriber.ChangeHostFeatureTask")
-    mock_name_type = mocker.patch("cleverswitch.subscriber.device_info_subscriber.NameAndTypeFeatureTask")
+    mock_reprog = mocker.patch("src.cleverswitch.subscriber.device_info_subscriber.CidReportingFeatureTask")
+    mock_change_host = mocker.patch("src.cleverswitch.subscriber.device_info_subscriber.ChangeHostFeatureTask")
+    mock_name_type = mocker.patch("src.cleverswitch.subscriber.device_info_subscriber.NameAndTypeFeatureTask")
 
     event = DeviceInfoRequestEvent(slot=1, pid=PID, wpid=WPID, type=True, name=True)
     sub.notify(event)
@@ -81,7 +82,7 @@ def test_handle_setup_discards_type_step_when_not_needed(mocker):
     event = DeviceInfoRequestEvent(slot=1, pid=PID, wpid=WPID, type=False, name=True)
     sub.notify(event)
 
-    assert "get_device_type" not in device.pending_steps
+    assert Task.Name.GET_DEVICE_TYPE not in device.pending_steps
 
 
 def test_handle_setup_discards_name_step_when_not_needed(mocker):
@@ -99,7 +100,7 @@ def test_handle_setup_discards_name_step_when_not_needed(mocker):
     event = DeviceInfoRequestEvent(slot=1, pid=PID, wpid=WPID, type=True, name=False)
     sub.notify(event)
 
-    assert "get_device_name" not in device.pending_steps
+    assert Task.Name.GET_DEVICE_NAME not in device.pending_steps
 
 
 def test_non_device_info_event_ignored():

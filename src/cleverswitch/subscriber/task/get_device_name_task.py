@@ -5,7 +5,7 @@ from ...hidpp.constants import FEATURE_DEVICE_TYPE_AND_NAME, FEATURE_ROOT
 from ...model.logi_device import LogiDevice
 from ...subscriber.task.info_task import InfoTask
 from ...topic.topics import Topics
-from .constants import GET_DEVICE_NAME_SW_ID
+from .constants import GET_DEVICE_NAME_SW_ID, Task
 
 log = logging.getLogger(__name__)
 
@@ -14,12 +14,12 @@ class GetDeviceNameTask(InfoTask):
     """Reads device name via x0005 getDeviceNameCount + getDeviceName."""
 
     def __init__(self, device: LogiDevice, topics: Topics) -> None:
-        super().__init__("get_device_name", device, topics, FEATURE_ROOT, GET_DEVICE_NAME_SW_ID)
+        super().__init__(Task.Name.GET_DEVICE_NAME, device, topics, FEATURE_ROOT, GET_DEVICE_NAME_SW_ID)
 
     def doTask(self) -> None:
         name_and_type_idx = self._device.available_features.get(FEATURE_DEVICE_TYPE_AND_NAME)
         if name_and_type_idx is None:
-            if "resolve_x0005" not in self._device.pending_steps:
+            if Task.Feature.Name.NAME_AND_TYPE not in self._device.pending_steps:
                 log.info("slot=%d: DEVICE_TYPE_AND_NAME not supported, skipping name", self._device.slot)
                 self._device.pending_steps.discard(self._step_name)
             return

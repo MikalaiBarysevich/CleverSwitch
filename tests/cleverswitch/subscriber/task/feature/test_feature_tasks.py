@@ -4,22 +4,21 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
-from cleverswitch.event.hidpp_error_event import HidppErrorEvent
-from cleverswitch.event.hidpp_response_event import HidppResponseEvent
-from cleverswitch.hidpp.constants import BOLT_PID, FEATURE_CHANGE_HOST, FEATURE_DEVICE_TYPE_AND_NAME, FEATURE_REPROG_CONTROLS_V4
-from cleverswitch.model.logi_device import LogiDevice
-from cleverswitch.subscriber.task.constants import (
+from src.cleverswitch.event.hidpp_error_event import HidppErrorEvent
+from src.cleverswitch.event.hidpp_response_event import HidppResponseEvent
+from src.cleverswitch.hidpp.constants import BOLT_PID, FEATURE_CHANGE_HOST, FEATURE_DEVICE_TYPE_AND_NAME, \
+    FEATURE_REPROG_CONTROLS_V4
+from src.cleverswitch.model.logi_device import LogiDevice
+from src.cleverswitch.subscriber.task.constants import (
     FEATURE_CHANGE_HOST_SW_ID,
     FEATURE_DEVICE_TYPE_AND_NAME_SW_ID,
-    FEATURE_REPROG_CONTROLS_V4_SW_ID,
+    FEATURE_REPROG_CONTROLS_V4_SW_ID, Task,
 )
-from cleverswitch.subscriber.task.feature.change_host_feature_task import ChangeHostFeatureTask
-from cleverswitch.subscriber.task.feature.cid_reporting_feature_task import CidReportingFeatureTask
-from cleverswitch.subscriber.task.feature.name_and_type_feature_task import NameAndTypeFeatureTask
-from cleverswitch.topic.topic import Topic
-from cleverswitch.topic.topics import Topics
+from src.cleverswitch.subscriber.task.feature.change_host_feature_task import ChangeHostFeatureTask
+from src.cleverswitch.subscriber.task.feature.cid_reporting_feature_task import CidReportingFeatureTask
+from src.cleverswitch.subscriber.task.feature.name_and_type_feature_task import NameAndTypeFeatureTask
+from src.cleverswitch.topic.topic import Topic
+from src.cleverswitch.topic.topics import Topics
 
 PID = BOLT_PID
 SLOT = 1
@@ -52,7 +51,7 @@ def _response(sw_id, feat_idx):
 
 
 def test_change_host_resolves_feature_index():
-    device = _make_device(pending={"resolve_change_host"})
+    device = _make_device(pending={Task.Feature.Name.CHANGE_HOST})
     topics = _make_topics()
     task = ChangeHostFeatureTask(device, topics)
 
@@ -61,11 +60,11 @@ def test_change_host_resolves_feature_index():
     task.doTask()
 
     assert device.available_features.get(FEATURE_CHANGE_HOST) == 9
-    assert "resolve_change_host" not in device.pending_steps
+    assert Task.Feature.Name.CHANGE_HOST not in device.pending_steps
 
 
 def test_change_host_noop_on_timeout():
-    device = _make_device(pending={"resolve_change_host"})
+    device = _make_device(pending={Task.Feature.Name.CHANGE_HOST})
     topics = _make_topics()
     task = ChangeHostFeatureTask(device, topics)
 
@@ -74,11 +73,11 @@ def test_change_host_noop_on_timeout():
     task.doTask()
 
     assert FEATURE_CHANGE_HOST not in device.available_features
-    assert "resolve_change_host" in device.pending_steps
+    assert Task.Feature.Name.CHANGE_HOST in device.pending_steps
 
 
 def test_change_host_noop_on_error_response():
-    device = _make_device(pending={"resolve_change_host"})
+    device = _make_device(pending={Task.Feature.Name.CHANGE_HOST})
     topics = _make_topics()
     task = ChangeHostFeatureTask(device, topics)
 
@@ -89,7 +88,7 @@ def test_change_host_noop_on_error_response():
 
 
 def test_change_host_noop_when_feat_idx_is_zero():
-    device = _make_device(pending={"resolve_change_host"})
+    device = _make_device(pending={Task.Feature.Name.CHANGE_HOST})
     topics = _make_topics()
     task = ChangeHostFeatureTask(device, topics)
 
@@ -106,7 +105,7 @@ def test_change_host_noop_when_feature_code_is_already_an_index():
     # effectively never in normal use.  The test below confirms the condition does NOT
     # match for a typical {FEATURE_CHANGE_HOST: 9} entry, so the task proceeds normally.
     device = _make_device(
-        pending={"resolve_change_host"},
+        pending={Task.Feature.Name.CHANGE_HOST},
         features={FEATURE_CHANGE_HOST: 9},
     )
     topics = _make_topics()
@@ -123,7 +122,7 @@ def test_change_host_noop_when_feature_code_is_already_an_index():
 
 
 def test_reprog_resolves_feature_index():
-    device = _make_device(pending={"resolve_reprog"})
+    device = _make_device(pending={Task.Feature.Name.CID_REPORTING})
     topics = _make_topics()
     task = CidReportingFeatureTask(device, topics)
 
@@ -131,15 +130,15 @@ def test_reprog_resolves_feature_index():
     task.doTask()
 
     assert device.available_features.get(FEATURE_REPROG_CONTROLS_V4) == 8
-    assert "resolve_reprog" not in device.pending_steps
+    assert Task.Feature.Name.CID_REPORTING not in device.pending_steps
 
 
 def test_reprog_fires_dependent_steps(mocker):
-    device = _make_device(pending={"resolve_reprog"})
+    device = _make_device(pending={Task.Feature.Name.CID_REPORTING})
     topics = _make_topics()
     task = CidReportingFeatureTask(device, topics)
 
-    mock_find = mocker.patch("cleverswitch.subscriber.task.feature.cid_reporting_feature_task.FindESCidsFlagsTask")
+    mock_find = mocker.patch("src.cleverswitch.subscriber.task.feature.cid_reporting_feature_task.FindESCidsFlagsTask")
     task._fire_dependent_steps()
 
     mock_find.assert_called_once_with(device, topics)
@@ -150,7 +149,7 @@ def test_reprog_fires_dependent_steps(mocker):
 
 
 def test_name_and_type_resolves_feature_index():
-    device = _make_device(pending={"resolve_x0005"})
+    device = _make_device(pending={Task.Feature.Name.NAME_AND_TYPE})
     topics = _make_topics()
     task = NameAndTypeFeatureTask(device, topics)
 
@@ -158,16 +157,16 @@ def test_name_and_type_resolves_feature_index():
     task.doTask()
 
     assert device.available_features.get(FEATURE_DEVICE_TYPE_AND_NAME) == 5
-    assert "resolve_x0005" not in device.pending_steps
+    assert Task.Feature.Name.NAME_AND_TYPE not in device.pending_steps
 
 
 def test_name_and_type_fires_dependent_steps(mocker):
-    device = _make_device(pending={"resolve_x0005"})
+    device = _make_device(pending={Task.Feature.Name.NAME_AND_TYPE})
     topics = _make_topics()
     task = NameAndTypeFeatureTask(device, topics)
 
-    mock_type = mocker.patch("cleverswitch.subscriber.task.feature.name_and_type_feature_task.GetDeviceTypeTask")
-    mock_name = mocker.patch("cleverswitch.subscriber.task.feature.name_and_type_feature_task.GetDeviceNameTask")
+    mock_type = mocker.patch("src.cleverswitch.subscriber.task.feature.name_and_type_feature_task.GetDeviceTypeTask")
+    mock_name = mocker.patch("src.cleverswitch.subscriber.task.feature.name_and_type_feature_task.GetDeviceNameTask")
     task._fire_dependent_steps()
 
     mock_type.assert_called_once_with(device, topics)

@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from cleverswitch.event.hidpp_error_event import HidppErrorEvent
-from cleverswitch.event.hidpp_response_event import HidppResponseEvent
-from cleverswitch.hidpp.constants import BOLT_PID, FEATURE_DEVICE_TYPE_AND_NAME
-from cleverswitch.model.logi_device import LogiDevice
-from cleverswitch.subscriber.task.constants import GET_DEVICE_TYPE_SW_ID
-from cleverswitch.subscriber.task.get_device_type_task import GetDeviceTypeTask
-from cleverswitch.topic.topic import Topic
-from cleverswitch.topic.topics import Topics
+from src.cleverswitch.event.hidpp_error_event import HidppErrorEvent
+from src.cleverswitch.event.hidpp_response_event import HidppResponseEvent
+from src.cleverswitch.hidpp.constants import BOLT_PID, FEATURE_DEVICE_TYPE_AND_NAME
+from src.cleverswitch.model.logi_device import LogiDevice
+from src.cleverswitch.subscriber.task.constants import GET_DEVICE_TYPE_SW_ID, Task
+from src.cleverswitch.subscriber.task.get_device_type_task import GetDeviceTypeTask
+from src.cleverswitch.topic.topic import Topic
+from src.cleverswitch.topic.topics import Topics
 
 PID = BOLT_PID
 SLOT = 1
@@ -44,7 +44,7 @@ def _type_response(device_type: int):
 
 
 def test_sets_role_keyboard_for_type_0():
-    device = _make_device(pending={"get_device_type"})
+    device = _make_device(pending={Task.Name.GET_DEVICE_TYPE})
     topics = _make_topics()
     task = GetDeviceTypeTask(device, topics)
 
@@ -52,11 +52,11 @@ def test_sets_role_keyboard_for_type_0():
     task.doTask()
 
     assert device.role == "keyboard"
-    assert "get_device_type" not in device.pending_steps
+    assert Task.Name.GET_DEVICE_TYPE not in device.pending_steps
 
 
 def test_sets_role_mouse_for_non_zero_type():
-    device = _make_device(pending={"get_device_type"})
+    device = _make_device(pending={Task.Name.GET_DEVICE_TYPE})
     topics = _make_topics()
     task = GetDeviceTypeTask(device, topics)
 
@@ -67,31 +67,31 @@ def test_sets_role_mouse_for_non_zero_type():
 
 
 def test_skips_when_role_already_known():
-    device = _make_device(role="keyboard", pending={"get_device_type"})
+    device = _make_device(role="keyboard", pending={Task.Name.GET_DEVICE_TYPE})
     topics = _make_topics()
     task = GetDeviceTypeTask(device, topics)
 
     task.doTask()
 
     topics.write.publish.assert_not_called()
-    assert "get_device_type" not in device.pending_steps
+    assert Task.Name.GET_DEVICE_TYPE not in device.pending_steps
 
 
 def test_skips_when_feature_not_available():
-    device = _make_device(pending={"get_device_type"}, features={})
+    device = _make_device(pending={Task.Name.GET_DEVICE_TYPE}, features={})
     topics = _make_topics()
     # resolve_x0005 NOT in pending → feature is just unsupported
-    device.pending_steps.discard("resolve_x0005")
+    device.pending_steps.discard(Task.Feature.Name.NAME_AND_TYPE)
     task = GetDeviceTypeTask(device, topics)
 
     task.doTask()
 
     assert device.role is None
-    assert "get_device_type" not in device.pending_steps
+    assert Task.Name.GET_DEVICE_TYPE not in device.pending_steps
 
 
 def test_discards_step_on_error_response():
-    device = _make_device(pending={"get_device_type"})
+    device = _make_device(pending={Task.Name.GET_DEVICE_TYPE})
     topics = _make_topics()
     task = GetDeviceTypeTask(device, topics)
 
@@ -99,11 +99,11 @@ def test_discards_step_on_error_response():
     task.doTask()
 
     assert device.role is None
-    assert "get_device_type" not in device.pending_steps
+    assert Task.Name.GET_DEVICE_TYPE not in device.pending_steps
 
 
 def test_keeps_step_pending_on_timeout():
-    device = _make_device(pending={"get_device_type"})
+    device = _make_device(pending={Task.Name.GET_DEVICE_TYPE})
     topics = _make_topics()
     task = GetDeviceTypeTask(device, topics)
 
@@ -111,4 +111,4 @@ def test_keeps_step_pending_on_timeout():
     task.doTask()
 
     assert device.role is None
-    assert "get_device_type" in device.pending_steps
+    assert Task.Name.GET_DEVICE_TYPE in device.pending_steps
