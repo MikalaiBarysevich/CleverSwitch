@@ -1,3 +1,5 @@
+import logging
+
 from ..event.device_connected_event import DeviceConnectedEvent
 from ..event.event import Event
 from ..event.external_unset_flag_event import ExternalUnsetFlagEvent
@@ -15,6 +17,8 @@ from ..hidpp.constants import (
     REPORT_SHORT,
     SW_ID_MASK,
 )
+
+log = logging.getLogger(__name__)
 
 
 def parse(pid: int, raw_event: bytes) -> Event | None:
@@ -89,15 +93,25 @@ def parse(pid: int, raw_event: bytes) -> Event | None:
                 payload=payload,
             )
 
-        # External undivert/analytics-unset: setCidReporting (fn=3) from another app, ES key CID
+        # External app response (sw_id 1–7): log setCidReporting (fn=3) and resetAllCidReportSettings (fn=6)
         if function == 3:
             cid = (raw_event[4] << 8) | raw_event[5]
+            bfield = raw_event[6]
+            byte9 = raw_event[9]
+            log.info(
+                "External setCidReporting (sw_id=%d): slot=%d feat_idx=%d CID=0x%04X bfield=0x%02X byte9=0x%02X",
+                sw_id, slot, feature_id, cid, bfield, byte9,
+            )
             if cid in HOST_SWITCH_CIDS:
-                byte9 = raw_event[9]
-                bfield = raw_event[6]
                 divert_valid = bfield & (MAP_FLAG_DIVERTED << 1)
                 divert_set = bfield & MAP_FLAG_DIVERTED
                 if (byte9 & ANALYTICS_AVALID and not (byte9 & ANALYTICS_KEY_EVT)) or (divert_valid and not divert_set):
                     return ExternalUnsetFlagEvent(slot=slot, pid=pid, feature_index=feature_id, cid=cid)
+
+        if function == 6:
+            log.info(
+                "External resetAllCidReportSettings (sw_id=%d): slot=%d feat_idx=%d raw=%s",
+                sw_id, slot, feature_id, raw_event.hex(),
+            )
 
     return None
