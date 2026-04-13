@@ -137,12 +137,11 @@ class HidppBlePrototype:
                 from bleak.backends.corebluetooth.CentralManagerDelegate import CentralManagerDelegate
 
                 delegate = CentralManagerDelegate()
-                await delegate.start()
+                await delegate.wait_until_ready()
                 ble_device = BLEDevice(
                     address=cb_peripheral.identifier().UUIDString(),
                     name=cb_peripheral.name() or "unknown",
                     details=(cb_peripheral, delegate),
-                    rssi=0,
                 )
 
         client_arg = ble_device if ble_device else device_address

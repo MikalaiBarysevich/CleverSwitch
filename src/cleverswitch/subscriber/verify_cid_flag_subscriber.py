@@ -56,9 +56,7 @@ class VerifyCidFlagSubscriber(Subscriber):
         timer.daemon = True
         timer.start()
 
-    def _send_get_cid_reporting(
-        self, slot: int, pid: int, wpid: int, reprog_idx: int, cids: set[int]
-    ) -> None:
+    def _send_get_cid_reporting(self, slot: int, pid: int, wpid: int, reprog_idx: int, cids: set[int]) -> None:
         device = self._device_registry.get_by_wpid(wpid)
         if device is None or not device.connected:
             return
@@ -91,10 +89,17 @@ class VerifyCidFlagSubscriber(Subscriber):
         if analytics_set or divert_set:
             log.info(
                 "Verify CID 0x%04X on slot=%d: OK (divert=%d analytics=%d)",
-                cid, event.slot, int(bool(divert_set)), int(bool(analytics_set)),
+                cid,
+                event.slot,
+                int(bool(divert_set)),
+                int(bool(analytics_set)),
             )
         else:
             log.warning(
                 "Verify CID 0x%04X on slot=%d: FLAGS CLEARED by external app (divert=%d analytics=%d) — raw=%s",
-                cid, event.slot, int(bool(divert_set)), int(bool(analytics_set)), event.payload.hex(),
+                cid,
+                event.slot,
+                int(bool(divert_set)),
+                int(bool(analytics_set)),
+                event.payload.hex(),
             )
