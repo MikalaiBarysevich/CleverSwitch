@@ -100,7 +100,12 @@ def parse(pid: int, raw_event: bytes) -> Event | None:
             byte9 = raw_event[9]
             log.info(
                 "External setCidReporting (sw_id=%d): slot=%d feat_idx=%d CID=0x%04X bfield=0x%02X byte9=0x%02X",
-                sw_id, slot, feature_id, cid, bfield, byte9,
+                sw_id,
+                slot,
+                feature_id,
+                cid,
+                bfield,
+                byte9,
             )
             if cid in HOST_SWITCH_CIDS:
                 divert_valid = bfield & (MAP_FLAG_DIVERTED << 1)
@@ -111,7 +116,10 @@ def parse(pid: int, raw_event: bytes) -> Event | None:
         if function == 6:
             log.info(
                 "External resetAllCidReportSettings (sw_id=%d): slot=%d feat_idx=%d raw=%s",
-                sw_id, slot, feature_id, raw_event.hex(),
+                sw_id,
+                slot,
+                feature_id,
+                raw_event.hex(),
             )
 
     return None

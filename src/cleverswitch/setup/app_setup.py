@@ -17,6 +17,7 @@ from ..subscriber.external_unset_flag_subscriber import ExternalUnsetFlagSubscri
 from ..subscriber.host_change_subscriber import HostChangeSubscriber
 from ..subscriber.info_task_orchestrator import InfoTaskOrchestrator
 from ..subscriber.set_report_flag_subscriber import SetReportFlagSubscriber
+from ..subscriber.verify_cid_flag_subscriber import VerifyCidFlagSubscriber
 from ..subscriber.wireless_reconnect_subscriber import WirelessReconnectSubscriber
 from ..subscriber.wireless_status_subscriber import WirelessStatusSubscriber
 from ..topic.topic import Topic
@@ -77,6 +78,7 @@ def _init_subscribers(topics: Topics, device_registry: LogiDeviceRegistry) -> No
     InfoTaskOrchestrator(device_registry, topics)
     SetReportFlagSubscriber(device_registry, topics)
     ExternalUnsetFlagSubscriber(device_registry, topics)
+    VerifyCidFlagSubscriber(device_registry, topics)
     HostChangeSubscriber(device_registry, topics)
     WirelessStatusSubscriber(device_registry, topics)
     if get_system() == "Darwin":
