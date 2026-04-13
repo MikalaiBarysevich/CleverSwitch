@@ -181,10 +181,10 @@ async def scan_for_logitech(name_filter: str | None = None, timeout: float = 10.
     """Scan for Logitech BLE devices."""
     log.info("Scanning for Logitech BLE devices (%0.0fs)...", timeout)
 
-    devices = await BleakScanner.discover(timeout=timeout)
+    devices = await BleakScanner.discover(timeout=timeout, return_adv=True)
 
     logitech_devices = []
-    for d in devices:
+    for d, adv in devices.values():
         is_logi = False
 
         # Check by name
@@ -194,15 +194,14 @@ async def scan_for_logitech(name_filter: str | None = None, timeout: float = 10.
             is_logi = True
 
         # Check by manufacturer data (company ID 0x046D)
-        if d.metadata and "manufacturer_data" in d.metadata:
-            if LOGI_COMPANY_ID in d.metadata["manufacturer_data"]:
-                is_logi = True
+        if adv.manufacturer_data and LOGI_COMPANY_ID in adv.manufacturer_data:
+            is_logi = True
 
         if is_logi:
             if name_filter and name_filter.lower() not in (d.name or "").lower():
                 continue
             logitech_devices.append(d)
-            log.info("  Found: %s (%s) RSSI=%s", d.name, d.address, d.rssi)
+            log.info("  Found: %s (%s) RSSI=%s", d.name, d.address, adv.rssi)
 
     return logitech_devices
 
