@@ -52,7 +52,10 @@ class InfoTask(ABC, Subscriber, Thread):
     def run(self) -> None:
         already_done = self._step_name not in self._device.pending_steps
         if not already_done:
-            self.doTask()
+            try:
+                self.doTask()
+            except Exception:
+                log.exception("Unhandled error in task %s for slot=%d", self._step_name, self._device.slot)
         success = already_done or self._step_name not in self._device.pending_steps
         if success:
             self._device.connected = True

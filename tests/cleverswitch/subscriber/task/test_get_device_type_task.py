@@ -102,6 +102,21 @@ def test_discards_step_on_error_response():
     assert Task.Name.GET_DEVICE_TYPE not in device.pending_steps
 
 
+def test_discards_keyboard_only_steps_when_role_is_mouse():
+    device = _make_device(
+        pending={Task.Name.GET_DEVICE_TYPE, Task.Feature.Name.CID_REPORTING, Task.Name.FIND_ES_CIDS_FLAGS},
+    )
+    topics = _make_topics()
+    task = GetDeviceTypeTask(device, topics)
+
+    task._response_queue.put(_type_response(3))
+    task.run()
+
+    assert device.role == "mouse"
+    assert Task.Feature.Name.CID_REPORTING not in device.pending_steps
+    assert Task.Name.FIND_ES_CIDS_FLAGS not in device.pending_steps
+
+
 def test_keeps_step_pending_on_timeout():
     device = _make_device(pending={Task.Name.GET_DEVICE_TYPE})
     topics = _make_topics()
