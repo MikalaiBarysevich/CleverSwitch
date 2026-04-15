@@ -42,6 +42,10 @@ class GetDeviceTypeTask(InfoTask):
         self._device.pending_steps.discard(self._step_name)
 
     def _fire_dependent_steps(self):
-        if self._device.role != "keyboard" or Task.Feature.Name.CID_REPORTING not in self._device.pending_steps:
+        if self._device.role != "keyboard":
+            self._device.pending_steps.discard(Task.Feature.Name.CID_REPORTING)
+            self._device.pending_steps.discard(Task.Name.FIND_ES_CIDS_FLAGS)
+            return
+        if Task.Feature.Name.CID_REPORTING not in self._device.pending_steps:
             return
         CidReportingFeatureTask(self._device, self._topics).start()
