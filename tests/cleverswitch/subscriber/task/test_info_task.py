@@ -148,6 +148,22 @@ def test_run_publishes_failure_and_no_dependents_when_dotask_times_out():
     assert event.step_name == "test_step"
 
 
+def test_run_publishes_failure_when_dotask_raises():
+    device = _make_device(pending={"test_step"})
+    topics = _make_topics()
+
+    def raise_error():
+        raise RuntimeError("boom")
+
+    task = _ConcreteTask(device, topics, step_name="test_step", do_task_fn=raise_error)
+    task.run()
+
+    topics.info_progress.publish.assert_called_once()
+    event = topics.info_progress.publish.call_args[0][0]
+    assert event.success is False
+    assert event.step_name == "test_step"
+
+
 def test_run_publishes_success_without_calling_dotask_when_already_done():
     device = _make_device(pending=set())  # test_step not in pending
     topics = _make_topics()
