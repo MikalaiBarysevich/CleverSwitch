@@ -14,7 +14,6 @@ from ..model.config.args_settings import ArgsSettings
 from ..model.config.config import Config
 from ..model.config.hook_entry import HookEntry
 from ..model.config.hooks_config import HooksConfig
-from ..model.config.settings import Settings
 
 _DEFAULT_CONFIG_PATH = Path("~/.config/cleverswitch/config.yaml").expanduser()
 
@@ -24,7 +23,6 @@ _DEFAULT_CONFIG_PATH = Path("~/.config/cleverswitch/config.yaml").expanduser()
 def default_config() -> Config:
     return Config(
         hooks=HooksConfig(),
-        settings=Settings(),
         arguments_settings=ArgsSettings(),
     )
 
@@ -56,25 +54,20 @@ def load(cli_args: argparse.Namespace) -> Config:
 
 
 def _parse(raw: dict[str, Any], cli_args: argparse.Namespace) -> Config:
-    defaults = default_config()
-
     # ── hooks ─────────────────────────────────────────────────────────────────
     h = raw.get("hooks", {})
     hooks = HooksConfig(
+        fire_for_all_devices=bool(h.get("fire_for_all_devices", False)),
         on_switch=tuple(_parse_hooks(h.get("on_switch", []))),
         on_connect=tuple(_parse_hooks(h.get("on_connect", []))),
         on_disconnect=tuple(_parse_hooks(h.get("on_disconnect", []))),
     )
 
-    # ── settings ──────────────────────────────────────────────────────────────
-    s = raw.get("settings", {})
-    settings = Settings(read_timeout_ms=int(s.get("read_timeout_ms", defaults.settings.read_timeout_ms)))
-
     arguments_settings = ArgsSettings(
         verbose_extra=cli_args.verbose_extra if cli_args.verbose_extra is not None else False,
     )
 
-    config = Config(hooks=hooks, settings=settings, arguments_settings=arguments_settings)
+    config = Config(hooks=hooks, arguments_settings=arguments_settings)
     _validate(config)
     return config
 
