@@ -1,3 +1,3 @@
-from .cli.cli_module import main
+from cleverswitch.cli.cli_module import main
 
 main()
