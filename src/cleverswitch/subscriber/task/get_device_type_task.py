@@ -25,7 +25,7 @@ class GetDeviceTypeTask(InfoTask):
         type_and_name_idx = self._device.available_features.get(FEATURE_DEVICE_TYPE_AND_NAME)
         if type_and_name_idx is None:
             if Task.Feature.Name.NAME_AND_TYPE not in self._device.pending_steps:
-                log.info("slot=%d: DEVICE_TYPE_AND_NAME not supported, skipping type", self._device.slot)
+                log.debug(f"wpid=0x{self._device.wpid:04X}: DEVICE_TYPE_AND_NAME not supported, skipping type")
                 self._device.pending_steps.discard(self._step_name)
             return
 
@@ -37,7 +37,7 @@ class GetDeviceTypeTask(InfoTask):
         if not isinstance(response, HidppErrorEvent):
             device_type = response.payload[0]
             self._device.role = "keyboard" if device_type == 0 else "mouse"
-            log.info("slot=%d: type=%s", self._device.slot, self._device.role)
+            log.debug(f"wpid=0x{self._device.wpid:04X}: type={self._device.role}")
 
         self._device.pending_steps.discard(self._step_name)
 

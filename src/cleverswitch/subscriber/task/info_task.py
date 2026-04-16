@@ -55,7 +55,7 @@ class InfoTask(ABC, Subscriber, Thread):
             try:
                 self.doTask()
             except Exception:
-                log.exception("Unhandled error in task %s for slot=%d", self._step_name, self._device.slot)
+                log.exception(f"Unhandled error in task {self._step_name} for wpid=0x{self._device.wpid:04X}")
         success = already_done or self._step_name not in self._device.pending_steps
         if success:
             self._device.connected = True

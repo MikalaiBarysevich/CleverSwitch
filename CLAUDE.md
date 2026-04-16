@@ -22,6 +22,7 @@ Communication is via **HID++ 2.0** directly over the Logitech **Bolt USB receive
 - `pyyaml` — config file parsing
 - `pytest` + `pytest-mock` + `pytest-cov` — testing
 - `ruff` — linting and formatting (line-length 120)
+- All log calls must use f-strings: `log.info(f"wpid=0x{wpid:04X}")` — never `%s`/`%d` style. `wpid` and `pid` values must always be formatted as `0x{value:04X}`.
 
 ## Development commands
 

@@ -45,7 +45,7 @@ class WirelessStatusSubscriber(Subscriber):
             return
 
         name = f"'{device.name}'" if device.name else f"slot={device.slot}"
-        log.info("x1D4B reconfiguration request for %s, re-diverting", name)
+        log.debug(f"x1D4B reconfiguration request for {name}, re-diverting")
 
         self._topics.flags.publish(
             SetReportFlagEvent(

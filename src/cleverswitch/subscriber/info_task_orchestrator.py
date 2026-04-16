@@ -43,5 +43,5 @@ class InfoTaskOrchestrator(Subscriber):
                 log.info(f"Device fully discovered: {device}")
         else:
             if device.connected:
-                log.debug("Retrying step=%s slot=%d", event.step_name, device.slot)
+                log.debug(f"Retrying step={event.step_name} slot={device.slot}")
                 _TASK_FACTORIES[event.step_name](device, self._topics).start()

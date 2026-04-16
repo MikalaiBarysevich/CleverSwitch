@@ -65,7 +65,7 @@ _lib: ctypes.CDLL | None = None
 for _name in _LIB_NAMES:
     try:
         _lib = ctypes.CDLL(_name)
-        log.debug("hidapi: loaded %s", _name)
+        log.debug(f"hidapi: loaded {_name}")
         break
     except OSError:
         continue
@@ -274,7 +274,7 @@ class HIDTransport:
         self._path = path
         self._dev = None
         self.try_open()
-        log.debug("Opened %s path=%s", kind, path)
+        log.debug(f"Opened {kind} path={path}")
 
     # ── sync I/O (used by discovery / protocol layer) ─────────────────────────
 

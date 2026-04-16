@@ -94,7 +94,7 @@ def request(
     msg = build_msg(devnumber, request_id, params_bytes)
 
     if log.isEnabledFor(logging.DEBUG):
-        log.debug("-> dev=0x%02X [%s]", devnumber, msg.hex())
+        log.debug(f"-> dev=0x{devnumber:02X} [{msg.hex()}]")
 
     try:
         transport.write(msg)
@@ -112,7 +112,7 @@ def request(
             continue
 
         if log.isEnabledFor(logging.DEBUG):
-            log.debug("<- dev=0x%02X [%s]", raw[1], raw.hex())
+            log.debug(f"<- dev=0x{raw[1]:02X} [{raw.hex()}]")
 
         rdev = raw[1]
         rdata = raw[2:]  # starts at sub_id byte
@@ -123,19 +123,19 @@ def request(
 
         # HID++ 1.0 error: sub_id=0x8F, next 2 bytes mirror our request
         if raw[0] == REPORT_SHORT and rdata[0:1] == b"\x8f" and rdata[1:3] == request_data[:2]:
-            log.debug("HID++ 1.0 error 0x%02X for request 0x%04X", rdata[3], request_id)
+            log.debug(f"HID++ 1.0 error 0x{rdata[3]:02X} for request 0x{request_id:04X}")
             return None
 
         # HID++ 2.0 error: sub_id=0xFF, next 2 bytes mirror our request
         if rdata[0:1] == b"\xff" and rdata[1:3] == request_data[:2]:
-            log.warning("HID++ 2.0 error 0x%02X for request 0x%04X", rdata[3], request_id)
+            log.warning(f"HID++ 2.0 error 0x{rdata[3]:02X} for request 0x{request_id:04X}")
             return None
 
         # Successful reply: first 2 bytes of payload match our request_id
         if rdata[:2] == request_data[:2]:
             return rdata[2:]
 
-    log.debug("Timeout (%.1fs) on request 0x%04X from device 0x%02X", timeout, request_id, devnumber)
+    log.debug(f"Timeout ({timeout:.1f}s) on request 0x{request_id:04X} from device 0x{devnumber:02X}")
     return None
 
 
@@ -151,7 +151,7 @@ def request_write_only(
     msg = build_msg(devnumber, request_id, params_bytes)
 
     if log.isEnabledFor(logging.DEBUG):
-        log.debug("-> dev=0x%02X [%s]", devnumber, msg.hex())
+        log.debug(f"-> dev=0x{devnumber:02X} [{msg.hex()}]")
 
     try:
         transport.write(msg)
@@ -250,7 +250,7 @@ def send_change_host(
     params = struct.pack("B", target_host)
     msg = build_msg(devnumber, request_id, params)
     if log.isEnabledFor(logging.DEBUG):
-        log.debug("send_change_host -> dev=0x%02X host=%d [%s]", devnumber, target_host, msg.hex())
+        log.debug(f"send_change_host -> dev=0x{devnumber:02X} host={target_host} [{msg.hex()}]")
     try:
         transport.write(msg)
     except Exception as e:

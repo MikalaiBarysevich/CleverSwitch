@@ -69,7 +69,7 @@ class FindESCidsFlagsTask(InfoTask):
             and KEY_FLAG_DIVERTABLE not in self._device.supported_flags
         ):
             log.error(
-                f"{hex(self._device.wpid)}: No analytics or divertable ES CIDs found — host switching unavailable"
+                f"0x{self._device.wpid:04X}: No analytics or divertable ES CIDs found — host switching unavailable"
             )
             return
 
@@ -82,4 +82,4 @@ class FindESCidsFlagsTask(InfoTask):
         )
 
         flags_str = ", ".join(f"0x{x:04X}" for x in sorted(self._device.supported_flags))
-        log.info(f"{hex(self._device.wpid)}: supported flags: {flags_str}")
+        log.debug(f"0x{self._device.wpid:04X}: supported flags: {flags_str}")

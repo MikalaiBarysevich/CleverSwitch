@@ -33,16 +33,16 @@ class SetReportFlagSubscriber(Subscriber):
 
         device = self._device_registry.get_by_wpid(event.wpid)
         if device is None:
-            log.warning("device wpid=0x%04X not found", event.wpid)
+            log.warning(f"device wpid=0x{event.wpid:04X} not found")
             return
 
         reprog_idx = device.available_features.get(FEATURE_REPROG_CONTROLS_V4)
         if reprog_idx is None:
-            log.warning("slot=%d has no REPROG_CONTROLS_V4", event.slot)
+            log.warning(f"wpid=0x{event.wpid:04X} has no REPROG_CONTROLS_V4")
             return
 
         if not device.supported_flags & {KEY_FLAG_ANALYTICS, KEY_FLAG_DIVERTABLE}:
-            log.warning("slot=%d has no reprog flags", event.slot)
+            log.warning(f"wpid=0x{event.wpid:04X} has no reprog flags")
             return
 
         for cid in event.cids:
@@ -64,11 +64,9 @@ class SetReportFlagSubscriber(Subscriber):
             request_id = (reprog_idx << 8) | 0x30 | SW_ID_DIVERT
             msg = build_msg(event.slot, request_id, params)
             self._topics.write.publish(WriteEvent(slot=event.slot, pid=event.pid, hid_message=msg))
-            log.info(
-                "%s CID 0x%04X on slot=%s",
+            action = (
                 "Enabling analytics for"
                 if KEY_FLAG_ANALYTICS in device.supported_flags
-                else ("Setting divert" if event.enable else "Unsetting divert"),
-                cid,
-                event.slot,
+                else ("Setting divert" if event.enable else "Unsetting divert")
             )
+            log.debug(f"{action} CID 0x{cid:04X} on wpid=0x{event.wpid:04X}")

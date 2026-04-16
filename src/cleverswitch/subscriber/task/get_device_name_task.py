@@ -20,7 +20,7 @@ class GetDeviceNameTask(InfoTask):
         name_and_type_idx = self._device.available_features.get(FEATURE_DEVICE_TYPE_AND_NAME)
         if name_and_type_idx is None:
             if Task.Feature.Name.NAME_AND_TYPE not in self._device.pending_steps:
-                log.info("slot=%d: DEVICE_TYPE_AND_NAME not supported, skipping name", self._device.slot)
+                log.debug(f"wpid=0x{self._device.wpid:04X}: DEVICE_TYPE_AND_NAME not supported, skipping name")
                 self._device.pending_steps.discard(self._step_name)
             return
 
@@ -54,7 +54,7 @@ class GetDeviceNameTask(InfoTask):
 
         if len(chars) == name_len:
             self._device.name = bytes(chars).decode("utf-8", errors="replace")
-            log.info("slot=%d: name=%s", self._device.slot, self._device.name)
+            log.debug(f"wpid=0x{self._device.wpid:04X}: name={self._device.name}")
             self._device.pending_steps.discard(self._step_name)
         else:
             self._device.name = None

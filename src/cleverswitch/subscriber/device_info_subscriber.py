@@ -25,10 +25,10 @@ class DeviceInfoSubscriber(Subscriber):
     def _handle_setup(self, event: DeviceInfoRequestEvent) -> None:
         device = self._device_registry.get_by_wpid(event.wpid)
         if device is None:
-            log.warning("Device wpid=0x%04X not found in registry", event.wpid)
+            log.warning(f"Device wpid=0x{event.wpid:04X} not found in registry")
             return
 
-        log.info(f"Found new device with wpid={hex(event.wpid)} on slot={event.slot}. Configuring...")
+        log.info(f"Found new device with wpid=0x{event.wpid:04X}. Configuring...")
 
         # Skip-marks for info we don't need to query
         if not event.type:

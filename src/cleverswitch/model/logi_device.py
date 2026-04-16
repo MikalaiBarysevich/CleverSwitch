@@ -25,4 +25,5 @@ class LogiDevice:
     connected: bool = True
 
     def __str__(self):
-        return f"'{self.name}': pid={hex(self.pid)}, wpid={hex(self.wpid)}, slot={self.slot}"
+        transport = "BT" if self.slot == 0xFF else "receiver"
+        return f"'{self.name}': transport={transport}, pid={hex(self.pid)}, wpid={hex(self.wpid)}"
