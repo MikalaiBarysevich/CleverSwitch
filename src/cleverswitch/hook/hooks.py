@@ -11,20 +11,23 @@ import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
-from ..config.config import HookEntry, HooksConfig
+from ..model.config.hook_entry import HookEntry
+from ..model.config.hooks_config import HooksConfig
 
 log = logging.getLogger(__name__)
 
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="cleverswitch-hook")
 
 
-def fire(hooks: tuple[HookEntry, ...], env_vars: dict[str, str]) -> None:
+def fire(hooks: tuple[HookEntry, ...], env_vars: dict[str, str], *, fire_for_all_devices: bool = False) -> None:
     """Submit all *hooks* for async execution with the given environment."""
+    if not fire_for_all_devices and env_vars.get("CLEVERSWITCH_DEVICE") != "keyboard":
+        return
     for hook in hooks:
         _executor.submit(_run, hook, env_vars)
 
 
-def fire_switch(hooks_cfg: HooksConfig, device_name: str, role: str, target_host: int, previous_host: int) -> None:
+def fire_switch(hooks_cfg: HooksConfig, device_name: str, role: str, target_host: int) -> None:
     fire(
         hooks_cfg.on_switch,
         {
@@ -32,8 +35,8 @@ def fire_switch(hooks_cfg: HooksConfig, device_name: str, role: str, target_host
             "CLEVERSWITCH_DEVICE": role,
             "CLEVERSWITCH_DEVICE_NAME": device_name,
             "CLEVERSWITCH_TARGET_HOST": str(target_host + 1),  # 1-based for humans
-            "CLEVERSWITCH_PREVIOUS_HOST": str(previous_host + 1),
         },
+        fire_for_all_devices=hooks_cfg.fire_for_all_devices,
     )
 
 
@@ -45,6 +48,7 @@ def fire_connect(hooks_cfg: HooksConfig, device_name: str, role: str) -> None:
             "CLEVERSWITCH_DEVICE": role,
             "CLEVERSWITCH_DEVICE_NAME": device_name,
         },
+        fire_for_all_devices=hooks_cfg.fire_for_all_devices,
     )
 
 
@@ -56,34 +60,56 @@ def fire_disconnect(hooks_cfg: HooksConfig, device_name: str, role: str) -> None
             "CLEVERSWITCH_DEVICE": role,
             "CLEVERSWITCH_DEVICE_NAME": device_name,
         },
+        fire_for_all_devices=hooks_cfg.fire_for_all_devices,
     )
 
 
+def _is_file_path(value: str) -> bool:
+    """Heuristic: does the string look like a file path rather than a shell command?"""
+    return value.startswith(("/", "~/", "./", "../"))
+
+
 def _run(hook: HookEntry, extra_env: dict[str, str]) -> None:
-    """Run one hook script synchronously (called from a worker thread)."""
+    """Run one hook synchronously (called from a worker thread)."""
     env = {**os.environ, **extra_env}
-    script = os.path.expanduser(hook.path)
+    expanded = os.path.expanduser(hook.path)
 
-    if not os.path.exists(script):
-        log.warning("Hook script not found: %s", script)
-        return
+    if _is_file_path(hook.path):
+        if not os.path.exists(expanded):
+            log.warning("Hook script not found: %s", expanded)
+            return
+        cmd = [expanded]
+        shell = False
+        label = expanded
+        log.debug("Running hook script: %s (timeout=%ds)", label, hook.timeout)
+    else:
+        cmd = hook.path
+        shell = True
+        label = hook.path
+        log.debug("Running hook command: %s (timeout=%ds)", label, hook.timeout)
 
-    log.debug("Running hook: %s (timeout=%ds)", script, hook.timeout)
     try:
         result = subprocess.run(
-            [script],
+            cmd,
             env=env,
             timeout=hook.timeout,
             capture_output=True,
             text=True,
+            shell=shell,
         )
         if result.returncode != 0:
-            log.warning("Hook %s exited with code %d", script, result.returncode)
+            log.warning("Hook %s exited with code %d", label, result.returncode)
             if result.stderr:
                 log.warning("Hook stderr: %s", result.stderr.strip())
         elif result.stdout:
             log.debug("Hook stdout: %s", result.stdout.strip())
-    except subprocess.TimeoutExpired:
-        log.warning("Hook %s timed out after %ds", script, hook.timeout)
+    except subprocess.TimeoutExpired as e:
+        proc = getattr(e, "process", None)
+        if proc is not None:
+            proc.kill()
+            proc.communicate()
+        else:
+            log.warning("Hook %s timed out but process handle unavailable — child may still be running", label)
+        log.warning("Hook %s timed out after %ds", label, hook.timeout)
     except Exception as e:
-        log.warning("Hook %s failed: %s", script, e)
+        log.warning("Hook %s failed: %s", label, e)

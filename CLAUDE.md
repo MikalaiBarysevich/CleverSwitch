@@ -118,9 +118,11 @@ On macOS the receiver does not send spontaneous device connection events, so two
 
 `setup/app_setup.py:setup_context()` creates Topics, LogiDeviceRegistry, and all subscribers. It is the single place where components are connected. Platform-specific subscribers (`DisconnectPollerSubscriber`, `WirelessReconnectSubscriber`) are guarded with `if get_system() == "Darwin"`.
 
-Active subscribers: `DeviceConnectionSubscriber`, `DeviceInfoSubscriber`, `InfoTaskOrchestrator`, `SetReportFlagSubscriber`, `ExternalUnsetFlagSubscriber`, `HostChangeSubscriber`, `WirelessStatusSubscriber` (+ macOS-only: `DisconnectPollerSubscriber`, `WirelessReconnectSubscriber`).
+Active subscribers: `DeviceConnectionSubscriber`, `DeviceInfoSubscriber`, `InfoTaskOrchestrator`, `SetReportFlagSubscriber`, `ExternalUnsetFlagSubscriber`, `HostChangeSubscriber`, `EventHookSubscriber`, `WirelessStatusSubscriber` (+ macOS-only: `DisconnectPollerSubscriber`, `WirelessReconnectSubscriber`).
 
-`HostChangeSubscriber` handles two notification paths on the `hid_event` channel: fn=0 (diverted key press, `HidppNotificationEvent`) and fn=2 (analytics key press, payload[2]=0x01 for press only). Both send CHANGE_HOST to all registered devices.
+The parser detects ES CID presses (fn=0 diverted, fn=2 analytics press-only) and emits `HostChangeEvent` instead of generic `HidppNotificationEvent`. `HostChangeSubscriber` reacts to `HostChangeEvent` and sends CHANGE_HOST to all registered devices.
+
+`EventHookSubscriber` listens on `hid_event` for `HostChangeEvent` and `DeviceConnectedEvent`, and fires user-configured hook scripts/commands asynchronously via `hooks.py`. Hooks support both file paths (run without shell) and inline shell commands (auto-detected by prefix heuristic: `/`, `~/`, `./`, `../` → file path, otherwise shell command). By default hooks only fire for keyboard events; set `hooks.fire_for_all_devices: true` in config to include mouse events.
 
 `ExternalUnsetFlagSubscriber` detects when an external app (Solaar, logiops) clears the ES key reporting flag via `setCidReporting` (fn=3, sw_id in 1–7). The parser emits `ExternalUnsetFlagEvent`; the subscriber re-publishes `SetReportFlagEvent` to restore the flag.
 
