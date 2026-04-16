@@ -33,7 +33,7 @@ class WirelessReconnectSubscriber(Subscriber):
         if len(event.payload) < 2 or event.payload[1] != 0x01:
             return
 
-        log.info("x1D4B reconnect on slot=%d wpid=0x%04X", device.slot, device.wpid)
+        log.debug(f"x1D4B reconnect on wpid=0x{device.wpid:04X}")
         self._topics.hid_event.publish(
             DeviceConnectedEvent(
                 slot=device.slot,

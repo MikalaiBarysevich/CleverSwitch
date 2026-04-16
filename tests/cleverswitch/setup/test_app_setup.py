@@ -11,7 +11,7 @@ from cleverswitch.model.context.app_context import AppContext
 
 
 def _cli_args(**overrides):
-    defaults = {"config": None, "verbose": False, "verbose_extra": False, "dry_run": False}
+    defaults = {"config": None, "verbose": False, "verbose_extra": False}
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
 

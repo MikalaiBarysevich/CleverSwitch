@@ -31,7 +31,7 @@ def _check_linux() -> None:
     ]
     for d in udev_dirs:
         if os.path.exists(os.path.join(d, rule_name)):
-            log.debug("udev rule found in %s", d)
+            log.debug(f"udev rule found in {d}")
             return
 
     log.warning(

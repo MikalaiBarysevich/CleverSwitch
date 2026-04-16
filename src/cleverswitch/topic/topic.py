@@ -27,4 +27,4 @@ class Topic:
             try:
                 subscriber.notify(event)
             except Exception:
-                log.exception("Subscriber %s failed to handle event %s", subscriber, event)
+                log.exception(f"Subscriber {subscriber} failed to handle event {event}")

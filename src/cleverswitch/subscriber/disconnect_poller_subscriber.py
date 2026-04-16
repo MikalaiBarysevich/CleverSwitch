@@ -70,7 +70,7 @@ class DisconnectPollerSubscriber(Subscriber):
 
             if elapsed > DISCONNECT_TIMEOUT_S and self._connected.get(slot, False):
                 self._connected[slot] = False
-                log.info("Ping timeout for slot=%d wpid=0x%04X — publishing disconnect", slot, device.wpid)
+                log.debug(f"Ping timeout for wpid=0x{device.wpid:04X} — publishing disconnect")
                 self._topics.hid_event.publish(
                     DeviceConnectedEvent(
                         slot=slot,
