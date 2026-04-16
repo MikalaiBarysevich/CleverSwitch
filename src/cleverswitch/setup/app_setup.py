@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 
 
 def setup_context(args: argparse.Namespace) -> AppContext:
-    log.info("CleverSwitch %s starting", __version__)
+    log.info(f"CleverSwitch {__version__} starting")
     check()
     config = _load_config(args)
     shutdown = _setup_shutdown()

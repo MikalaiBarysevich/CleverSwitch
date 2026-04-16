@@ -76,17 +76,17 @@ def _run(hook: HookEntry, extra_env: dict[str, str]) -> None:
 
     if _is_file_path(hook.path):
         if not os.path.exists(expanded):
-            log.warning("Hook script not found: %s", expanded)
+            log.warning(f"Hook script not found: {expanded}")
             return
         cmd = [expanded]
         shell = False
         label = expanded
-        log.debug("Running hook script: %s (timeout=%ds)", label, hook.timeout)
+        log.debug(f"Running hook script: {label} (timeout={hook.timeout}s)")
     else:
         cmd = hook.path
         shell = True
         label = hook.path
-        log.debug("Running hook command: %s (timeout=%ds)", label, hook.timeout)
+        log.debug(f"Running hook command: {label} (timeout={hook.timeout}s)")
 
     try:
         result = subprocess.run(
@@ -98,18 +98,18 @@ def _run(hook: HookEntry, extra_env: dict[str, str]) -> None:
             shell=shell,
         )
         if result.returncode != 0:
-            log.warning("Hook %s exited with code %d", label, result.returncode)
+            log.warning(f"Hook {label} exited with code {result.returncode}")
             if result.stderr:
-                log.warning("Hook stderr: %s", result.stderr.strip())
+                log.warning(f"Hook stderr: {result.stderr.strip()}")
         elif result.stdout:
-            log.debug("Hook stdout: %s", result.stdout.strip())
+            log.debug(f"Hook stdout: {result.stdout.strip()}")
     except subprocess.TimeoutExpired as e:
         proc = getattr(e, "process", None)
         if proc is not None:
             proc.kill()
             proc.communicate()
         else:
-            log.warning("Hook %s timed out but process handle unavailable — child may still be running", label)
-        log.warning("Hook %s timed out after %ds", label, hook.timeout)
+            log.warning(f"Hook {label} timed out but process handle unavailable — child may still be running")
+        log.warning(f"Hook {label} timed out after {hook.timeout}s")
     except Exception as e:
-        log.warning("Hook %s failed: %s", label, e)
+        log.warning(f"Hook {label} failed: {e}")

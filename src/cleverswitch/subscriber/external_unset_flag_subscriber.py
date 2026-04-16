@@ -34,7 +34,7 @@ class ExternalUnsetFlagSubscriber(Subscriber):
         if reprog_idx is None or reprog_idx != event.feature_index:
             return
 
-        log.info("External reprog unset detected: CID 0x%04X on slot=%d, re-enabling", event.cid, event.slot)
+        log.debug(f"External reprog unset detected: CID 0x{event.cid:04X}, re-enabling")
         self._topics.flags.publish(
             SetReportFlagEvent(
                 slot=event.slot,

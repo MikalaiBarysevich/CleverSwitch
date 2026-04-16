@@ -19,7 +19,6 @@ def test_parse_args_defaults_when_no_arguments_given(monkeypatch):
     args = _parse_args()
     assert args.config is None
     assert args.verbose is False
-    assert args.dry_run is False
 
 
 def test_parse_args_captures_config_file_path(monkeypatch):
@@ -38,12 +37,6 @@ def test_parse_args_enables_verbose_flag(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["cleverswitch", "-v"])
     args = _parse_args()
     assert args.verbose is True
-
-
-def test_parse_args_enables_dry_run_flag(monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["cleverswitch", "--dry-run"])
-    args = _parse_args()
-    assert args.dry_run is True
 
 
 def test_parse_args_enables_verbose_extra_flag(monkeypatch):

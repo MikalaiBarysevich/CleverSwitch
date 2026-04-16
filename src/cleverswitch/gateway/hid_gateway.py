@@ -37,10 +37,10 @@ class HidGateway(Thread, Subscriber):
                     hid_event = self._transport.read()
                     self._event_listener.listen(hid_event)
                     log.debug(
-                        f"Received HID event from pid={hex(self._device_info.pid)}: {hid_event.hex()}",
+                        f"Received HID event from pid=0x{self._device_info.pid:04X}: {hid_event.hex()}",
                     )
                 except TransportError:
-                    log.debug(f"Device disconnected pid={hex(self._device_info.pid)}")
+                    log.debug(f"Device disconnected pid=0x{self._device_info.pid:04X}")
                     self._set_connected(False)
             else:
                 self._try_connect()
@@ -66,7 +66,7 @@ class HidGateway(Thread, Subscriber):
                 self._transport.try_reopen()
             self._set_connected(True)
         except OSError as e:
-            log.debug(f"Failed to connect to HID device pid={hex(self._device_info.pid)}: {e}")
+            log.debug(f"Failed to connect to HID device pid=0x{self._device_info.pid:04X}: {e}")
 
     def _set_connected(self, state: bool) -> None:
         self._connected = state
@@ -85,7 +85,7 @@ class HidGateway(Thread, Subscriber):
                 while not self._connected:
                     time.sleep(0.5)
             else:
-                log.debug("Dropping write to pid=%s: device disconnected", hex(self._device_info.pid))
+                log.debug(f"Dropping write to pid=0x{self._device_info.pid:04X}: device disconnected")
                 return
 
         if _IS_WINDOWS:
@@ -93,18 +93,17 @@ class HidGateway(Thread, Subscriber):
             if expected is None or event.hid_message[0] != expected:
                 return
 
-        log.debug("hid gateway notified")
         self._write(event.hid_message)
 
     def _write(self, msg: bytes) -> None:
         if not self._connected or self._transport is None:
-            log.debug(f"Cannot write to pid={hex(self._device_info.pid)}: disconnected")
+            log.debug(f"Cannot write to pid=0x{self._device_info.pid:04X}: disconnected")
             return
-        log.debug(f"Writing to pid={hex(self._device_info.pid)}: {msg.hex()}")
+        log.debug(f"Writing to pid=0x{self._device_info.pid:04X}: {msg.hex()}")
         try:
             self._do_write(msg)
         except TransportError:
-            log.debug(f"Write failed for pid={hex(self._device_info.pid)}, marking disconnected")
+            log.debug(f"Write failed for pid=0x{self._device_info.pid:04X}, marking disconnected")
             self._connected = False
 
     def _do_write(self, msg: bytes) -> None:
