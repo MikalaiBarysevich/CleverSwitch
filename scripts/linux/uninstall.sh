@@ -35,14 +35,26 @@ else
     info "No autostart entry found — skipping."
 fi
 
-# ── Step 2: Uninstall CleverSwitch ───────────────────────────────────
+# ── Step 2: Remove installed binary ──────────────────────────────────
+
+BINARY_PATH="$HOME/.local/bin/$APP_NAME"
+
+if [ -f "$BINARY_PATH" ]; then
+    info "Removing $BINARY_PATH..."
+    rm -f "$BINARY_PATH"
+    ok "Binary removed."
+else
+    info "No binary found at $BINARY_PATH — skipping."
+fi
+
+# ── Step 3: Uninstall pip package (backward compat) ──────────────────
 
 if pip3 show "$APP_NAME" &>/dev/null; then
-    info "Uninstalling CleverSwitch..."
+    info "Uninstalling CleverSwitch pip package..."
     pip3 uninstall -y "$APP_NAME"
-    ok "CleverSwitch uninstalled."
+    ok "CleverSwitch pip package uninstalled."
 else
-    info "CleverSwitch is not installed — skipping."
+    info "CleverSwitch pip package is not installed — skipping."
 fi
 
 # ── Step 3: Remove udev rules (optional) ─────────────────────────────
