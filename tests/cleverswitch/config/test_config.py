@@ -32,11 +32,6 @@ def test_default_config_returns_config_instance():
     assert isinstance(cfg, Config)
 
 
-def test_default_config_has_default_read_timeout():
-    cfg = default_config()
-    assert cfg.settings.read_timeout_ms == 2000
-
-
 # ── load ──────────────────────────────────────────────────────────────────────
 
 
@@ -59,13 +54,14 @@ def test_load_parses_valid_yaml_file(tmp_path):
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text(
         textwrap.dedent("""\
-            settings:
-              read_timeout_ms: 3000
+            hooks:
+              on_switch:
+                - "/usr/bin/hook.sh"
         """)
     )
     args = _cli_args(config=str(cfg_file))
     cfg = load(args)
-    assert cfg.settings.read_timeout_ms == 3000
+    assert len(cfg.hooks.on_switch) == 1
 
 
 def test_load_returns_default_config_when_no_default_path_exists(mocker):
@@ -81,7 +77,7 @@ def test_load_returns_default_config_when_no_default_path_exists(mocker):
 def test_parse_empty_dict_falls_back_to_all_defaults():
     cfg = _parse({}, _cli_args())
     defaults = default_config()
-    assert cfg.settings.read_timeout_ms == defaults.settings.read_timeout_ms
+    assert cfg.hooks == defaults.hooks
 
 
 def test_parse_populates_on_switch_hooks_from_mixed_entries():

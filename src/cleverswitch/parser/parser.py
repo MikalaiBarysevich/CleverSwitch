@@ -4,6 +4,7 @@ from ..event.external_unset_flag_event import ExternalUnsetFlagEvent
 from ..event.hidpp_error_event import HidppErrorEvent
 from ..event.hidpp_notification_event import HidppNotificationEvent
 from ..event.hidpp_response_event import HidppResponseEvent
+from ..event.host_change_event import HostChangeEvent
 from ..hidpp.constants import (
     ANALYTICS_AVALID,
     ANALYTICS_KEY_EVT,
@@ -81,6 +82,11 @@ def parse(pid: int, raw_event: bytes) -> Event | None:
         # Notification from device (sw_id == 0)
         if sw_id == 0:
             payload = raw_event[4:]
+            cid = (payload[0] << 8) | payload[1]
+            if function in (0, 2) and cid in HOST_SWITCH_CIDS:
+                if function != 2 or payload[2] == 0x01:
+                    return HostChangeEvent(slot=slot, pid=pid, target_host=HOST_SWITCH_CIDS[cid])
+                # release event — fall through to generic HidppNotificationEvent
             return HidppNotificationEvent(
                 slot=slot,
                 pid=pid,

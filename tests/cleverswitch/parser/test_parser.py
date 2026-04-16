@@ -9,6 +9,7 @@ from cleverswitch.event.external_unset_flag_event import ExternalUnsetFlagEvent
 from cleverswitch.event.hidpp_error_event import HidppErrorEvent
 from cleverswitch.event.hidpp_notification_event import HidppNotificationEvent
 from cleverswitch.event.hidpp_response_event import HidppResponseEvent
+from cleverswitch.event.host_change_event import HostChangeEvent
 from cleverswitch.hidpp.constants import (
     ANALYTICS_AVALID,
     ANALYTICS_KEY_EVT,
@@ -207,6 +208,47 @@ def test_parse_b5_wpid_msb_first():
     raw = _b5_response(sub_page=0x20, wpid_msb=0xAB, wpid_lsb=0xCD, device_type=0x01)
     event = parse(PID, raw)
     assert event.wpid == 0xABCD
+
+
+# ── Host Change (HostChangeEvent from sw_id == 0 notifications) ─────────────
+
+
+def test_parse_host_change_diverted_key():
+    # fn=0, sw_id=0 → fn_sw=0x00; CID=0x00D1 → host 0
+    data = bytes([0x00, 0xD1]) + bytes(14)
+    raw = _long_msg(slot=1, feature_id=5, fn_sw=0x00, data=data)
+    event = parse(PID, raw)
+    assert isinstance(event, HostChangeEvent)
+    assert event.slot == 1
+    assert event.pid == PID
+    assert event.target_host == HOST_SWITCH_CIDS[0x00D1]
+
+
+def test_parse_host_change_analytics_press():
+    # fn=2, sw_id=0 → fn_sw=0x20; CID=0x00D2, payload[2]=0x01 (press) → HostChangeEvent
+    data = bytes([0x00, 0xD2, 0x01]) + bytes(13)
+    raw = _long_msg(slot=1, feature_id=5, fn_sw=0x20, data=data)
+    event = parse(PID, raw)
+    assert isinstance(event, HostChangeEvent)
+    assert event.target_host == HOST_SWITCH_CIDS[0x00D2]
+
+
+def test_parse_host_change_analytics_release_returns_notification():
+    # fn=2, sw_id=0 → fn_sw=0x20; CID=0x00D2, payload[2]=0x00 (release) → HidppNotificationEvent
+    data = bytes([0x00, 0xD2, 0x00]) + bytes(13)
+    raw = _long_msg(slot=1, feature_id=5, fn_sw=0x20, data=data)
+    event = parse(PID, raw)
+    assert isinstance(event, HidppNotificationEvent)
+    assert not isinstance(event, HostChangeEvent)
+
+
+def test_parse_host_change_non_es_cid_returns_notification():
+    # fn=0, sw_id=0 → fn_sw=0x00; CID=0x00AA (not in HOST_SWITCH_CIDS) → HidppNotificationEvent
+    data = bytes([0x00, 0xAA]) + bytes(14)
+    raw = _long_msg(slot=1, feature_id=5, fn_sw=0x00, data=data)
+    event = parse(PID, raw)
+    assert isinstance(event, HidppNotificationEvent)
+    assert not isinstance(event, HostChangeEvent)
 
 
 # ── Unknown / None ───────────────────────────────────────────────────────────

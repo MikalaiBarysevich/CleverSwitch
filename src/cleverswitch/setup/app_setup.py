@@ -13,6 +13,7 @@ from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.device_connected_subscriber import DeviceConnectionSubscriber
 from ..subscriber.device_info_subscriber import DeviceInfoSubscriber
 from ..subscriber.disconnect_poller_subscriber import DisconnectPollerSubscriber
+from ..subscriber.event_hook_subscriber import EventHookSubscriber
 from ..subscriber.external_unset_flag_subscriber import ExternalUnsetFlagSubscriber
 from ..subscriber.host_change_subscriber import HostChangeSubscriber
 from ..subscriber.info_task_orchestrator import InfoTaskOrchestrator
@@ -34,7 +35,7 @@ def setup_context(args: argparse.Namespace) -> AppContext:
     shutdown = _setup_shutdown()
     topics = _setup_topics()
     registry = _setup_logi_device_registry()
-    _init_subscribers(topics, registry)
+    _init_subscribers(topics, registry, config)
     return AppContext(registry, topics, config, shutdown)
 
 
@@ -71,7 +72,7 @@ def _setup_logi_device_registry() -> LogiDeviceRegistry:
     return LogiDeviceRegistry()
 
 
-def _init_subscribers(topics: Topics, device_registry: LogiDeviceRegistry) -> None:
+def _init_subscribers(topics: Topics, device_registry: LogiDeviceRegistry, config: Config) -> None:
     DeviceConnectionSubscriber(device_registry, topics)
     DeviceInfoSubscriber(device_registry, topics)
     InfoTaskOrchestrator(device_registry, topics)
@@ -79,6 +80,7 @@ def _init_subscribers(topics: Topics, device_registry: LogiDeviceRegistry) -> No
     ExternalUnsetFlagSubscriber(device_registry, topics)
     HostChangeSubscriber(device_registry, topics)
     WirelessStatusSubscriber(device_registry, topics)
+    EventHookSubscriber(config.hooks, device_registry, topics)
     if get_system() == "Darwin":
         DisconnectPollerSubscriber(device_registry, topics)
         WirelessReconnectSubscriber(device_registry, topics)
