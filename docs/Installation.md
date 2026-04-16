@@ -1,48 +1,57 @@
 # Installation
 
-## macOS
+## Updating to a newer version
 
-1. Clone the repository (or download the sources archive from [Releases](https://github.com/MikalaiBarysevich/CleverSwitch/releases)).
-2. Open Terminal and navigate to the project folder.
-3. Run:
+**Pre-built binary:** download the new release archive and run the installer again — it will overwrite the existing binary. No need to uninstall first.
+
+**Installed from source:** pull the latest changes and reinstall:
 ```bash
-chmod +x scripts/mac/setup.sh
-./scripts/mac/setup.sh
+git pull
+pip install .
 ```
 
-The setup script will install Homebrew (if needed), Python, hidapi, and CleverSwitch itself.
-It will also ask whether you want CleverSwitch to start automatically on login.
+---
+
+## macOS
+
+### Option 1: Pre-built binary (recommended)
+
+1. Download `cleverswitch_macOS.tar.gz` from the [Releases](https://github.com/MikalaiBarysevich/CleverSwitch/releases) page.
+2. Double-click the downloaded file to extract it — a `cleverswitch_macOS` folder will appear.
+3. Open the folder and double-click **`install.command`**.
+   A Terminal window will open and guide you through the setup, including an option to launch CleverSwitch automatically on login.
 
 On first run, macOS will prompt for **Input Monitoring** permission.
 If no prompt appears, grant it manually:
 
 1. Open **System Settings > Privacy & Security > Input Monitoring**.
 2. Click the **+** button.
-3. Press **Cmd + Shift + G** and paste the path to your binary (e.g., `/your/path/cleverswitch`).
+3. Press **Cmd + Shift + G**, paste `~/.local/bin/cleverswitch`, and click Open.
 
-Use `which cleverswitch` to find the path.
+### Option 2: From source
+
+1. Clone the repository.
+2. Open Terminal and navigate to the project folder.
+3. Run:
+```bash
+chmod +x scripts/mac/install_from_sources.sh
+./scripts/mac/install_from_sources.sh
+```
+
+The script installs Homebrew (if needed), Python, and CleverSwitch via pip. It also offers to set up launch-at-login.
 
 ## Windows
 
-1. Download `cleverswitch.zip` from the [Releases](https://github.com/MikalaiBarysevich/CleverSwitch/releases) page.
-2. Extract the archive.
-3. Add the location of `cleverswitch.exe` to `PATH` (optional, but preferred).
-4. Run `setup_startup_windows.bat` if you want the app to start automatically.
-   If step 3 is skipped, the script and executable must be in the same directory.
+### Option 1: Pre-built binary (recommended)
 
-## Linux
+1. Download `cleverswitch_windows_x64.zip` from the [Releases](https://github.com/MikalaiBarysevich/CleverSwitch/releases) page.
+2. Right-click the downloaded file and choose **Extract All**, then open the extracted folder.
+3. Double-click **`install.bat`**.
+   The installer will copy `cleverswitch.exe` to your user programs folder, add it to your PATH, and offer to set up startup.
 
-1. Clone the repository (or download the sources archive from [Releases](https://github.com/MikalaiBarysevich/CleverSwitch/releases)).
-2. Open a terminal and navigate to the project folder.
-3. Run:
-```bash
-chmod +x scripts/linux/setup_linux.sh
-./scripts/linux/setup_linux.sh
-```
+> If Windows shows a security prompt, click **Run anyway** (the file is safe — Windows warns about unrecognised publishers by default).
 
-The setup script will check for Python 3 and hidapi, install CleverSwitch, set up udev rules for non-root HID access, and optionally create an autostart entry.
-
-## From Sources
+### Option 2: From source
 
 _Requires Python >=3.10 on PATH._
 
@@ -58,46 +67,56 @@ cleverswitch
 
 **Windows note:** The [hidapi DLL](https://github.com/libusb/hidapi/releases) must be downloaded manually and placed in a directory on your `PATH`.
 
-**Linux note:** Install udev rules to allow non-root HID access:
+## Linux
+
+### Option 1: Pre-built binary (recommended)
+
+1. Download `cleverswitch_linux.tar.gz` from the [Releases](https://github.com/MikalaiBarysevich/CleverSwitch/releases) page.
+2. Extract the archive — most desktop environments let you right-click and choose **Extract Here**.
+3. Open a terminal inside the extracted folder and run:
 ```bash
-sudo cp rules.d/42-cleverswitch.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules && sudo udevadm trigger
-# Unplug and replug the receiver
+chmod +x install.sh && ./install.sh
 ```
 
-**macOS note:** On first run, macOS will prompt for Input Monitoring permission (see macOS section above).
+The installer copies the binary to `~/.local/bin/`, checks that the directory is on your PATH, installs udev rules for non-root HID access (with your confirmation), and offers to set up autostart.
+
+### Option 2: From source
+
+1. Clone the repository.
+2. Open a terminal and navigate to the project folder.
+3. Run:
+```bash
+chmod +x scripts/linux/install_from_sources.sh
+./scripts/linux/install_from_sources.sh
+```
+
+The script checks for Python 3, installs CleverSwitch via pip, sets up udev rules, and optionally creates an autostart entry.
 
 ## Run on Startup
 
 ### macOS
 
-Handled by `setup_mac.sh` during installation. To set up separately:
+Handled by `install.command` or `install_from_sources.sh` during installation. To set up separately:
 ```bash
-chmod +x scripts/mac/setup_startup.sh
-./scripts/mac/setup_startup.sh
+chmod +x scripts/mac/setup_startup.command
+./scripts/mac/setup_startup.command
 ```
 
 ### Windows
 
-1. Place `setup_startup_windows.bat` in the same directory as `cleverswitch.exe` (unless it's already on `PATH`).
-2. Run `setup_startup_windows.bat`.
+Handled by `install.ps1` during installation. To set up separately, run `setup_startup_windows.bat` from the folder containing `cleverswitch.exe`.
 
 To verify, open Task Manager and look for `cleverswitch.exe` in the **Details** tab.
 
 ### Linux
 
-Handled by `setup_linux.sh` during installation. To set up separately, use your distro's autostart mechanism (e.g., GNOME Tweaks, KDE Autostart) or see [other methods](https://www.baeldung.com/linux/run-script-on-startup).
+Handled by `install.sh` or `install_from_sources.sh` during installation. To set up separately, use your distro's autostart mechanism (e.g., GNOME Tweaks, KDE Autostart) or see [other methods](https://www.baeldung.com/linux/run-script-on-startup).
 
 ## Uninstall
 
 ### macOS
 
-```bash
-chmod +x scripts/mac/uninstall.sh
-./scripts/mac/uninstall.sh
-```
-
-This stops and removes the launch agent (if configured) and uninstalls the CleverSwitch package.
+Open the `cleverswitch_macOS` folder and double-click **`uninstall.command`**. This stops and removes the launch agent (if configured) and removes the CleverSwitch binary.
 
 ### Linux
 
@@ -106,15 +125,10 @@ chmod +x scripts/linux/uninstall.sh
 ./scripts/linux/uninstall.sh
 ```
 
-This removes the autostart entry, uninstalls the CleverSwitch package, and optionally removes udev rules.
+This removes the autostart entry, removes the binary from `~/.local/bin/`, uninstalls the CleverSwitch pip package if present, and optionally removes udev rules.
 
 ### Windows
 
-1. Delete the `cleverswitch` folder.
-2. Remove the startup entry: open Task Manager > **Startup** tab, find `cleverswitch`, and disable/delete it.
+Double-click **`uninstall.bat`** (included in the release archive).
 
-### From Sources
-
-```bash
-pip uninstall cleverswitch
-```
+This removes the startup entry, removes `%LOCALAPPDATA%\Programs\CleverSwitch\` from your PATH, and deletes the install directory.

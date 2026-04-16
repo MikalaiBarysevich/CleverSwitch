@@ -5,15 +5,15 @@ description: Build a platform-specific CleverSwitch distributable: PyInstaller e
 
 # Build CleverSwitch Release Archive
 
-Produce a self-contained release archive for the current platform. The archive contains the executable, README, LICENSE, and (on Windows) the startup script.
+Produce a self-contained release archive for the current platform. The archive contains the executable, README, LICENSE, install script, and platform support files.
 
 ## Output
 
 | Platform | Archive                        | Contents |
 |----------|--------------------------------|----------|
-| Windows  | `cleverswitch_windows_x64.zip` | `cleverswitch.exe`, `README.md`, `LICENSE.txt`, `setup_startup_windows.bat` |
-| macOS    | `cleverswitch_macOS.tar.gz`    | `cleverswitch`, `README.md`, `LICENSE.txt` |
-| Linux    | `cleverswitch_linux.tar.gz`    | `cleverswitch`, `README.md`, `LICENSE.txt` |
+| Windows  | `cleverswitch_windows_x64.zip` | `cleverswitch.exe`, `README.md`, `LICENSE.txt`, `Installation.md`, `install.bat`, `uninstall.bat`, `setup_startup_windows.bat` |
+| macOS    | `cleverswitch_macOS.tar.gz`    | `cleverswitch`, `README.md`, `LICENSE.txt`, `Installation.md`, `install.command`, `uninstall.command`, `setup_startup.command` |
+| Linux    | `cleverswitch_linux.tar.gz`    | `cleverswitch`, `README.md`, `LICENSE.txt`, `Installation.md`, `install.sh`, `uninstall.sh`, `42-cleverswitch.rules` |
 
 `.tar.gz` is used on macOS and Linux to preserve Unix file permissions (the executable bit). Zip does not reliably preserve them.
 
@@ -27,19 +27,19 @@ Read the OS with Python or `uname`. The rest of the steps branch on `windows` / 
 
 **Windows:**
 ```bat
-pyinstaller --onefile --name cleverswitch --add-binary "hidapi.dll;." src/cleverswitch/__main__.py
+pyinstaller --onefile --name cleverswitch --paths src --add-binary "hidapi.dll;." src/cleverswitch/__main__.py
 ```
 `hidapi.dll` must be present at the project root. The `;.` places it beside the exe inside the bundle.
 
 **macOS:**
 ```bash
-pyinstaller --onefile --name cleverswitch src/cleverswitch/__main__.py
+pyinstaller --onefile --name cleverswitch --paths src src/cleverswitch/__main__.py
 ```
 PyInstaller follows dylib dependencies via `otool -L` automatically — no `--add-binary` needed.
 
 **Linux:**
 ```bash
-pyinstaller --onefile --name cleverswitch src/cleverswitch/__main__.py
+pyinstaller --onefile --name cleverswitch --paths src src/cleverswitch/__main__.py
 ```
 `libhidapi` is a system library; no bundling needed.
 
@@ -51,6 +51,9 @@ $stage = "dist\cleverswitch_windows_x64"
 New-Item -ItemType Directory -Force $stage
 Copy-Item dist\cleverswitch.exe $stage\
 Copy-Item README.md, LICENSE.txt $stage\
+Copy-Item docs\Installation.md $stage\
+Copy-Item scripts\windows\install.bat $stage\
+Copy-Item scripts\windows\uninstall.bat $stage\
 Copy-Item scripts\windows\setup_startup_windows.bat $stage\
 Compress-Archive -Path $stage\* -DestinationPath dist\cleverswitch_windows_x64.zip -Force
 Remove-Item -Recurse -Force $stage
@@ -60,7 +63,8 @@ Remove-Item -Recurse -Force $stage
 ```bash
 stage="dist/cleverswitch_macOS"
 mkdir -p "$stage"
-cp dist/cleverswitch README.md LICENSE.txt "$stage/"
+cp dist/cleverswitch README.md LICENSE.txt docs/Installation.md "$stage/"
+cp scripts/mac/install.command scripts/mac/uninstall.command scripts/mac/setup_startup.command "$stage/"
 tar -czf dist/cleverswitch_macOS.tar.gz -C dist cleverswitch_macOS
 rm -rf "$stage"
 ```
@@ -69,7 +73,9 @@ rm -rf "$stage"
 ```bash
 stage="dist/cleverswitch_linux"
 mkdir -p "$stage"
-cp dist/cleverswitch README.md LICENSE.txt "$stage/"
+cp dist/cleverswitch README.md LICENSE.txt docs/Installation.md "$stage/"
+cp scripts/linux/install.sh scripts/linux/uninstall.sh "$stage/"
+cp rules.d/42-cleverswitch.rules "$stage/"
 tar -czf dist/cleverswitch_linux.tar.gz -C dist cleverswitch_linux
 rm -rf "$stage"
 ```

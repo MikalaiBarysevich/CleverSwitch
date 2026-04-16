@@ -38,6 +38,10 @@ pytest -k test_reconnection_publishes_set_report_flag_event_when_reprog_availabl
 
 # Run a single test file
 pytest tests/cleverswitch/subscriber/test_device_connected_subscriber.py
+
+# After editing any scripts/mac/*.command file, restore the executable bit —
+# the Edit tool resets it on disk and git will record the mode change as a regression:
+git update-index --chmod=+x scripts/mac/<file>.command
 ```
 
 ## Architecture

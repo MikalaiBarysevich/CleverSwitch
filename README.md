@@ -25,7 +25,7 @@ If you find this project useful, consider supporting its development:
 
 ## Installation
 
-See [installation guide](docs/Installation.md) for full installation, startup, and uninstall instructions for all platforms.
+See [installation guide](docs/Installation.md) for full installation, update, startup, and uninstall instructions for all platforms.
 
 #### Homebrew
 
