@@ -19,7 +19,6 @@ HIDPP_USAGE_SHORT = 0x0001  # Short HID++ (report 0x10, 7 bytes) — Linux/macOS
 HIDPP_USAGE_LONG = 0x0002  # Long HID++ (report 0x11, 20 bytes) — Windows long collection
 HIDPP_BT_USAGE_LONG = 0x0202  # Long HID++ over Bluetooth
 HIDPP_USAGES_LONG = [HIDPP_USAGE_LONG, HIDPP_BT_USAGE_LONG]
-HIDPP_USAGES_SHORT = [HIDPP_USAGE_SHORT]
 
 # ── HID++ report IDs and message sizes ───────────────────────────────────────
 
@@ -38,16 +37,21 @@ MAX_READ_SIZE = 32
 DEVICE_RECEIVER = 0xFF
 
 # Software ID — lower nibble of the function byte in requests.
-# Always has bit 3 set (>= 0x08) so notifications (sw_id=0) are distinguishable.
+# Bit 3 (0x08) is always set for CleverSwitch, bits 0-2 identify the task.
+# Notifications from device have sw_id=0, so bit 3 distinguishes our responses.
 SW_ID = 0x08
+SW_ID_MASK = 0x08  # All CleverSwitch SW_IDs have this bit set
+
+SW_ID_DIVERT = 0x0E
+SW_ID_HOST_CHANGE = 0x0F
 
 # ── HID++ 2.0 feature codes ───────────────────────────────────────────────────
 
 FEATURE_ROOT = 0x0000  # Look up feature index by code; also used for ping
 FEATURE_DEVICE_TYPE_AND_NAME = 0x0005  # x0005: getDeviceType(), getDeviceName()
 FEATURE_CHANGE_HOST = 0x1814
-FEATURE_HOSTS_INFO = 0x1815  # Host info: paired hosts and current host
 FEATURE_REPROG_CONTROLS_V4 = 0x1B04  # Reprogrammable keys / button diversion
+FEATURE_WIRELESS_DEVICE_STATUS = 0x1D4B  # Wireless device reconnection notifications
 
 # x0005 getDeviceType() return values
 DEVICE_TYPE_KEYBOARD = 0
@@ -60,6 +64,11 @@ HOST_SWITCH_CIDS = {0x00D1: 0, 0x00D2: 1, 0x00D3: 2}
 
 # REPROG_CONTROLS_V4 key capability flag (byte 4 of getCidInfo response)
 KEY_FLAG_DIVERTABLE = 0x20  # key can be temporarily diverted
+KEY_FLAG_PERSISTENTLY_DIVERTABLE = 0x40  # key can be persistently diverted
+KEY_FLAG_ANALYTICS = 0x04  # getCidInfo response payload[4] bit 2 — CID supports analyticsKeyEvt
+ANALYTICS_BYTE9 = 0x03  # setCidReporting byte 9: avalid+analyticsKeyEvt (hardware-confirmed)
+ANALYTICS_AVALID = 0x04  # setCidReporting byte 9 bit 2 — analytics valid mask
+ANALYTICS_KEY_EVT = 0x02  # setCidReporting byte 9 bit 1 — analyticsKeyEvt action
 
 # Mapping flag bit for setCidReporting (byte 2 of request payload)
 MAP_FLAG_DIVERTED = 0x01  # temporarily divert (cleared on device reset)
@@ -72,4 +81,8 @@ CHANGE_HOST_FN_SET = 0x10  # SetCurrentHost — switches to target; no reply
 HID_DEVICE_PAIRING = 0x41
 DJ_DEVICE_PAIRING = 0x42
 
-DISCONNECT_FLAG = 0x40  # Set in address byte of SHORT disconnect notification
+# ── HID++ 1.0 register access ──────────────────────────────────────────────
+
+GET_LONG_REGISTER_RSP = 0x83
+REGISTER_PAIRING_INFO = 0xB5
+PAIRING_INFO_SUB_PAGE_BASE = 0x20  # + (slot - 1)

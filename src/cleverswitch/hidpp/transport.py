@@ -19,12 +19,9 @@ import os
 import platform
 import sys
 
-from ..errors import TransportError
+from ..errors.errors import TransportError
 from .constants import (
-    ALL_RECEIVER_PIDS,
     HIDPP_USAGE_PAGES,
-    HIDPP_USAGES_LONG,
-    HIDPP_USAGES_SHORT,
     LOGITECH_VENDOR_ID,
     MAX_READ_SIZE,
 )
@@ -68,7 +65,7 @@ _lib: ctypes.CDLL | None = None
 for _name in _LIB_NAMES:
     try:
         _lib = ctypes.CDLL(_name)
-        log.debug("hidapi: loaded %s", _name)
+        log.debug(f"hidapi: loaded {_name}")
         break
     except OSError:
         continue
@@ -128,6 +125,7 @@ _DeviceInfo._fields_ = [
     ("usage", ctypes.c_ushort),
     ("interface_number", ctypes.c_int),
     ("next", ctypes.POINTER(_DeviceInfo)),
+    ("bus_type", ctypes.c_int),
 ]
 
 # ── hidapi function signatures ────────────────────────────────────────────────
@@ -140,6 +138,9 @@ _lib.hid_free_enumeration.argtypes = [ctypes.POINTER(_DeviceInfo)]
 
 _lib.hid_open_path.restype = ctypes.c_void_p
 _lib.hid_open_path.argtypes = [ctypes.c_char_p]
+
+_lib.hid_open.restype = ctypes.c_void_p
+_lib.hid_open.argtypes = [ctypes.c_ushort, ctypes.c_ushort, ctypes.c_wchar_p]
 
 _lib.hid_close.restype = None
 _lib.hid_close.argtypes = [ctypes.c_void_p]
@@ -162,6 +163,18 @@ _lib.hid_write.argtypes = [
 _lib.hid_error.restype = ctypes.c_wchar_p
 _lib.hid_error.argtypes = [ctypes.c_void_p]
 
+# hid_send_output_report — hidapi >= 0.15, uses HidD_SetOutputReport (control pipe).
+# More reliable for Bluetooth on Windows (GATT Write With Response vs Write Without Response).
+_hid_send_output_report = getattr(_lib, "hid_send_output_report", None)
+if _hid_send_output_report is not None:
+    _hid_send_output_report.restype = ctypes.c_int
+    _hid_send_output_report.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_ubyte),
+        ctypes.c_size_t,
+    ]
+    log.debug("hidapi: hid_send_output_report available (>= 0.15)")
+
 
 def _hid_err(dev: int | None = None) -> str:
     msg = _lib.hid_error(dev)
@@ -181,55 +194,53 @@ def _is_hidpp_interface(info: dict) -> bool:
 
 def enumerate_hid_devices(
     vendor_id: int = LOGITECH_VENDOR_ID, product_id: int = 0, verbose_extra: bool = False
-) -> list[HidDeviceInfo]:
+) -> dict[int, list[HidDeviceInfo]]:
     """Call hid_enumerate and return HID++ capable devices (receivers + BT), freeing the linked list."""
     head = _lib.hid_enumerate(vendor_id, product_id)
-    result: dict[bytes, HidDeviceInfo] = {}
+    result: dict[int, list[HidDeviceInfo]] = {}
+    seen_paths: set[bytes] = set()
     node = head
     while node:
         hid_device_content = node.contents
         node = hid_device_content.next
-        path = hid_device_content.path
-        usage_page = hid_device_content.usage_page
         pid = hid_device_content.product_id
+        bus_type = hid_device_content.bus_type
+        path = hid_device_content.path
 
-        _log(f"Found hid device with path={path}, pid=0x{pid:04X}, usage_page=0x{usage_page:04X}", verbose_extra)
-
-        if path in result:
-            _log(f"Already processed path={path}, pid=0x{pid:04X}", verbose_extra)
+        if hid_device_content.usage_page not in HIDPP_USAGE_PAGES:
             continue
 
-        if usage_page not in HIDPP_USAGE_PAGES:
-            _log(
-                f"Usage page not supported. Skipping path={path}, pid=0x{pid:04X}, usage_page=0x{usage_page:04X}",
-                verbose_extra,
-            )
+        # in linux all connected receiver devices are opened as separate hid device.
+        # We want to skip them to make the rest
+        # code multiplatform
+        if (
+            _IS_LINUX
+            and bus_type == 0x01
+            and hid_device_content.serial_number is not None
+            and len(hid_device_content.serial_number) > 0
+        ):
             continue
 
-        usage = hid_device_content.usage
-        is_receiver = pid in ALL_RECEIVER_PIDS
-        # On Windows, receiver devices expose a separate short-report HID collection
-        # (usage 0x0001) in addition to the long-report collection (usage 0x0002).
-        # Accept short-usage entries for receivers on Windows so callers can open
-        # the short collection to receive SHORT disconnect notifications.
-        if usage not in HIDPP_USAGES_LONG:
-            if not (_IS_WINDOWS and is_receiver and usage in HIDPP_USAGES_SHORT):
-                _log(f"Usage 0x{usage:04X} not supported. Skipping path={path}, pid=0x{pid:04X}", verbose_extra)
-                continue
+        if path in seen_paths:
+            continue
+        seen_paths.add(path)
 
-        connection_type = "receiver" if is_receiver else "bluetooth"
-
-        result[path] = HidDeviceInfo(
-            path,
+        hid_device_info = HidDeviceInfo(
+            hid_device_content.path,
             hid_device_content.vendor_id,
-            pid,
-            usage_page,
-            usage,
-            connection_type,
+            hid_device_content.product_id,
+            hid_device_content.usage_page,
+            hid_device_content.usage,
+            "receiver" if bus_type == 0x01 else "bluetooth",
         )
+
+        pid_collections = result.get(pid, list[HidDeviceInfo]())
+        pid_collections.append(hid_device_info)
+        result[pid] = pid_collections
+
     _lib.hid_free_enumeration(head)
     _log(f"All suitable hid devices={result}", verbose_extra)
-    return list(result.values())
+    return dict(result)
 
 
 def _log(msg: str, verbose_extra: bool = False) -> None:
@@ -258,18 +269,25 @@ class HIDTransport:
     event loop is never blocked waiting for HID events.
     """
 
-    def __init__(self, path: bytes, kind: str, pid: int) -> None:
-        self.path = path
-        self.kind = kind
-        self.pid = pid
-        self._dev: int | None = _lib.hid_open_path(path)
-        if not self._dev:
-            raise OSError(_hid_err())
-        log.debug("Opened %s pid=0x%04X %s", kind, pid, path)
+    def __init__(self, kind: str, path: bytes) -> None:
+        self._kind = kind
+        self._path = path
+        self._dev = None
+        self.try_open()
+        log.debug(f"Opened {kind} path={path}")
 
     # ── sync I/O (used by discovery / protocol layer) ─────────────────────────
 
-    def read(self, timeout: int = 500) -> bytes | None:
+    def try_open(self) -> None:
+        self._dev: int | None = _lib.hid_open_path(self._path)
+        if not self._dev:
+            raise OSError(_hid_err())
+
+    def try_reopen(self) -> None:
+        self.close()
+        self.try_open()
+
+    def read(self, timeout: int = -1) -> bytes | None:
         """Block for up to *timeout* ms waiting for one HID packet.
 
         timeout=0  → non-blocking (return None immediately if no data)
@@ -295,6 +313,20 @@ class HIDTransport:
         n = _lib.hid_write(self._dev, buf, len(msg))
         if n < 0:
             raise TransportError(f"hid_write failed: {_hid_err(self._dev)}")
+
+    def write_output_report(self, msg: bytes) -> None:
+        """Write via HidD_SetOutputReport (control pipe).
+
+        Uses GATT Write With Response on BT — more reliable than WriteFile
+        (GATT Write Without Response). Falls back to hid_write if hidapi < 0.15.
+        """
+        if _hid_send_output_report is None:
+            self.write(msg)
+            return
+        buf = (ctypes.c_ubyte * len(msg))(*msg)
+        n = _hid_send_output_report(self._dev, buf, len(msg))
+        if n < 0:
+            raise TransportError(f"hid_send_output_report failed: {_hid_err(self._dev)}")
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 

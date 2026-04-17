@@ -11,12 +11,10 @@ import logging
 import struct
 from time import time
 
-from ..errors import TransportError
+from ..errors.errors import TransportError
 from .constants import (
     CHANGE_HOST_FN_SET,
     FEATURE_ROOT,
-    HOST_SWITCH_CIDS,
-    KEY_FLAG_DIVERTABLE,
     MAP_FLAG_DIVERTED,
     MSG_DJ_LEN,
     MSG_LONG_LEN,
@@ -41,7 +39,7 @@ _MSG_LENGTHS = {
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 
-def _pack_params(params: tuple) -> bytes:
+def pack_params(params: tuple) -> bytes:
     if not params:
         return b""
     parts = []
@@ -53,7 +51,7 @@ def _pack_params(params: tuple) -> bytes:
     return b"".join(parts)
 
 
-def _build_msg(devnumber: int, request_id: int, params: bytes) -> bytes:
+def build_msg(devnumber: int, request_id: int, params: bytes) -> bytes:
     """Assemble a complete HID++ long message (report 0x11, 20 bytes).
 
     Always uses long format — HID++ 2.0 responses are always long, and on
@@ -91,12 +89,12 @@ def request(
     """
     request_id = (request_id & 0xFFF0) | SW_ID
 
-    params_bytes = _pack_params(params)
+    params_bytes = pack_params(params)
     request_data = struct.pack("!H", request_id) + params_bytes
-    msg = _build_msg(devnumber, request_id, params_bytes)
+    msg = build_msg(devnumber, request_id, params_bytes)
 
     if log.isEnabledFor(logging.DEBUG):
-        log.debug("-> dev=0x%02X [%s]", devnumber, msg.hex())
+        log.debug(f"-> dev=0x{devnumber:02X} [{msg.hex()}]")
 
     try:
         transport.write(msg)
@@ -114,7 +112,7 @@ def request(
             continue
 
         if log.isEnabledFor(logging.DEBUG):
-            log.debug("<- dev=0x%02X [%s]", raw[1], raw.hex())
+            log.debug(f"<- dev=0x{raw[1]:02X} [{raw.hex()}]")
 
         rdev = raw[1]
         rdata = raw[2:]  # starts at sub_id byte
@@ -125,19 +123,19 @@ def request(
 
         # HID++ 1.0 error: sub_id=0x8F, next 2 bytes mirror our request
         if raw[0] == REPORT_SHORT and rdata[0:1] == b"\x8f" and rdata[1:3] == request_data[:2]:
-            log.debug("HID++ 1.0 error 0x%02X for request 0x%04X", rdata[3], request_id)
+            log.debug(f"HID++ 1.0 error 0x{rdata[3]:02X} for request 0x{request_id:04X}")
             return None
 
         # HID++ 2.0 error: sub_id=0xFF, next 2 bytes mirror our request
         if rdata[0:1] == b"\xff" and rdata[1:3] == request_data[:2]:
-            log.warning("HID++ 2.0 error 0x%02X for request 0x%04X", rdata[3], request_id)
+            log.warning(f"HID++ 2.0 error 0x{rdata[3]:02X} for request 0x{request_id:04X}")
             return None
 
         # Successful reply: first 2 bytes of payload match our request_id
         if rdata[:2] == request_data[:2]:
             return rdata[2:]
 
-    log.debug("Timeout (%.1fs) on request 0x%04X from device 0x%02X", timeout, request_id, devnumber)
+    log.debug(f"Timeout ({timeout:.1f}s) on request 0x{request_id:04X} from device 0x{devnumber:02X}")
     return None
 
 
@@ -149,11 +147,11 @@ def request_write_only(
 ) -> None:
     request_id = (request_id & 0xFFF0) | SW_ID
 
-    params_bytes = _pack_params(params)
-    msg = _build_msg(devnumber, request_id, params_bytes)
+    params_bytes = pack_params(params)
+    msg = build_msg(devnumber, request_id, params_bytes)
 
     if log.isEnabledFor(logging.DEBUG):
-        log.debug("-> dev=0x%02X [%s]", devnumber, msg.hex())
+        log.debug(f"-> dev=0x{devnumber:02X} [{msg.hex()}]")
 
     try:
         transport.write(msg)
@@ -250,9 +248,9 @@ def send_change_host(
     """Switch *devnumber* to *target_host* (0-based). Fire-and-forget — no reply expected."""
     request_id = (feature_idx << 8) | (CHANGE_HOST_FN_SET & 0xF0) | SW_ID
     params = struct.pack("B", target_host)
-    msg = _build_msg(devnumber, request_id, params)
+    msg = build_msg(devnumber, request_id, params)
     if log.isEnabledFor(logging.DEBUG):
-        log.debug("send_change_host -> dev=0x%02X host=%d [%s]", devnumber, target_host, msg.hex())
+        log.debug(f"send_change_host -> dev=0x{devnumber:02X} host={target_host} [{msg.hex()}]")
     try:
         transport.write(msg)
     except Exception as e:
@@ -278,76 +276,3 @@ def set_cid_divert(
         bfield |= MAP_FLAG_DIVERTED  # action bit — only when diverting
     params = struct.pack("!HBH", cid, bfield, 0)
     request_write_only(transport, devnumber, (feat_idx << 8) | 0x30, params)
-
-
-def get_host_info_1814(
-    transport: HIDTransport,
-    devnumber: int,
-    feat_idx: int,
-) -> tuple[int, int] | None:
-    """Call x1814 getHostInfo [fn 0] and return (nb_host, curr_host).
-
-    Returns the total number of host slots and the 0-based index of the
-    currently active host, or None if the request fails.
-    """
-    request_id = (feat_idx << 8) | 0x00
-    reply = request(transport, devnumber, request_id, timeout=500)
-    if not reply or len(reply) < 2:
-        return None
-    return reply[0], reply[1]
-
-
-def get_paired_hosts_1815(
-    transport: HIDTransport,
-    devnumber: int,
-    feat_idx: int,
-    num_hosts: int,
-) -> list[int] | None:
-    """Query x1815 getHostInfo [fn 1] for each host slot and return paired indices.
-
-    For each host index in range(num_hosts), reads reply byte 1 (status):
-    0 = empty slot, 1 = paired.
-
-    Returns the list of 0-based host indices that are paired (e.g. [0, 2]),
-    or None if any individual query fails.
-    """
-    paired: list[int] = []
-    for host_index in range(num_hosts):
-        request_id = (feat_idx << 8) | 0x10
-        reply = request(transport, devnumber, request_id, host_index, timeout=500)
-        if not reply or len(reply) < 2:
-            return None
-        status = reply[1]
-        if status == 1:
-            paired.append(host_index)
-    return paired
-
-
-def are_es_cids_divertable(transport: HIDTransport, devnumber: int, feat_idx: int) -> bool:
-    """Check whether all Easy-Switch CIDs on *devnumber* support temporary diversion.
-
-    Queries REPROG_CONTROLS_V4 getCidCount (fn 0x00) and getCidInfo (fn 0x10)
-    to inspect KEY_FLAG_DIVERTABLE for each HOST_SWITCH_CID.
-
-    Returns True only if at least one ES CID is found AND all found are divertable.
-    """
-    reply = request(transport, devnumber, (feat_idx << 8) | 0x00, timeout=500)
-    if not reply:
-        return False
-    count = reply[0]
-
-    es_cids_found = 0
-    for idx in range(count):
-        reply = request(transport, devnumber, (feat_idx << 8) | 0x10, idx, timeout=500)
-        if not reply or len(reply) < 5:
-            continue
-        cid = (reply[0] << 8) | reply[1]
-        if cid in HOST_SWITCH_CIDS:
-            flags = reply[4]
-            if not (flags & KEY_FLAG_DIVERTABLE):
-                return False
-            es_cids_found += 1
-            if es_cids_found == len(HOST_SWITCH_CIDS):
-                break
-
-    return es_cids_found > 0

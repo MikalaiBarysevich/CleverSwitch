@@ -1,43 +1,27 @@
 # CleverSwitch configuration example
 # Copy to ~/.config/cleverswitch/config.yaml and edit as needed.
 
-# WILL WORK IN FUTURE RELEASES!
-# Hook scripts (all optional)
-# Scripts are called asynchronously and never block the switch relay.
-# Each script receives event details via environment variables:
+# Hook scripts and commands (all optional)
+# Hooks are called asynchronously and never block the switch relay.
+# Each hook receives event details via environment variables:
 #
 #   CLEVERSWITCH_EVENT         switch | connect | disconnect
 #   CLEVERSWITCH_DEVICE        keyboard | mouse
-#   CLEVERSWITCH_DEVICE_NAME   MX Keys | MX Master 3
-#   CLEVERSWITCH_TARGET_HOST   0 | 1 | 2     (switch events only, 0-based)
-#   CLEVERSWITCH_PREVIOUS_HOST 0 | 1 | 2     (switch events only, 0-based)
+#   CLEVERSWITCH_DEVICE_NAME   e.g. MX Keys, MX Master 3
+#   CLEVERSWITCH_TARGET_HOST   1 | 2 | 3     (switch events only, 1-based)
+#
+# If the entry resolves to an existing file, it runs as a script (no shell).
+# Otherwise, it runs as a shell command (supports pipes, $VAR expansion, etc.)
 #
 hooks:
-  # Called when a device switches host (keyboard switch triggers this for both)
-  on_switch: []
-  # Example:
-  # on_switch:
-  #   - path: "~/.config/cleverswitch/on_switch.sh"
-  #     timeout: 5        # seconds before the script is killed (default: 5)
+  # By default, hooks only fire for keyboard events.
+  # Set to true to fire hooks for all devices (keyboard + mouse).
+  # fire_for_all_devices: false
 
-  # Called when a device connects to the receiver
+  on_switch:
+    # - "notify-send 'CleverSwitch' \"Switched to host $CLEVERSWITCH_TARGET_HOST\""
+    # - path: "~/.config/cleverswitch/on_switch.sh"
+    #   timeout: 5        # seconds before the hook is killed (default: 5)
+    # - "~/.config/cleverswitch/on_switch.sh"
   on_connect: []
-  # Example:
-  # on_connect:
-  #   - path: "~/.config/cleverswitch/on_connect.py"
-  #     timeout: 10
-
-  # Called when a device disconnects from the receiver
   on_disconnect: []
-
-# Behavior settings
-settings:
-  # How long to block on HID read before checking for shutdown signal (ms)
-  read_timeout_ms: 2000
-
-  # Target host for non-divertable keyboards paired to 3+ hosts.
-  # Set to 1, 2, or 3 to specify which host to switch to.
-  # Required when the keyboard is paired to all 3 hosts; ignored for 2-host setups
-  # or keyboards that support Easy-Switch key diversion.
-
-  # preferred_host: 2
