@@ -19,7 +19,6 @@ HIDPP_USAGE_SHORT = 0x0001  # Short HID++ (report 0x10, 7 bytes) — Linux/macOS
 HIDPP_USAGE_LONG = 0x0002  # Long HID++ (report 0x11, 20 bytes) — Windows long collection
 HIDPP_BT_USAGE_LONG = 0x0202  # Long HID++ over Bluetooth
 HIDPP_USAGES_LONG = [HIDPP_USAGE_LONG, HIDPP_BT_USAGE_LONG]
-HIDPP_USAGES_SHORT = [HIDPP_USAGE_SHORT]
 
 # ── HID++ report IDs and message sizes ───────────────────────────────────────
 
@@ -51,7 +50,6 @@ SW_ID_HOST_CHANGE = 0x0F
 FEATURE_ROOT = 0x0000  # Look up feature index by code; also used for ping
 FEATURE_DEVICE_TYPE_AND_NAME = 0x0005  # x0005: getDeviceType(), getDeviceName()
 FEATURE_CHANGE_HOST = 0x1814
-FEATURE_HOSTS_INFO = 0x1815  # Host info: paired hosts and current host
 FEATURE_REPROG_CONTROLS_V4 = 0x1B04  # Reprogrammable keys / button diversion
 FEATURE_WIRELESS_DEVICE_STATUS = 0x1D4B  # Wireless device reconnection notifications
 
