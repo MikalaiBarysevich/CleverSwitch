@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from cleverswitch.event.transport_disconnected_event import TransportDisconnectedEvent
 from cleverswitch.event.write_event import WriteEvent
 from cleverswitch.gateway.hid_gateway import HidGateway
 from cleverswitch.gateway.hid_gateway_bt import HidGatewayBT
@@ -131,3 +132,25 @@ def test_bt_gateway_set_connected_false_synthesizes_disconnection():
 
     raw = event_listener.listen.call_args[0][0]
     assert (raw[4] & 0x40) == 0x40  # disconnected (bit 6 set)
+
+
+# ── HidGatewayBT regression: no TransportDisconnectedEvent ──────────────────
+
+
+def test_bt_gateway_set_connected_false_does_not_publish_transport_disconnected():
+    """Regression guard: TransportDisconnectedEvent must ONLY come from HidGatewayReceiver.
+
+    HidGatewayBT handles both connect and disconnect via its own synthesized 0x41
+    path (event_listener.listen). It must never publish TransportDisconnectedEvent
+    to any topics channel because it doesn't own a Topics reference.
+    """
+    event_listener = MagicMock(spec=EventListener)
+    gw = HidGatewayBT(_bt_device_info(pid=0xB023), event_listener)
+
+    gw._set_connected(False)
+
+    # BT gateway has no topics reference — the only side-effect is listen() being called.
+    # Verify that the synthesized event is NOT a TransportDisconnectedEvent.
+    raw = event_listener.listen.call_args[0][0]
+    assert isinstance(raw, bytes), "BT gateway should only call event_listener.listen with raw bytes"
+    assert not isinstance(raw, TransportDisconnectedEvent)

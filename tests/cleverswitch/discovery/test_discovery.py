@@ -50,7 +50,7 @@ def test_discover_creates_gateway_for_receiver_device(mocker):
     mocker.patch("cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={BOLT_PID: [device]})
 
     mock_gateway = mocker.MagicMock()
-    mock_gateway_cls = mocker.patch("cleverswitch.discovery.discovery.HidGateway", return_value=mock_gateway)
+    mock_gateway_cls = mocker.patch("cleverswitch.discovery.discovery.HidGatewayReceiver", return_value=mock_gateway)
     mocker.patch("cleverswitch.discovery.discovery.EventListener")
     mocker.patch("cleverswitch.discovery.discovery.ReceiverConnectionTrigger")
 
@@ -104,7 +104,7 @@ def test_discover_does_not_create_duplicate_gateways_for_same_pid(mocker):
     mocker.patch("cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={BOLT_PID: [device]})
 
     mock_gateway = mocker.MagicMock()
-    mock_gateway_cls = mocker.patch("cleverswitch.discovery.discovery.HidGateway", return_value=mock_gateway)
+    mock_gateway_cls = mocker.patch("cleverswitch.discovery.discovery.HidGatewayReceiver", return_value=mock_gateway)
     mocker.patch("cleverswitch.discovery.discovery.EventListener")
     mocker.patch("cleverswitch.discovery.discovery.ReceiverConnectionTrigger")
 
@@ -133,7 +133,7 @@ def test_discover_closes_gateways_on_shutdown(mocker):
     mocker.patch("cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={BOLT_PID: [device]})
 
     mock_gateway = mocker.MagicMock()
-    mocker.patch("cleverswitch.discovery.discovery.HidGateway", return_value=mock_gateway)
+    mocker.patch("cleverswitch.discovery.discovery.HidGatewayReceiver", return_value=mock_gateway)
     mocker.patch("cleverswitch.discovery.discovery.EventListener")
     mocker.patch("cleverswitch.discovery.discovery.ReceiverConnectionTrigger")
 

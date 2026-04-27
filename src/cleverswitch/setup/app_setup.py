@@ -17,6 +17,7 @@ from ..subscriber.external_unset_flag_subscriber import ExternalUnsetFlagSubscri
 from ..subscriber.host_change_subscriber import HostChangeSubscriber
 from ..subscriber.info_task_orchestrator import InfoTaskOrchestrator
 from ..subscriber.set_report_flag_subscriber import SetReportFlagSubscriber
+from ..subscriber.transport_disconnection_subscriber import TransportDisconnectionSubscriber
 from ..subscriber.wireless_status_subscriber import WirelessStatusSubscriber
 from ..topic.topic import Topic
 from ..topic.topics import Topics
@@ -78,4 +79,5 @@ def _init_subscribers(topics: Topics, device_registry: LogiDeviceRegistry, confi
     ExternalUnsetFlagSubscriber(device_registry, topics)
     HostChangeSubscriber(device_registry, topics)
     WirelessStatusSubscriber(device_registry, topics)
+    TransportDisconnectionSubscriber(device_registry, topics)
     EventHookSubscriber(config.hooks, device_registry, topics)

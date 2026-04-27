@@ -17,6 +17,7 @@ from ..connection.trigger.receiver_trigger import ReceiverConnectionTrigger
 from ..event.set_report_flag_event import SetReportFlagEvent
 from ..gateway.hid_gateway import HidGateway
 from ..gateway.hid_gateway_bt import HidGatewayBT
+from ..gateway.hid_gateway_receiver import HidGatewayReceiver
 from ..hidpp.constants import FEATURE_REPROG_CONTROLS_V4, KEY_FLAG_ANALYTICS
 from ..hidpp.transport import enumerate_hid_devices
 from ..listener.event_listener import EventListener
@@ -46,10 +47,10 @@ def discover(app_context: AppContext) -> None:
                         connection_trigger = ReceiverConnectionTrigger(device, topics)
                     else:
                         connection_trigger = None
-                    event_listener = EventListener(device, topics, connection_trigger)
+                    event_listener = EventListener(device, topics)
                     for collection in collections:
                         hid_gateway = (
-                            HidGateway(collection, event_listener)
+                            HidGatewayReceiver(collection, event_listener, topics, connection_trigger)
                             if device.connection_type == "receiver"
                             else HidGatewayBT(collection, event_listener)
                         )
