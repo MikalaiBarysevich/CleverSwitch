@@ -51,7 +51,7 @@ git update-index --chmod=+x scripts/mac/<file>.command
 The core of the architecture is a typed pub-sub system with one daemon thread per subscriber.
 
 **`Topics`** (`topic/topics.py`) is a typed dataclass with five channels:
-- `hid_event` — all inbound HID++ events (DeviceConnectedEvent, HidppResponseEvent, HidppNotificationEvent, HidppErrorEvent, etc.)
+- `hid_event` — all inbound HID++ events (DeviceConnectedEvent, HidppResponseEvent, HidppNotificationEvent, HidppErrorEvent, TransportDisconnectedEvent, etc.)
 - `write` — outbound HID messages (WriteEvent)
 - `device_info` — triggers device setup (DeviceInfoRequestEvent)
 - `flags` — apply/re-apply key reporting flags (SetReportFlagEvent); `SetReportFlagSubscriber` selects analytics mode (byte 9) or divert mode (byte 6) based on `device.supported_flags`
@@ -65,12 +65,17 @@ The core of the architecture is a typed pub-sub system with one daemon thread pe
 
 ```
 discovery.py
-  └── HidGateway (thread, one per HID collection)
+  └── HidGatewayReceiver (Bolt/Unifying) | HidGatewayBT — one per HID collection, both subclass HidGateway
       └── EventListener (thread, reads raw bytes → parses → publishes to hid_event)
-      └── ConnectionTrigger.trigger() → enables HID++ notifications, then sends enumeration message
-           → DeviceConnectedEvent published to hid_event
+      └── On (re)connect: HidGatewayReceiver calls ConnectionTrigger.trigger() → enables HID++
+           notifications + enumerates paired devices → DeviceConnectedEvent(s) on hid_event
+      └── On transport drop: HidGatewayReceiver publishes TransportDisconnectedEvent(pid);
+           TransportDisconnectionSubscriber fans out one DeviceConnectedEvent(link_established=False)
+           per registered device whose pid matches
 
 DeviceConnectionSubscriber.notify(DeviceConnectedEvent)
+  ├── idempotence: skips if logi_device.connected == event.link_established (absorbs duplicates
+  │     from Windows multi-collection enumeration and the disconnect fan-out)
   ├── new device + link_established=True  → LogiDevice registered, DeviceInfoRequestEvent published
   ├── new device + link_established=False → skipped (stale pairing entry from receiver enumeration)
   └── reconnect → logi_device.connected updated, SetReportFlagEvent re-published if supported_flags known
@@ -105,7 +110,7 @@ Each task type has a unique `sw_id` constant in `subscriber/task/constants.py` (
 
 ### Receiver enable-notifications message
 
-`ReceiverConnectionTrigger` sends `ENABLE_HIDPP_NOTIFICATIONS_MESSAGE` (SET_REGISTER 0x00 with `r1=0x09`: wireless notifications + software present) before the enumeration message. The receiver's register 0x00 is RAM-only and defaults to 0 at USB power-up, which blocks 0x41 device-connection notifications. Without enabling first, fresh-plugged receivers (notably on macOS) deliver no connection events.
+`ReceiverConnectionTrigger` sends `ENABLE_HIDPP_NOTIFICATIONS_MESSAGE` (SET_REGISTER 0x00 with `r1=0x09`: wireless notifications + software present) before the enumeration message. The receiver's register 0x00 is RAM-only and defaults to 0 at USB power-up, which blocks 0x41 device-connection notifications. Without enabling first, fresh-plugged receivers (notably on macOS) deliver no connection events. The trigger fires from `HidGatewayReceiver._set_connected(True)` on every (re)connect, so notifications are re-armed automatically after USB re-plug.
 
 ### LogiDevice state
 
@@ -120,11 +125,13 @@ Each task type has a unique `sw_id` constant in `subscriber/task/constants.py` (
 
 `setup/app_setup.py:setup_context()` creates Topics, LogiDeviceRegistry, and all subscribers. It is the single place where components are connected.
 
-Active subscribers: `DeviceConnectionSubscriber`, `DeviceInfoSubscriber`, `InfoTaskOrchestrator`, `SetReportFlagSubscriber`, `ExternalUnsetFlagSubscriber`, `HostChangeSubscriber`, `EventHookSubscriber`, `WirelessStatusSubscriber`.
+Active subscribers: `DeviceConnectionSubscriber`, `DeviceInfoSubscriber`, `InfoTaskOrchestrator`, `SetReportFlagSubscriber`, `ExternalUnsetFlagSubscriber`, `HostChangeSubscriber`, `EventHookSubscriber`, `WirelessStatusSubscriber`, `TransportDisconnectionSubscriber`.
 
 The parser detects ES CID presses (fn=0 diverted, fn=2 analytics press-only) and emits `HostChangeEvent` instead of generic `HidppNotificationEvent`. `HostChangeSubscriber` reacts to `HostChangeEvent` and sends CHANGE_HOST to all registered devices.
 
-`EventHookSubscriber` listens on `hid_event` for `HostChangeEvent` and `DeviceConnectedEvent`, and fires user-configured hook scripts/commands asynchronously via `hooks.py`. Hooks support both file paths (run without shell) and inline shell commands (auto-detected by prefix heuristic: `/`, `~/`, `./`, `../` → file path, otherwise shell command). By default hooks only fire for keyboard events; set `hooks.fire_for_all_devices: true` in config to include mouse events.
+`EventHookSubscriber` listens on `hid_event` for `HostChangeEvent` and `DeviceConnectedEvent`, and fires user-configured hook scripts/commands asynchronously via `hooks.py`. Hooks support both file paths (run without shell) and inline shell commands (auto-detected by prefix heuristic: `/`, `~/`, `./`, `../` → file path, otherwise shell command). By default hooks only fire for keyboard events; set `hooks.fire_for_all_devices: true` in config to include mouse events. Tracks per-wpid last connection state internally to avoid double-firing hooks from duplicate connection events (e.g. Windows multi-collection re-enumeration).
+
+`TransportDisconnectionSubscriber` listens on `hid_event` for `TransportDisconnectedEvent`; for each registered device whose pid matches the dropped transport, it publishes `DeviceConnectedEvent(link_established=False)` so per-device subscribers react as if each device sent a normal disconnect.
 
 `ExternalUnsetFlagSubscriber` detects when an external app (Solaar, logiops) clears the ES key reporting flag via `setCidReporting` (fn=3, sw_id in 1–7). The parser emits `ExternalUnsetFlagEvent`; the subscriber re-publishes `SetReportFlagEvent` to restore the flag.
 

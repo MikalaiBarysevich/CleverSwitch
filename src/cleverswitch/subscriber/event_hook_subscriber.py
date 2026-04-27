@@ -15,6 +15,7 @@ class EventHookSubscriber(Subscriber):
     def __init__(self, hooks_config: HooksConfig, device_registry: LogiDeviceRegistry, topics: Topics):
         self._hooks_config = hooks_config
         self._device_registry = device_registry
+        self._last_state: dict[int, bool] = {}
         topics.hid_event.subscribe(self)
 
     def notify(self, event) -> None:
@@ -28,6 +29,9 @@ class EventHookSubscriber(Subscriber):
         device = self._device_registry.get_by_wpid(event.wpid)
         if device is None or device.name is None or device.role is None:
             return
+        if self._last_state.get(event.wpid) == event.link_established:
+            return
+        self._last_state[event.wpid] = event.link_established
         if event.link_established:
             hooks.fire_connect(self._hooks_config, device.name, device.role)
         else:

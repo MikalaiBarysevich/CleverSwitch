@@ -102,6 +102,7 @@ def test_reconnection_publishes_set_report_flag_event_when_reprog_available():
     sub = DeviceConnectionSubscriber(registry, topics)
 
     device = _make_device(pending_steps=set())
+    device.connected = False
     registry.register(WPID, device)
 
     event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1)
@@ -136,6 +137,7 @@ def test_reconnection_does_not_publish_when_no_reprog_feature():
         available_features={FEATURE_CHANGE_HOST: 9},
     )
     device.pending_steps = set()
+    device.connected = False
     registry.register(WPID, device)
 
     event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1)
@@ -150,6 +152,7 @@ def test_reconnection_requests_info_if_pending_steps():
     sub = DeviceConnectionSubscriber(registry, topics)
 
     device = _make_device(pending_steps={Task.Feature.Name.CID_REPORTING})
+    device.connected = False
     registry.register(WPID, device)
 
     event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1)
@@ -164,6 +167,7 @@ def test_reconnection_does_not_request_info_if_setup_complete():
     sub = DeviceConnectionSubscriber(registry, topics)
 
     device = _make_device(pending_steps=set())
+    device.connected = False
     registry.register(WPID, device)
 
     event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1)
@@ -203,6 +207,76 @@ def test_sets_connected_true_on_reconnect():
     sub.notify(event)
 
     assert device.connected is True
+
+
+# ── Idempotence ──────────────────────────────────────────────────────────────
+
+
+def test_same_state_connect_event_is_ignored():
+    """Duplicate connect event (device already connected) produces no side effects."""
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = DeviceConnectionSubscriber(registry, topics)
+
+    device = _make_device(pending_steps=set())
+    device.connected = True  # already connected
+    registry.register(WPID, device)
+
+    event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1)
+    sub.notify(event)
+
+    topics.flags.publish.assert_not_called()
+    topics.device_info.publish.assert_not_called()
+
+
+def test_same_state_disconnect_event_is_ignored():
+    """Duplicate disconnect event (device already disconnected) produces no side effects."""
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = DeviceConnectionSubscriber(registry, topics)
+
+    device = _make_device(pending_steps=set())
+    device.connected = False  # already disconnected
+    registry.register(WPID, device)
+
+    event = DeviceConnectedEvent(slot=1, pid=PID, link_established=False, wpid=WPID, device_type=1)
+    sub.notify(event)
+
+    topics.flags.publish.assert_not_called()
+    topics.device_info.publish.assert_not_called()
+
+
+def test_opposite_state_connect_event_triggers_flag_publish():
+    """Connect event after disconnect (state transition) still triggers flag publish."""
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = DeviceConnectionSubscriber(registry, topics)
+
+    device = _make_device(pending_steps=set())
+    device.connected = False
+    registry.register(WPID, device)
+
+    event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1)
+    sub.notify(event)
+
+    topics.flags.publish.assert_called_once()
+    assert isinstance(topics.flags.publish.call_args[0][0], SetReportFlagEvent)
+
+
+def test_opposite_state_disconnect_event_updates_connected_flag():
+    """Disconnect event after connect (state transition) updates the device connected flag."""
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = DeviceConnectionSubscriber(registry, topics)
+
+    device = _make_device(pending_steps=set())
+    device.connected = True
+    registry.register(WPID, device)
+
+    event = DeviceConnectedEvent(slot=1, pid=PID, link_established=False, wpid=WPID, device_type=1)
+    sub.notify(event)
+
+    assert device.connected is False
 
 
 # ── Ignored events ───────────────────────────────────────────────────────────

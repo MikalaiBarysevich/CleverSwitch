@@ -57,27 +57,3 @@ def test_listen_skips_unparseable_events():
     time.sleep(0.1)
 
     topics.hid_event.publish.assert_not_called()
-
-
-def test_connection_trigger_called_on_start():
-    topics = _make_topics()
-    trigger = MagicMock()
-    listener = EventListener(_device_info(), topics, connection_trigger=trigger)
-    listener.daemon = True
-    listener.start()
-    time.sleep(0.1)
-
-    trigger.trigger.assert_called_once()
-
-
-def test_no_connection_trigger_runs_fine():
-    topics = _make_topics()
-    listener = EventListener(_device_info(), topics, connection_trigger=None)
-    listener.daemon = True
-    listener.start()
-
-    raw = bytes([REPORT_LONG, 0x01, 0x05, 0x00]) + bytes(16)
-    listener.listen(raw)
-    time.sleep(0.1)
-
-    topics.hid_event.publish.assert_called_once()

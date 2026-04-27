@@ -24,6 +24,9 @@ class DeviceConnectionSubscriber(Subscriber):
 
         logi_device = self._device_registry.get_by_wpid(event.wpid)
 
+        if logi_device is not None and logi_device.connected == event.link_established:
+            return
+
         if logi_device is not None:
             self._reconnection(event, logi_device)
         else:
