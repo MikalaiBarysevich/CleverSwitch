@@ -67,12 +67,13 @@ The core of the architecture is a typed pub-sub system with one daemon thread pe
 discovery.py
   └── HidGateway (thread, one per HID collection)
       └── EventListener (thread, reads raw bytes → parses → publishes to hid_event)
-      └── ConnectionTrigger.trigger() → sends enumeration message / 0xB5 queries
+      └── ConnectionTrigger.trigger() → enables HID++ notifications, then sends enumeration message
            → DeviceConnectedEvent published to hid_event
 
 DeviceConnectionSubscriber.notify(DeviceConnectedEvent)
-  ├── new device  → LogiDevice registered, DeviceInfoRequestEvent published to device_info
-  └── reconnect  → logi_device.connected updated, SetReportFlagEvent re-published if supported_flags known
+  ├── new device + link_established=True  → LogiDevice registered, DeviceInfoRequestEvent published
+  ├── new device + link_established=False → skipped (stale pairing entry from receiver enumeration)
+  └── reconnect → logi_device.connected updated, SetReportFlagEvent re-published if supported_flags known
 
 DeviceInfoSubscriber.notify(DeviceInfoRequestEvent)
   └── starts InfoTask threads: CidReportingFeatureTask, ChangeHostFeatureTask, NameAndTypeFeatureTask
@@ -100,15 +101,11 @@ Task dependency chain:
 - `NameAndTypeFeatureTask` → fires `GetDeviceTypeTask` + `GetDeviceNameTask`
 - `ChangeHostFeatureTask` has no dependents
 
-Each task type has a unique `sw_id` constant in `subscriber/task/constants.py` (values 8–13). SW_IDs must stay distinct from each other and from the ping SW_ID (`SW_ID = 0x08` in `hidpp/constants.py` — same value as `FEATURE_REPROG_CONTROLS_V4_SW_ID`; disambiguated by `feature_index == 0` check in `DisconnectPollerSubscriber`).
+Each task type has a unique `sw_id` constant in `subscriber/task/constants.py` (values 8–13). SW_IDs must stay distinct from each other and from `SW_ID = 0x08` in `hidpp/constants.py` (same value as `FEATURE_REPROG_CONTROLS_V4_SW_ID`).
 
-### Platform differences (macOS)
+### Receiver enable-notifications message
 
-On macOS the receiver does not send spontaneous device connection events, so two macOS-only subscribers are activated:
-- **`WirelessReconnectSubscriber`** — detects x1D4B (Wireless Device Status) notifications; on reconnect fires `DeviceConnectedEvent(link_established=True)` so reconnect flow triggers
-- **`DisconnectPollerSubscriber`** — pings all registered devices every 0.5s; fires `DeviceConnectedEvent(link_established=False)` on timeout
-
-**`ReceiverConnectionTriggerMac`** (`connection/trigger/receiver_trigger_mac.py`) — at startup queries the 0xB5 pairing register for each slot (static NVM data, all ever-paired devices). The parser returns `link_established=False` for these to avoid starting setup for sleeping devices. Setup only starts when a live connection is confirmed (x1D4B or ping response).
+`ReceiverConnectionTrigger` sends `ENABLE_HIDPP_NOTIFICATIONS_MESSAGE` (SET_REGISTER 0x00 with `r1=0x09`: wireless notifications + software present) before the enumeration message. The receiver's register 0x00 is RAM-only and defaults to 0 at USB power-up, which blocks 0x41 device-connection notifications. Without enabling first, fresh-plugged receivers (notably on macOS) deliver no connection events.
 
 ### LogiDevice state
 
@@ -121,9 +118,9 @@ On macOS the receiver does not send spontaneous device connection events, so two
 
 ### Wiring
 
-`setup/app_setup.py:setup_context()` creates Topics, LogiDeviceRegistry, and all subscribers. It is the single place where components are connected. Platform-specific subscribers (`DisconnectPollerSubscriber`, `WirelessReconnectSubscriber`) are guarded with `if get_system() == "Darwin"`.
+`setup/app_setup.py:setup_context()` creates Topics, LogiDeviceRegistry, and all subscribers. It is the single place where components are connected.
 
-Active subscribers: `DeviceConnectionSubscriber`, `DeviceInfoSubscriber`, `InfoTaskOrchestrator`, `SetReportFlagSubscriber`, `ExternalUnsetFlagSubscriber`, `HostChangeSubscriber`, `EventHookSubscriber`, `WirelessStatusSubscriber` (+ macOS-only: `DisconnectPollerSubscriber`, `WirelessReconnectSubscriber`).
+Active subscribers: `DeviceConnectionSubscriber`, `DeviceInfoSubscriber`, `InfoTaskOrchestrator`, `SetReportFlagSubscriber`, `ExternalUnsetFlagSubscriber`, `HostChangeSubscriber`, `EventHookSubscriber`, `WirelessStatusSubscriber`.
 
 The parser detects ES CID presses (fn=0 diverted, fn=2 analytics press-only) and emits `HostChangeEvent` instead of generic `HidppNotificationEvent`. `HostChangeSubscriber` reacts to `HostChangeEvent` and sends CHANGE_HOST to all registered devices.
 

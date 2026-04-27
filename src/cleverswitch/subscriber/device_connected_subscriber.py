@@ -65,6 +65,11 @@ class DeviceConnectionSubscriber(Subscriber):
 
     def _new_connection(self, event: DeviceConnectedEvent) -> None:
         role = None
+        if not event.link_established:
+            # First seen but not active device. Most likely stale connection.
+            log.debug("Received new connection with link_established=False. Stale pair. Skipping")
+            return
+
         if event.device_type is not None:
             role = "keyboard" if event.device_type == 1 else "mouse"
 

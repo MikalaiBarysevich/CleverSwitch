@@ -8,10 +8,8 @@ from ..event.host_change_event import HostChangeEvent
 from ..hidpp.constants import (
     ANALYTICS_AVALID,
     ANALYTICS_KEY_EVT,
-    GET_LONG_REGISTER_RSP,
     HOST_SWITCH_CIDS,
     MAP_FLAG_DIVERTED,
-    REGISTER_PAIRING_INFO,
     REPORT_LONG,
     REPORT_SHORT,
     SW_ID_MASK,
@@ -42,20 +40,6 @@ def parse(pid: int, raw_event: bytes) -> Event | None:
         sw_id = raw_event[3] & 0x0F
         error_code = raw_event[5]
         return HidppErrorEvent(slot=slot, pid=pid, sw_id=sw_id, error_code=error_code)
-
-    # HID++ 1.0 GET_LONG_REGISTER_RSP for Pairing Information (0xB5)
-    if report_id == REPORT_LONG and feature_id == GET_LONG_REGISTER_RSP and raw_event[3] == REGISTER_PAIRING_INFO:
-        sub_page = raw_event[4]
-        slot = sub_page - 0x1F  # 0x20 → slot 1, 0x25 → slot 6
-        wpid = (raw_event[7] << 8) | raw_event[8]  # MSB-first (opposite of 0x41)
-        device_type = raw_event[11]
-        return DeviceConnectedEvent(
-            slot=slot,
-            pid=pid,
-            link_established=False,
-            wpid=wpid,
-            device_type=device_type if device_type != 0 else None,
-        )
 
     if report_id == REPORT_LONG:
         sw_id = raw_event[3] & 0x0F

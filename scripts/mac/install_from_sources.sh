@@ -73,7 +73,7 @@ ok "CleverSwitch installed at: $BINARY_PATH"
 
 if ask_yes_no "Start CleverSwitch automatically on login?"; then
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-    bash "$SCRIPT_DIR/setup_startup.sh"
+    bash "$SCRIPT_DIR/setup_startup.command"
 else
     info "Skipped. You can run CleverSwitch manually with: cleverswitch"
 fi
