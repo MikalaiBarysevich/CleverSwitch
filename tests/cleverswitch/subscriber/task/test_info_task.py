@@ -61,7 +61,7 @@ def test_notify_enqueues_matching_response():
     assert result is response
 
 
-def test_notify_enqueues_error_event_for_same_slot():
+def test_notify_enqueues_error_event_with_matching_slot_pid_sw_id():
     device = _make_device()
     topics = _make_topics()
     task = _ConcreteTask(device, topics)
@@ -71,6 +71,42 @@ def test_notify_enqueues_error_event_for_same_slot():
 
     result = task._wait_response(timeout=0.1)
     assert result is error
+
+
+def test_notify_ignores_error_event_with_wrong_sw_id():
+    device = _make_device()
+    topics = _make_topics()
+    task = _ConcreteTask(device, topics)
+
+    error = HidppErrorEvent(slot=SLOT, pid=PID, sw_id=0x0F, error_code=5)
+    task.notify(error)
+
+    result = task._wait_response(timeout=0.05)
+    assert result is None
+
+
+def test_notify_ignores_error_event_with_wrong_pid():
+    device = _make_device()
+    topics = _make_topics()
+    task = _ConcreteTask(device, topics)
+
+    error = HidppErrorEvent(slot=SLOT, pid=PID + 1, sw_id=SW_ID, error_code=5)
+    task.notify(error)
+
+    result = task._wait_response(timeout=0.05)
+    assert result is None
+
+
+def test_notify_ignores_error_event_from_wrong_slot():
+    device = _make_device()
+    topics = _make_topics()
+    task = _ConcreteTask(device, topics)
+
+    error = HidppErrorEvent(slot=99, pid=PID, sw_id=SW_ID, error_code=5)
+    task.notify(error)
+
+    result = task._wait_response(timeout=0.05)
+    assert result is None
 
 
 def test_notify_ignores_response_with_wrong_sw_id():
