@@ -2,15 +2,22 @@
 
 # 1. Define variables
 APP_NAME="cleverswitch"
+INSTALL_PATH="$HOME/.local/bin/$APP_NAME"
 PLIST_LABEL="com.user.$APP_NAME"
 PLIST_PATH="$HOME/Library/LaunchAgents/$PLIST_LABEL.plist"
 
-# 2. Find the absolute path of the installed executable
-# This ensures we point to the correct pip-installed bin
-BINARY_PATH=$(which $APP_NAME)
+# 2. Resolve the absolute path of the installed executable.
+# Prefer the canonical install location so the plist survives PATH changes
+# and stale binaries elsewhere on PATH. Fall back to `which` for manual installs.
+if [ -x "$INSTALL_PATH" ]; then
+    BINARY_PATH="$INSTALL_PATH"
+else
+    BINARY_PATH=$(which $APP_NAME)
+fi
 
 if [ -z "$BINARY_PATH" ]; then
-    echo "Error: $APP_NAME not found. Please install it via pip first."
+    echo "Error: $APP_NAME not found at $INSTALL_PATH or on your PATH."
+    echo "Please install with install.command first."
     exit 1
 fi
 
