@@ -140,3 +140,52 @@ def test_ignores_non_relevant_events(mock_hooks):
     mock_hooks.fire_connect.assert_not_called()
     mock_hooks.fire_disconnect.assert_not_called()
     mock_hooks.fire_switch.assert_not_called()
+
+
+# ── Idempotence (per-wpid state dedup) ───────────────────────────────────────
+
+
+@patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
+def test_duplicate_connect_fires_hook_only_once(mock_hooks):
+    """Sending two connect events for the same wpid fires fire_connect exactly once."""
+    registry = LogiDeviceRegistry()
+    device = _make_device()
+    registry.register(WPID, device)
+
+    sub = EventHookSubscriber(_hooks_cfg(), registry, _make_topics())
+    event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID)
+    sub.notify(event)
+    sub.notify(event)
+
+    mock_hooks.fire_connect.assert_called_once()
+
+
+@patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
+def test_connect_disconnect_connect_fires_connect_hook_twice(mock_hooks):
+    """Connect → disconnect → connect sequence fires connect-hook twice (once per transition)."""
+    registry = LogiDeviceRegistry()
+    device = _make_device()
+    registry.register(WPID, device)
+
+    sub = EventHookSubscriber(_hooks_cfg(), registry, _make_topics())
+    sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID))
+    sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=False, wpid=WPID))
+    sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID))
+
+    assert mock_hooks.fire_connect.call_count == 2
+    assert mock_hooks.fire_disconnect.call_count == 1
+
+
+@patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
+def test_per_wpid_isolation(mock_hooks):
+    """Dedup state is tracked per wpid — event for wpid A does not dedupe wpid B."""
+    wpid_b = 0x1234
+    registry = LogiDeviceRegistry()
+    registry.register(WPID, _make_device(wpid=WPID, name="Device A"))
+    registry.register(wpid_b, _make_device(wpid=wpid_b, name="Device B"))
+
+    sub = EventHookSubscriber(_hooks_cfg(), registry, _make_topics())
+    sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID))
+    sub.notify(DeviceConnectedEvent(slot=2, pid=PID, link_established=True, wpid=wpid_b))
+
+    assert mock_hooks.fire_connect.call_count == 2
