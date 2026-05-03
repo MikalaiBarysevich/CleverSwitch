@@ -80,6 +80,7 @@ def test_discover_creates_bt_gateway_for_bluetooth_device(mocker):
     mock_bt_cls = mocker.patch("cleverswitch.discovery.discovery.HidGatewayBT", return_value=mock_gateway)
     mocker.patch("cleverswitch.discovery.discovery.HidGateway")
     mocker.patch("cleverswitch.discovery.discovery.EventListener")
+    mocker.patch("cleverswitch.discovery.discovery.get_system", return_value="Linux")
 
     shutdown = threading.Event()
 
@@ -92,6 +93,64 @@ def test_discover_creates_bt_gateway_for_bluetooth_device(mocker):
     discover(ctx)
 
     mock_bt_cls.assert_called_once()
+    mock_gateway.start.assert_called_once()
+
+
+def test_discover_creates_ble_gateway_for_bluetooth_device_on_darwin(mocker):
+    from cleverswitch.hidpp.transport import HidDeviceInfo
+
+    device = HidDeviceInfo(
+        path=b"/dev/hidraw1", vid=0x046D, pid=0xB023, usage_page=0xFF43, usage=0x0202, connection_type="bluetooth"
+    )
+    mocker.patch("cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={0xB023: [device]})
+
+    mock_gateway = mocker.MagicMock()
+    mock_ble_cls = mocker.patch("cleverswitch.discovery.discovery.HidGatewayBLE", return_value=mock_gateway)
+    mock_bt_cls = mocker.patch("cleverswitch.discovery.discovery.HidGatewayBT")
+    mocker.patch("cleverswitch.discovery.discovery.EventListener")
+    mocker.patch("cleverswitch.discovery.discovery.get_system", return_value="Darwin")
+
+    shutdown = threading.Event()
+
+    def fake_wait(timeout):
+        shutdown.set()
+
+    shutdown.wait = fake_wait
+
+    ctx = _make_app_context(shutdown=shutdown)
+    discover(ctx)
+
+    mock_ble_cls.assert_called_once()
+    mock_bt_cls.assert_not_called()
+    mock_gateway.start.assert_called_once()
+
+
+def test_discover_creates_bt_gateway_for_bluetooth_device_on_non_darwin(mocker):
+    from cleverswitch.hidpp.transport import HidDeviceInfo
+
+    device = HidDeviceInfo(
+        path=b"/dev/hidraw1", vid=0x046D, pid=0xB023, usage_page=0xFF43, usage=0x0202, connection_type="bluetooth"
+    )
+    mocker.patch("cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={0xB023: [device]})
+
+    mock_gateway = mocker.MagicMock()
+    mock_bt_cls = mocker.patch("cleverswitch.discovery.discovery.HidGatewayBT", return_value=mock_gateway)
+    mock_ble_cls = mocker.patch("cleverswitch.discovery.discovery.HidGatewayBLE")
+    mocker.patch("cleverswitch.discovery.discovery.EventListener")
+    mocker.patch("cleverswitch.discovery.discovery.get_system", return_value="Windows")
+
+    shutdown = threading.Event()
+
+    def fake_wait(timeout):
+        shutdown.set()
+
+    shutdown.wait = fake_wait
+
+    ctx = _make_app_context(shutdown=shutdown)
+    discover(ctx)
+
+    mock_bt_cls.assert_called_once()
+    mock_ble_cls.assert_not_called()
     mock_gateway.start.assert_called_once()
 
 

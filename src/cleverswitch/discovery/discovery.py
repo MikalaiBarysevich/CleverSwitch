@@ -16,6 +16,7 @@ import time
 from ..connection.trigger.receiver_trigger import ReceiverConnectionTrigger
 from ..event.set_report_flag_event import SetReportFlagEvent
 from ..gateway.hid_gateway import HidGateway
+from ..gateway.hid_gateway_ble import HidGatewayBLE
 from ..gateway.hid_gateway_bt import HidGatewayBT
 from ..gateway.hid_gateway_receiver import HidGatewayReceiver
 from ..hidpp.constants import FEATURE_REPROG_CONTROLS_V4, KEY_FLAG_ANALYTICS
@@ -24,6 +25,7 @@ from ..listener.event_listener import EventListener
 from ..model.context.app_context import AppContext
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..topic.topics import Topics
+from ..util.util import get_system
 
 log = logging.getLogger(__name__)
 
@@ -49,11 +51,12 @@ def discover(app_context: AppContext) -> None:
                         connection_trigger = None
                     event_listener = EventListener(device, topics)
                     for collection in collections:
-                        hid_gateway = (
-                            HidGatewayReceiver(collection, event_listener, topics, connection_trigger)
-                            if device.connection_type == "receiver"
-                            else HidGatewayBT(collection, event_listener)
-                        )
+                        if device.connection_type == "receiver":
+                            hid_gateway = HidGatewayReceiver(collection, event_listener, topics, connection_trigger)
+                        elif device.connection_type == "bluetooth" and get_system() == "Darwin":
+                            hid_gateway = HidGatewayBLE(collection, event_listener)
+                        else:
+                            hid_gateway = HidGatewayBT(collection, event_listener)
                         topics.write.subscribe(hid_gateway)
                         pid_gateways = gateways.get(pid, list())
                         pid_gateways.append(hid_gateway)

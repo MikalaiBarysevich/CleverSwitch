@@ -20,6 +20,7 @@ Communication is via **HID++ 2.0** directly over the Logitech **Bolt USB receive
 - **Python 3.14+**
 - `hid` — cross-platform HID access
 - `pyyaml` — config file parsing
+- `bleak` + `pyobjc-framework-CoreBluetooth` — macOS-only, used by `HidGatewayBLE` for the BLE notify path
 - `pytest` + `pytest-mock` + `pytest-cov` — testing
 - `ruff` — linting and formatting (line-length 120)
 - All log calls must use f-strings: `log.info(f"wpid=0x{wpid:04X}")` — never `%s`/`%d` style. `wpid` and `pid` values must always be formatted as `0x{value:04X}`.
@@ -65,7 +66,7 @@ The core of the architecture is a typed pub-sub system with one daemon thread pe
 
 ```
 discovery.py
-  └── HidGatewayReceiver (Bolt/Unifying) | HidGatewayBT — one per HID collection, both subclass HidGateway
+  └── HidGatewayReceiver (Bolt/Unifying) | HidGatewayBLE (macOS BT) | HidGatewayBT — one per HID collection, all subclass HidGateway
       └── EventListener (thread, reads raw bytes → parses → publishes to hid_event)
       └── On (re)connect: HidGatewayReceiver calls ConnectionTrigger.trigger() → enables HID++
            notifications + enumerates paired devices → DeviceConnectedEvent(s) on hid_event
@@ -111,6 +112,16 @@ Each task type has a unique `sw_id` constant in `subscriber/task/constants.py` (
 ### Receiver enable-notifications message
 
 `ReceiverConnectionTrigger` sends `ENABLE_HIDPP_NOTIFICATIONS_MESSAGE` (SET_REGISTER 0x00 with `r1=0x09`: wireless notifications + software present) before the enumeration message. The receiver's register 0x00 is RAM-only and defaults to 0 at USB power-up, which blocks 0x41 device-connection notifications. Without enabling first, fresh-plugged receivers (notably on macOS) deliver no connection events. The trigger fires from `HidGatewayReceiver._set_connected(True)` on every (re)connect, so notifications are re-armed automatically after USB re-plug.
+
+### macOS BLE hybrid transport
+
+`HidGatewayBLE` (`gateway/hid_gateway_ble.py`) is a macOS-only subclass of `HidGatewayBT`. It exists because Logi Options+ saturates the BLE link (~33 writes/sec) and starves the OS HID input report path, causing CleverSwitch to miss inbound HID++ notifications. `discovery.py` selects it when `device.connection_type == "bluetooth"` and `get_system() == "Darwin"`; all other platforms (and macOS receivers) keep using `HidGatewayBT` / `HidGatewayReceiver`.
+
+Design:
+- **Inbound**: subscribes to the Logitech proprietary GATT characteristic `00010001-0000-1000-8000-011f2000046d` and prepends `[0x11, 0xFF]` to each 18-byte BLE payload, producing a 20-byte HID++ long report identical to what the parser already handles. Peripheral selection probes the standard PnP ID characteristic (`0x2A50`, bytes [3:5] little-endian = WPID) to match the right paired device by `_device_info.pid`.
+- **Outbound**: `_do_write` sends via `client.write_gatt_char(LOGI_HIDPP_CHAR, msg[2:], response=False)` so function-call responses come back on the BLE notify channel (Logitech replies on the request's transport). Falls back to `super()._do_write` (HID transport) if BLE is unavailable.
+- **Connect-event ordering**: `_set_connected(True)` is overridden to bypass `HidGatewayBT`'s auto-fire of the synthetic 0x41 connect event. It sets `_connected = True` first to unblock the BLE asyncio thread, then blocks on a `threading.Event` (`_ble_subscribed`) until `_connect_and_listen` has called `start_notify`, then publishes the 0x41. This prevents `InfoTask` requests racing the BLE channel coming up. Disconnect fires immediately. If `_BLE_OK` is False (bleak not importable), it fires immediately too.
+- **Drop detection**: `BleakClient.disconnected_callback` calls `self._set_connected(False)`, which clears `_ble_subscribed` and fires the 0x41 disconnect via the inherited path so HID's main loop notices and re-enters `_try_connect`.
 
 ### LogiDevice state
 
