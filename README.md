@@ -1,12 +1,15 @@
 # CleverSwitch
+[![oosmetrics](https://api.oosmetrics.com/api/v1/badge/achievement/810d19c9-f1cf-43c6-816c-443e704be9b2.svg)](https://oosmetrics.com/repo/MikalaiBarysevich/CleverSwitch)
 
 A small, headless, cross-platform daemon that synchronizes host switching between Logitech keyboard and mouse.
 When you press the Easy-Switch button on the keyboard, CleverSwitch detects it and immediately sends the same host-switch command to the mouse — so both devices land on the same host simultaneously.
 
-- Runs alongside Logi Options+ or Solaar without conflicts*.
+- Runs alongside Logi Options+ or Solaar without conflicts.
 - Must be installed on every host you plan to switch from.
 - Supports connections via Logitech receivers and Bluetooth.
 - Tested with `MX Keys` and `MX Master 3` on Linux, macOS, and Windows.
+
+> **Note:** CleverSwitch does not override device firmware. It acts as a forwarder, which means there is a small delay after reconnection. If you switch back immediately after arriving from another host, the devices may not switch together — CleverSwitch needs a moment to set everything up after reconnection.
 
 ## Support the Project
 
@@ -16,12 +19,6 @@ If you find this project useful, consider supporting its development:
 - **Crypto:**
     - `BTC`: 1HXzgmGZHjLMWrQC8pgYvmcm6afD4idqr7
     - `USDT (TRC20)`: TXpJ3MHcSc144npXLuRbU81gJjD8cwAyzP
-
-## Limitations
-
-- **macOS + Bluetooth + Logi Options+:** When using Bluetooth-connected devices on macOS, CleverSwitch can't work correctly if Logi Options+ is running at the same time.
-
-- **Reconnection delay:** CleverSwitch does not override device firmware. It acts as a forwarder, which means there is a small delay after reconnection. If you switch back immediately after arriving from another host, the devices may not switch together — CleverSwitch needs a moment to set everything up after reconnection.
 
 ## Installation
 
