@@ -14,8 +14,8 @@ set "STARTUP_FOLDER=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 :: source archive folder. Fall back to PATH for manual installs.
 set "VBS_EXE_PATH="
 if exist "%INSTALL_PATH%" (
-    :: Use a literal env var in the VBS so it stays user-portable.
-    :: WScript.Shell.Run expands environment variables in the command string.
+    REM Use a literal env var in the VBS so it stays user-portable.
+    REM WScript.Shell.Run expands environment variables in the command string.
     set "VBS_EXE_PATH=%%localappdata%%\Programs\CleverSwitch\%EXE_NAME%"
     set "FOUND_AT=%INSTALL_PATH%"
 ) else (
@@ -38,6 +38,7 @@ echo Found %APP_NAME% at: !FOUND_AT!
 :: 3. Create the VBScript wrapper (to run hidden)
 :: We use '0' to hide the console window
 echo Set WinScriptHost = CreateObject^("WScript.Shell"^) > "%TEMP%\%VBS_NAME%"
+echo WinScriptHost.CurrentDirectory = WinScriptHost.ExpandEnvironmentStrings^("%%USERPROFILE%%"^) >> "%TEMP%\%VBS_NAME%"
 echo WinScriptHost.Run Chr^(34^) ^& "!VBS_EXE_PATH!" ^& Chr^(34^), 0 >> "%TEMP%\%VBS_NAME%"
 echo Set WinScriptHost = Nothing >> "%TEMP%\%VBS_NAME%"
 
@@ -53,4 +54,4 @@ echo.
 start wscript.exe "%STARTUP_FOLDER%\%VBS_NAME%"
 echo Application launched in background.
 
-pause
+pause
