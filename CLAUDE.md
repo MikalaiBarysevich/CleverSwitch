@@ -128,7 +128,7 @@ Design:
 `model/logi_device.py` — mutable dataclass tracking:
 - `available_features: dict[int, int]` — feature code → feature index (populated by feature tasks)
 - `pending_steps: set[str]` — setup steps not yet completed
-- `supported_flags: set[int]` — ES key capability flags (KEY_FLAG_DIVERTABLE, KEY_FLAG_PERSISTENTLY_DIVERTABLE, KEY_FLAG_ANALYTICS); populated by `FindESCidsFlagsTask`; all ES CIDs share the same flags so this is per-device, not per-CID
+- `supported_flags: set[int]` — ES key capability flags (KEY_FLAG_DIVERTABLE, KEY_FLAG_PERSISTENTLY_DIVERTABLE, KEY_FLAG_ANALYTICS); populated by `FindESCidsFlagsTask` and mutated at runtime by `AnalyticsRejectionSubscriber` (drops `KEY_FLAG_ANALYTICS` on silent rejection); all ES CIDs share the same flags so this is per-device, not per-CID
 - `connected: bool` — current connection state (gates orchestrator retries)
 - `role`, `name` — populated during setup
 
@@ -136,7 +136,7 @@ Design:
 
 `setup/app_setup.py:setup_context()` creates Topics, LogiDeviceRegistry, and all subscribers. It is the single place where components are connected.
 
-Active subscribers: `DeviceConnectionSubscriber`, `DeviceInfoSubscriber`, `InfoTaskOrchestrator`, `SetReportFlagSubscriber`, `ExternalUnsetFlagSubscriber`, `HostChangeSubscriber`, `EventHookSubscriber`, `WirelessStatusSubscriber`, `TransportDisconnectionSubscriber`.
+Active subscribers: `DeviceConnectionSubscriber`, `DeviceInfoSubscriber`, `InfoTaskOrchestrator`, `SetReportFlagSubscriber`, `ExternalUnsetFlagSubscriber`, `AnalyticsRejectionSubscriber`, `HostChangeSubscriber`, `EventHookSubscriber`, `WirelessStatusSubscriber`, `TransportDisconnectionSubscriber`.
 
 The parser detects ES CID presses (fn=0 diverted, fn=2 analytics press-only) and emits `HostChangeEvent` instead of generic `HidppNotificationEvent`. `HostChangeSubscriber` reacts to `HostChangeEvent` and sends CHANGE_HOST to all registered devices.
 
@@ -145,6 +145,8 @@ The parser detects ES CID presses (fn=0 diverted, fn=2 analytics press-only) and
 `TransportDisconnectionSubscriber` listens on `hid_event` for `TransportDisconnectedEvent`; for each registered device whose pid matches the dropped transport, it publishes `DeviceConnectedEvent(link_established=False)` so per-device subscribers react as if each device sent a normal disconnect.
 
 `ExternalUnsetFlagSubscriber` detects when an external app (Solaar, logiops) clears the ES key reporting flag via `setCidReporting` (fn=3, sw_id in 1–7). The parser emits `ExternalUnsetFlagEvent`; the subscriber re-publishes `SetReportFlagEvent` to restore the flag.
+
+`AnalyticsRejectionSubscriber` detects keyboards that advertise `KEY_FLAG_ANALYTICS` in getCidInfo but silently reject the analytics enable: the device echoes our `setCidReporting` request (sw_id=`SW_ID_DIVERT`, fn=3) with byte 9 cleared to 0x00 instead of the requested 0x03 (observed on the K850). Per the HID++ 2.0 0x1B04 spec, the response is a verbatim echo, so byte 9 = 0x00 is a definitive rejection signal. The subscriber discards `KEY_FLAG_ANALYTICS` from `device.supported_flags` and re-publishes `SetReportFlagEvent`; `SetReportFlagSubscriber` then naturally takes the divert branch on the retry.
 
 ## Testing conventions
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cleverswitch"
-version = "1.2.0"
+version = "1.2.2"
 description = "Synchronize host switching between Logitech MX Keys and MX Master 3"
 requires-python = ">=3.10"
 dependencies = [

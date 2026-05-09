@@ -10,6 +10,7 @@ from ..config.config import Config
 from ..errors.errors import ConfigError
 from ..model.context.app_context import AppContext
 from ..registry.logi_device_registry import LogiDeviceRegistry
+from ..subscriber.analytics_rejection_subscriber import AnalyticsRejectionSubscriber
 from ..subscriber.device_connected_subscriber import DeviceConnectionSubscriber
 from ..subscriber.device_info_subscriber import DeviceInfoSubscriber
 from ..subscriber.event_hook_subscriber import EventHookSubscriber
@@ -77,6 +78,7 @@ def _init_subscribers(topics: Topics, device_registry: LogiDeviceRegistry, confi
     InfoTaskOrchestrator(device_registry, topics)
     SetReportFlagSubscriber(device_registry, topics)
     ExternalUnsetFlagSubscriber(device_registry, topics)
+    AnalyticsRejectionSubscriber(device_registry, topics)
     HostChangeSubscriber(device_registry, topics)
     WirelessStatusSubscriber(device_registry, topics)
     TransportDisconnectionSubscriber(device_registry, topics)
