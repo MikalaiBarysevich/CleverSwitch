@@ -7,6 +7,7 @@ from ..topic.topics import Topics
 from .task.constants import Task
 from .task.feature.change_host_feature_task import ChangeHostFeatureTask
 from .task.feature.cid_reporting_feature_task import CidReportingFeatureTask
+from .task.feature.friendly_name_feature_task import FriendlyNameFeatureTask
 from .task.feature.name_and_type_feature_task import NameAndTypeFeatureTask
 
 log = logging.getLogger(__name__)
@@ -43,3 +44,4 @@ class DeviceInfoSubscriber(Subscriber):
             CidReportingFeatureTask(device, self._topics).start()
         ChangeHostFeatureTask(device, self._topics).start()
         NameAndTypeFeatureTask(device, self._topics).start()
+        FriendlyNameFeatureTask(device, self._topics).start()

@@ -49,6 +49,7 @@ SW_ID_HOST_CHANGE = 0x0F
 
 FEATURE_ROOT = 0x0000  # Look up feature index by code; also used for ping
 FEATURE_DEVICE_TYPE_AND_NAME = 0x0005  # x0005: getDeviceType(), getDeviceName()
+FEATURE_DEVICE_FRIENDLY_NAME = 0x0007  # x0007: getFriendlyNameLen(), getFriendlyName()
 FEATURE_CHANGE_HOST = 0x1814
 FEATURE_REPROG_CONTROLS_V4 = 0x1B04  # Reprogrammable keys / button diversion
 FEATURE_WIRELESS_DEVICE_STATUS = 0x1D4B  # Wireless device reconnection notifications

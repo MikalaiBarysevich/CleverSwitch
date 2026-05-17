@@ -34,4 +34,4 @@ class HostChangeSubscriber(Subscriber):
             params = pack_params((event.target_host,))
             msg = build_msg(device.slot, request_id, params)
             self._topics.write.publish(WriteEvent(slot=device.slot, pid=device.pid, hid_message=msg))
-            log.info(f"Sending host change to '{device.name}' -> host {event.target_host + 1}")
+            log.info(f"Sending host change to '{device.display_name}' -> host {event.target_host + 1}")

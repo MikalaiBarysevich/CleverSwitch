@@ -44,7 +44,8 @@ class WirelessStatusSubscriber(Subscriber):
         if FEATURE_REPROG_CONTROLS_V4 not in device.available_features:
             return
 
-        name = f"'{device.name}'" if device.name else f"slot={device.slot}"
+        label = device.display_name
+        name = f"'{label}'" if label else f"slot={device.slot}"
         log.debug(f"x1D4B reconfiguration request for {name}, re-diverting")
 
         self._topics.flags.publish(

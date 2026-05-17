@@ -82,7 +82,7 @@ DeviceConnectionSubscriber.notify(DeviceConnectedEvent)
   └── reconnect → logi_device.connected updated, SetReportFlagEvent re-published if supported_flags known
 
 DeviceInfoSubscriber.notify(DeviceInfoRequestEvent)
-  └── starts InfoTask threads: CidReportingFeatureTask, ChangeHostFeatureTask, NameAndTypeFeatureTask
+  └── starts InfoTask threads: CidReportingFeatureTask, ChangeHostFeatureTask, NameAndTypeFeatureTask, FriendlyNameFeatureTask
 
 InfoTask (Thread + Subscriber)
   ├── doTask() — sends HID++ requests via write topic, blocks on response queue
@@ -90,7 +90,7 @@ InfoTask (Thread + Subscriber)
   └── publishes InfoTaskProgressEvent to info_progress
 
 InfoTaskOrchestrator.notify(InfoTaskProgressEvent)
-  ├── success + pending_steps empty → logs "Device fully discovered" (once per wpid)
+  ├── success + pending_steps empty → applies friendly_name fallback (copies device.name if friendly_name is None), logs "Device fully discovered" (once per wpid)
   └── failure + device.connected → retries the task immediately
 ```
 
@@ -105,9 +105,10 @@ InfoTaskOrchestrator.notify(InfoTaskProgressEvent)
 Task dependency chain:
 - `CidReportingFeatureTask` → fires `FindESCidsFlagsTask`
 - `NameAndTypeFeatureTask` → fires `GetDeviceTypeTask` + `GetDeviceNameTask`
+- `FriendlyNameFeatureTask` → fires `GetDeviceFriendlyNameTask`
 - `ChangeHostFeatureTask` has no dependents
 
-Each task type has a unique `sw_id` constant in `subscriber/task/constants.py` (values 8–13). SW_IDs must stay distinct from each other and from `SW_ID = 0x08` in `hidpp/constants.py` (same value as `FEATURE_REPROG_CONTROLS_V4_SW_ID`).
+Each task type has a unique `sw_id` constant in `subscriber/task/constants.py` (values 8–15). SW_IDs must stay distinct from each other and from `SW_ID = 0x08` in `hidpp/constants.py` (same value as `FEATURE_REPROG_CONTROLS_V4_SW_ID`).
 
 ### Receiver enable-notifications message
 
@@ -130,7 +131,8 @@ Design:
 - `pending_steps: set[str]` — setup steps not yet completed
 - `supported_flags: set[int]` — ES key capability flags (KEY_FLAG_DIVERTABLE, KEY_FLAG_PERSISTENTLY_DIVERTABLE, KEY_FLAG_ANALYTICS); populated by `FindESCidsFlagsTask` and mutated at runtime by `AnalyticsRejectionSubscriber` (drops `KEY_FLAG_ANALYTICS` on silent rejection); all ES CIDs share the same flags so this is per-device, not per-CID
 - `connected: bool` — current connection state (gates orchestrator retries)
-- `role`, `name` — populated during setup
+- `role`, `name`, `friendly_name` — populated during setup; `name` is the marketing string from feature 0x0005 (e.g. "Wireless Keyboard MX Keys"), `friendly_name` is the short label from feature 0x0007 (e.g. "MX Keys")
+- `display_name` property — returns `friendly_name or name`. **All log lines and hook calls must label devices via `device.display_name`, never `device.name` directly**, so the short label is preferred wherever it's available
 
 ### Wiring
 

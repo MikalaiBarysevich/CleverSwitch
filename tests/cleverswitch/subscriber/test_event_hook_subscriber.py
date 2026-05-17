@@ -176,6 +176,35 @@ def test_connect_disconnect_connect_fires_connect_hook_twice(mock_hooks):
     assert mock_hooks.fire_disconnect.call_count == 1
 
 
+# ── Friendly name preference ────────────────────────────────────────────────
+
+
+@patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
+def test_connect_passes_friendly_name_when_set(mock_hooks):
+    registry = LogiDeviceRegistry()
+    device = _make_device(name="Wireless Keyboard MX Keys")
+    device.friendly_name = "MX Keys"
+    registry.register(WPID, device)
+
+    sub = EventHookSubscriber(_hooks_cfg(), registry, _make_topics())
+    sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID))
+
+    mock_hooks.fire_connect.assert_called_once_with(_hooks_cfg(), "MX Keys", "keyboard")
+
+
+@patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
+def test_host_change_passes_friendly_name_when_set(mock_hooks):
+    registry = LogiDeviceRegistry()
+    device = _make_device(name="Wireless Keyboard MX Keys")
+    device.friendly_name = "MX Keys"
+    registry.register(WPID, device)
+
+    sub = EventHookSubscriber(_hooks_cfg(), registry, _make_topics())
+    sub.notify(HostChangeEvent(slot=1, pid=PID, target_host=2))
+
+    mock_hooks.fire_switch.assert_called_once_with(_hooks_cfg(), "MX Keys", "keyboard", 2)
+
+
 @patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
 def test_per_wpid_isolation(mock_hooks):
     """Dedup state is tracked per wpid — event for wpid A does not dedupe wpid B."""
