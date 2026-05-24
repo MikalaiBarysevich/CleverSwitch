@@ -15,6 +15,9 @@ SUBSYSTEM != "hidraw", GOTO="cleverswitch_end"
 # USB-connected Logitech receivers and devices
 ATTRS{idVendor}=="046d", GOTO="cleverswitch_apply"
 
+# Bluetooth-connected Logitech devices (bus 0005 = BT, vendor 046D)
+KERNELS=="0005:046D:*", GOTO="cleverswitch_apply"
+
 GOTO="cleverswitch_end"
 
 LABEL="cleverswitch_apply"
