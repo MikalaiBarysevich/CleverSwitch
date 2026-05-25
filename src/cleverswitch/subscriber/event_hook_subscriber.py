@@ -33,9 +33,9 @@ class EventHookSubscriber(Subscriber):
             return
         self._last_state[event.wpid] = event.link_established
         if event.link_established:
-            hooks.fire_connect(self._hooks_config, device.name, device.role)
+            hooks.fire_connect(self._hooks_config, device.display_name, device.role)
         else:
-            hooks.fire_disconnect(self._hooks_config, device.name, device.role)
+            hooks.fire_disconnect(self._hooks_config, device.display_name, device.role)
 
     def _on_host_change(self, event: HostChangeEvent) -> None:
         device = next(
@@ -44,4 +44,4 @@ class EventHookSubscriber(Subscriber):
         )
         if device is None or device.name is None or device.role is None:
             return
-        hooks.fire_switch(self._hooks_config, device.name, device.role, event.target_host)
+        hooks.fire_switch(self._hooks_config, device.display_name, device.role, event.target_host)

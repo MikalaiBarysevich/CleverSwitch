@@ -105,3 +105,36 @@ def test_logs_fully_discovered_only_once_per_device(caplog):
 def test_ignores_non_progress_events():
     orch, topics, _ = _make_orchestrator()
     orch.notify("not an event")  # must not raise
+
+
+def test_fallback_copy_sets_friendly_name_from_name_when_all_steps_done():
+    device = _make_device(pending=set())
+    device.name = "Wireless Keyboard MX Keys"
+    device.friendly_name = None
+    orch, topics, _ = _make_orchestrator()
+
+    orch.notify(_progress(device, success=True))
+
+    assert device.friendly_name == "Wireless Keyboard MX Keys"
+
+
+def test_fallback_copy_does_not_overwrite_existing_friendly_name():
+    device = _make_device(pending=set())
+    device.name = "Wireless Keyboard MX Keys"
+    device.friendly_name = "MX Keys"
+    orch, topics, _ = _make_orchestrator()
+
+    orch.notify(_progress(device, success=True))
+
+    assert device.friendly_name == "MX Keys"
+
+
+def test_fallback_copy_does_not_set_when_name_is_none():
+    device = _make_device(pending=set())
+    device.name = None
+    device.friendly_name = None
+    orch, topics, _ = _make_orchestrator()
+
+    orch.notify(_progress(device, success=True))
+
+    assert device.friendly_name is None

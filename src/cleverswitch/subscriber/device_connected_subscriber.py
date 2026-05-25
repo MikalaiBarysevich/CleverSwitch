@@ -33,7 +33,8 @@ class DeviceConnectionSubscriber(Subscriber):
             self._new_connection(event)
 
     def _reconnection(self, event: DeviceConnectedEvent, logi_device: LogiDevice) -> None:
-        name = f"'{logi_device.name}'" if logi_device.name is not None else f"Device wpid=0x{event.wpid:04X}"
+        label = logi_device.display_name
+        name = f"'{label}'" if label is not None else f"Device wpid=0x{event.wpid:04X}"
         connection = "reconnected" if event.link_established else "disconnected"
         message = f"{name} {connection}"
 

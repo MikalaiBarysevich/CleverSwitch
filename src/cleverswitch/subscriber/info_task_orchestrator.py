@@ -5,8 +5,10 @@ from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
 from ..subscriber.task.feature.change_host_feature_task import ChangeHostFeatureTask
 from ..subscriber.task.feature.cid_reporting_feature_task import CidReportingFeatureTask
+from ..subscriber.task.feature.friendly_name_feature_task import FriendlyNameFeatureTask
 from ..subscriber.task.feature.name_and_type_feature_task import NameAndTypeFeatureTask
 from ..subscriber.task.find_es_cids_flags_task import FindESCidsFlagsTask
+from ..subscriber.task.get_device_friendly_name_task import GetDeviceFriendlyNameTask
 from ..subscriber.task.get_device_name_task import GetDeviceNameTask
 from ..subscriber.task.get_device_type_task import GetDeviceTypeTask
 from ..topic.topics import Topics
@@ -18,9 +20,11 @@ _TASK_FACTORIES = {
     Task.Feature.Name.CID_REPORTING: CidReportingFeatureTask,
     Task.Feature.Name.CHANGE_HOST: ChangeHostFeatureTask,
     Task.Feature.Name.NAME_AND_TYPE: NameAndTypeFeatureTask,
+    Task.Feature.Name.FRIENDLY_NAME: FriendlyNameFeatureTask,
     Task.Name.FIND_ES_CIDS_FLAGS: FindESCidsFlagsTask,
     Task.Name.GET_DEVICE_TYPE: GetDeviceTypeTask,
     Task.Name.GET_DEVICE_NAME: GetDeviceNameTask,
+    Task.Name.GET_DEVICE_FRIENDLY_NAME: GetDeviceFriendlyNameTask,
 }
 
 
@@ -40,6 +44,8 @@ class InfoTaskOrchestrator(Subscriber):
         if event.success:
             if not device.pending_steps and device.wpid not in self._announced:
                 self._announced.add(device.wpid)
+                if device.friendly_name is None and device.name is not None:
+                    device.friendly_name = device.name
                 log.info(f"Device fully discovered: {device}")
         else:
             if device.connected:

@@ -6,16 +6,24 @@ from unittest.mock import MagicMock
 
 from src.cleverswitch.event.hidpp_error_event import HidppErrorEvent
 from src.cleverswitch.event.hidpp_response_event import HidppResponseEvent
-from src.cleverswitch.hidpp.constants import BOLT_PID, FEATURE_CHANGE_HOST, FEATURE_DEVICE_TYPE_AND_NAME, \
-    FEATURE_REPROG_CONTROLS_V4
+from src.cleverswitch.hidpp.constants import (
+    BOLT_PID,
+    FEATURE_CHANGE_HOST,
+    FEATURE_DEVICE_FRIENDLY_NAME,
+    FEATURE_DEVICE_TYPE_AND_NAME,
+    FEATURE_REPROG_CONTROLS_V4,
+)
 from src.cleverswitch.model.logi_device import LogiDevice
 from src.cleverswitch.subscriber.task.constants import (
     FEATURE_CHANGE_HOST_SW_ID,
+    FEATURE_DEVICE_FRIENDLY_NAME_SW_ID,
     FEATURE_DEVICE_TYPE_AND_NAME_SW_ID,
-    FEATURE_REPROG_CONTROLS_V4_SW_ID, Task,
+    FEATURE_REPROG_CONTROLS_V4_SW_ID,
+    Task,
 )
 from src.cleverswitch.subscriber.task.feature.change_host_feature_task import ChangeHostFeatureTask
 from src.cleverswitch.subscriber.task.feature.cid_reporting_feature_task import CidReportingFeatureTask
+from src.cleverswitch.subscriber.task.feature.friendly_name_feature_task import FriendlyNameFeatureTask
 from src.cleverswitch.subscriber.task.feature.name_and_type_feature_task import NameAndTypeFeatureTask
 from src.cleverswitch.topic.topic import Topic
 from src.cleverswitch.topic.topics import Topics
@@ -173,3 +181,32 @@ def test_name_and_type_fires_dependent_steps(mocker):
     mock_type.return_value.start.assert_called_once()
     mock_name.assert_called_once_with(device, topics)
     mock_name.return_value.start.assert_called_once()
+
+
+# ── FriendlyNameFeatureTask ───────────────────────────────────────────────────
+
+
+def test_friendly_name_resolves_feature_index():
+    device = _make_device(pending={Task.Feature.Name.FRIENDLY_NAME})
+    topics = _make_topics()
+    task = FriendlyNameFeatureTask(device, topics)
+
+    task._response_queue.put(_response(FEATURE_DEVICE_FRIENDLY_NAME_SW_ID, 3))
+    task.doTask()
+
+    assert device.available_features.get(FEATURE_DEVICE_FRIENDLY_NAME) == 3
+    assert Task.Feature.Name.FRIENDLY_NAME not in device.pending_steps
+
+
+def test_friendly_name_fires_dependent_steps(mocker):
+    device = _make_device(pending={Task.Feature.Name.FRIENDLY_NAME})
+    topics = _make_topics()
+    task = FriendlyNameFeatureTask(device, topics)
+
+    mock_get = mocker.patch(
+        "src.cleverswitch.subscriber.task.feature.friendly_name_feature_task.GetDeviceFriendlyNameTask"
+    )
+    task._fire_dependent_steps()
+
+    mock_get.assert_called_once_with(device, topics)
+    mock_get.return_value.start.assert_called_once()
