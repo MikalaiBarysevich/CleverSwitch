@@ -21,6 +21,7 @@ if not exist "%SRC_BINARY%" (
 echo [INFO] Installing %APP_NAME% to %INSTALL_DIR%...
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 copy /y "%SRC_BINARY%" "%INSTALL_PATH%" >nul
+powershell -Command "Unblock-File -LiteralPath '%INSTALL_PATH%'" 2>nul
 echo [OK] %APP_NAME% installed at %INSTALL_PATH%
 
 :: ── Step 2: Add to user PATH ──────────────────────────────────────────
