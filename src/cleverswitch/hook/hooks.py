@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
@@ -64,14 +65,20 @@ def fire_disconnect(hooks_cfg: HooksConfig, device_name: str, role: str) -> None
     )
 
 
+_WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
+
+
 def _is_file_path(value: str) -> bool:
     """Heuristic: does the string look like a file path rather than a shell command?"""
-    return value.startswith(("/", "~/", "./", "../"))
+    if _WINDOWS_DRIVE_RE.match(value):  # drive-letter path, e.g. C:\... or C:/...
+        return True
+    return value.startswith(("/", "~/", "./", "../", "~\\", ".\\", "..\\", "\\\\"))
 
 
 def _run(hook: HookEntry, extra_env: dict[str, str]) -> None:
     """Run one hook synchronously (called from a worker thread)."""
-    env = {**os.environ, **extra_env}
+    sanitized_env = {k: v.replace("\x00", "") for k, v in extra_env.items()}
+    env = {**os.environ, **sanitized_env}
     expanded = os.path.expanduser(hook.path)
 
     if _is_file_path(hook.path):

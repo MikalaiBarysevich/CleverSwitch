@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 import subprocess
 
+from cleverswitch.hook.hooks import _is_file_path, _run, fire, fire_connect, fire_disconnect, fire_switch
 from cleverswitch.model.config.hook_entry import HookEntry
 from cleverswitch.model.config.hooks_config import HooksConfig
-from cleverswitch.hook.hooks import _run, fire, fire_connect, fire_disconnect, fire_switch
 
 # ── fire() ────────────────────────────────────────────────────────────────────
 
@@ -237,3 +237,43 @@ def test_run_command_logs_warning_on_unexpected_exception(mocker, caplog):
         _run(HookEntry(path="broken-command"), {})
 
     assert "failed" in caplog.text
+
+
+# ── _is_file_path() ───────────────────────────────────────────────────────────
+
+
+def test_is_file_path_recognizes_unix_paths():
+    assert _is_file_path("/usr/local/bin/hook.sh")
+    assert _is_file_path("~/hook.sh")
+    assert _is_file_path("./hook.sh")
+    assert _is_file_path("../hook.sh")
+
+
+def test_is_file_path_recognizes_windows_paths():
+    assert _is_file_path("C:\\Users\\me\\hook.ps1")
+    assert _is_file_path("c:/Users/me/hook.ps1")
+    assert _is_file_path(".\\hook.ps1")
+    assert _is_file_path("..\\hook.ps1")
+    assert _is_file_path("~\\hook.ps1")
+    assert _is_file_path("\\\\server\\share\\hook.ps1")
+
+
+def test_is_file_path_treats_commands_as_non_paths():
+    assert not _is_file_path("echo hello")
+    assert not _is_file_path("pwsh.exe C:\\Users\\me\\hook.ps1")
+    assert not _is_file_path("bad-command")
+
+
+def test_run_strips_nul_from_env_values(mocker, tmp_path):
+    script = tmp_path / "hook.sh"
+    script.touch()
+    mock_result = mocker.MagicMock()
+    mock_result.returncode = 0
+    mock_result.stdout = ""
+    mock_run = mocker.patch("cleverswitch.hook.hooks.subprocess.run", return_value=mock_result)
+
+    _run(HookEntry(path=str(script)), {"CLEVERSWITCH_DEVICE_NAME": "MX\x00 Keys\x00"})
+
+    mock_run.assert_called_once()  # did not raise ValueError: embedded null character
+    _, kwargs = mock_run.call_args
+    assert kwargs["env"]["CLEVERSWITCH_DEVICE_NAME"] == "MX Keys"
