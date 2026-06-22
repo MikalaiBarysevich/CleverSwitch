@@ -19,7 +19,6 @@ def test_setup_context_returns_app_context(mocker):
     mocker.patch("cleverswitch.setup.app_setup.check")
     mocker.patch("cleverswitch.setup.app_setup.cfg_module.load")
     mocker.patch("cleverswitch.setup.app_setup.signal.signal")
-    mocker.patch("cleverswitch.setup.app_setup.get_system", return_value="Linux")
 
     from cleverswitch.setup.app_setup import setup_context
 
@@ -38,7 +37,6 @@ def test_setup_context_exits_on_config_error(mocker):
     mocker.patch("cleverswitch.setup.app_setup.check")
     mocker.patch("cleverswitch.setup.app_setup.cfg_module.load", side_effect=ConfigError("bad"))
     mocker.patch("cleverswitch.setup.app_setup.signal.signal")
-    mocker.patch("cleverswitch.setup.app_setup.get_system", return_value="Linux")
 
     from cleverswitch.setup.app_setup import setup_context
 
@@ -51,7 +49,6 @@ def test_setup_context_initializes_subscribers(mocker):
     mocker.patch("cleverswitch.setup.app_setup.check")
     mocker.patch("cleverswitch.setup.app_setup.cfg_module.load")
     mocker.patch("cleverswitch.setup.app_setup.signal.signal")
-    mocker.patch("cleverswitch.setup.app_setup.get_system", return_value="Linux")
 
     mock_init = mocker.patch("cleverswitch.setup.app_setup._init_subscribers")
 
