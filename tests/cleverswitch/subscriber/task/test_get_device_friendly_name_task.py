@@ -20,7 +20,10 @@ FRIENDLY_IDX = 3
 
 def _make_device(friendly_name=None, pending=None, features=None):
     d = LogiDevice(
-        wpid=0x407B, pid=PID, slot=SLOT, role="keyboard",
+        wpid=0x407B,
+        pid=PID,
+        slot=SLOT,
+        role="keyboard",
         available_features=features if features is not None else {FEATURE_DEVICE_FRIENDLY_NAME: FRIENDLY_IDX},
     )
     d.friendly_name = friendly_name
@@ -71,10 +74,10 @@ def test_assembles_friendly_name_from_multiple_chunks():
     task = GetDeviceFriendlyNameTask(device, topics)
 
     # 20-char name needs two fn=1 calls: byteIndex=0 (15 bytes), byteIndex=15 (5 bytes)
-    full_name = b"MX Master 3S Keys   "  # 20 chars
+    full_name = b"MX Master 3S Mouse!!"  # 20 chars
     name_len = len(full_name)
-    first_chunk = full_name[:15]  # "MX Master 3S Ke"
-    second_chunk = full_name[15:]  # "ys   "
+    first_chunk = full_name[:15]  # "MX Master 3S Mo"
+    second_chunk = full_name[15:]  # "use!!"
 
     task._response_queue.put(_response(bytes([name_len, 30, name_len])))
     # Each fn=1 response: byte 0 = echoed byteIndex, bytes 1..15 = chunk
@@ -176,3 +179,31 @@ def test_chunk_error_leaves_friendly_name_none():
     task.doTask()
 
     assert device.friendly_name is None
+
+
+def test_strips_trailing_nuls_from_good_friendly_name():
+    device = _make_device(pending={Task.Name.GET_DEVICE_FRIENDLY_NAME})
+    topics = _make_topics()
+    task = GetDeviceFriendlyNameTask(device, topics)
+
+    name = b"MX Keys\x00\x00"
+    task._response_queue.put(_response(bytes([len(name), 15, len(name)])))
+    task._response_queue.put(_response(bytes([0]) + name))
+    task.doTask()
+
+    assert device.friendly_name == "MX Keys"
+    assert Task.Name.GET_DEVICE_FRIENDLY_NAME not in device.pending_steps
+
+
+def test_rejects_all_nul_friendly_name_and_keeps_step_pending():
+    device = _make_device(pending={Task.Name.GET_DEVICE_FRIENDLY_NAME})
+    topics = _make_topics()
+    task = GetDeviceFriendlyNameTask(device, topics)
+
+    name = b"\x00\x00\x00\x00"
+    task._response_queue.put(_response(bytes([len(name), 15, len(name)])))
+    task._response_queue.put(_response(bytes([0]) + name))
+    task.doTask()
+
+    assert device.friendly_name is None
+    assert Task.Name.GET_DEVICE_FRIENDLY_NAME in device.pending_steps

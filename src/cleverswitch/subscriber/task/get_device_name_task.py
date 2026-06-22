@@ -53,8 +53,13 @@ class GetDeviceNameTask(InfoTask):
             chars.extend(chunk)
 
         if len(chars) == name_len:
-            self._device.name = bytes(chars).decode("utf-8", errors="replace")
-            log.debug(f"wpid=0x{self._device.wpid:04X}: name={self._device.name}")
-            self._device.pending_steps.discard(self._step_name)
+            decoded = bytes(chars).decode("utf-8", errors="replace").rstrip("\x00").strip()
+            if not decoded or all(c == "\x00" or c.isspace() or not c.isprintable() for c in decoded):
+                log.debug(f"wpid=0x{self._device.wpid:04X}: discarding corrupted name read")
+                self._device.name = None
+            else:
+                self._device.name = decoded
+                log.debug(f"wpid=0x{self._device.wpid:04X}: name={self._device.name}")
+                self._device.pending_steps.discard(self._step_name)
         else:
             self._device.name = None

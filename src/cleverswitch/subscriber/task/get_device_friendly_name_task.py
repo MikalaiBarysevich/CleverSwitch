@@ -56,8 +56,13 @@ class GetDeviceFriendlyNameTask(InfoTask):
             chars.extend(chunk)
 
         if len(chars) == name_len:
-            self._device.friendly_name = bytes(chars).decode("utf-8", errors="replace")
-            log.debug(f"wpid=0x{self._device.wpid:04X}: friendly_name={self._device.friendly_name}")
-            self._device.pending_steps.discard(self._step_name)
+            decoded = bytes(chars).decode("utf-8", errors="replace").rstrip("\x00").strip()
+            if not decoded or all(c == "\x00" or c.isspace() or not c.isprintable() for c in decoded):
+                log.debug(f"wpid=0x{self._device.wpid:04X}: discarding corrupted friendly name read")
+                self._device.friendly_name = None
+            else:
+                self._device.friendly_name = decoded
+                log.debug(f"wpid=0x{self._device.wpid:04X}: friendly_name={self._device.friendly_name}")
+                self._device.pending_steps.discard(self._step_name)
         else:
             self._device.friendly_name = None

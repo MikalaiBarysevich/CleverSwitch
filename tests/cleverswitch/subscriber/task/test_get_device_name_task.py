@@ -20,7 +20,10 @@ NAME_IDX = 5
 
 def _make_device(name=None, pending=None, features=None):
     d = LogiDevice(
-        wpid=0x407B, pid=PID, slot=SLOT, role="keyboard",
+        wpid=0x407B,
+        pid=PID,
+        slot=SLOT,
+        role="keyboard",
         available_features=features if features is not None else {FEATURE_DEVICE_TYPE_AND_NAME: NAME_IDX},
         name=name,
     )
@@ -40,7 +43,14 @@ def _make_topics():
 
 
 def _response(payload: bytes):
-    return HidppResponseEvent(slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=GET_DEVICE_NAME_SW_ID, payload=payload + bytes(16 - len(payload)))
+    return HidppResponseEvent(
+        slot=SLOT,
+        pid=PID,
+        feature_index=0,
+        function=0,
+        sw_id=GET_DEVICE_NAME_SW_ID,
+        payload=payload + bytes(16 - len(payload)),
+    )
 
 
 def test_reads_device_name():
@@ -49,8 +59,8 @@ def test_reads_device_name():
     task = GetDeviceNameTask(device, topics)
 
     name = b"MX Keys"
-    task._response_queue.put(_response(bytes([len(name)])))       # count response
-    task._response_queue.put(_response(name))                      # name chunk
+    task._response_queue.put(_response(bytes([len(name)])))  # count response
+    task._response_queue.put(_response(name))  # name chunk
     task.doTask()
 
     assert device.name == "MX Keys"
@@ -64,11 +74,11 @@ def test_assembles_name_from_multiple_chunks():
 
     # 17-char name forces two requests: first fills the 16-byte payload, second fetches the last char
     name = b"MX Master 3S Key"  # 16 chars in first chunk
-    last = b"s"                 # 1 char in second chunk (total 17)
+    last = b"s"  # 1 char in second chunk (total 17)
     full = name + last
     task._response_queue.put(_response(bytes([len(full)])))
-    task._response_queue.put(_response(name))    # charIndex=0, fills all 16 payload bytes
-    task._response_queue.put(_response(last))    # charIndex=16, 1 remaining char
+    task._response_queue.put(_response(name))  # charIndex=0, fills all 16 payload bytes
+    task._response_queue.put(_response(last))  # charIndex=16, 1 remaining char
     task.doTask()
 
     assert device.name == "MX Master 3S Keys"
@@ -139,3 +149,45 @@ def test_sets_name_none_on_chunk_error():
     task.doTask()
 
     assert device.name is None
+
+
+def test_strips_trailing_nuls_from_good_name():
+    device = _make_device(pending={Task.Name.GET_DEVICE_NAME})
+    topics = _make_topics()
+    task = GetDeviceNameTask(device, topics)
+
+    name = b"MX Keys\x00\x00\x00"
+    task._response_queue.put(_response(bytes([len(name)])))
+    task._response_queue.put(_response(name))
+    task.doTask()
+
+    assert device.name == "MX Keys"
+    assert Task.Name.GET_DEVICE_NAME not in device.pending_steps
+
+
+def test_rejects_all_nul_name_and_keeps_step_pending():
+    device = _make_device(pending={Task.Name.GET_DEVICE_NAME})
+    topics = _make_topics()
+    task = GetDeviceNameTask(device, topics)
+
+    name = b"\x00\x00\x00\x00"
+    task._response_queue.put(_response(bytes([len(name)])))
+    task._response_queue.put(_response(name))
+    task.doTask()
+
+    assert device.name is None
+    assert Task.Name.GET_DEVICE_NAME in device.pending_steps
+
+
+def test_rejects_unprintable_garbage_name_and_keeps_step_pending():
+    device = _make_device(pending={Task.Name.GET_DEVICE_NAME})
+    topics = _make_topics()
+    task = GetDeviceNameTask(device, topics)
+
+    name = bytes([0x01, 0x02, 0x03, 0x04])
+    task._response_queue.put(_response(bytes([len(name)])))
+    task._response_queue.put(_response(name))
+    task.doTask()
+
+    assert device.name is None
+    assert Task.Name.GET_DEVICE_NAME in device.pending_steps
