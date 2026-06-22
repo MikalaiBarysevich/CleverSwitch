@@ -31,3 +31,9 @@ class TransportError(CleverSwitchError):
 
 class ConfigError(CleverSwitchError):
     pass
+
+
+class AlreadyRunningError(CleverSwitchError):
+    """Raised when another CleverSwitch instance already holds the single-instance lock."""
+
+    pass

@@ -10,6 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
     "hid >= 1.0.9 ; sys_platform == 'win32'",  # provides hidapi.dll on Windows; Linux/macOS use system libhidapi
     "pyyaml >= 6.0",
+    "filelock >= 3.12",
     "bleak >= 0.22; sys_platform == 'darwin'",
     "pyobjc-framework-CoreBluetooth ; sys_platform == 'darwin'",
 ]

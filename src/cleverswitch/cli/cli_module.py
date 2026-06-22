@@ -10,8 +10,9 @@ import threading
 
 from .. import __version__
 from ..discovery.discovery import discover
-from ..errors.errors import CleverSwitchError
+from ..errors.errors import AlreadyRunningError, CleverSwitchError
 from ..setup.app_setup import setup_context
+from ..single_instance import acquire_single_instance_lock
 
 _SYSTEM = platform.system()
 
@@ -21,6 +22,12 @@ def main() -> None:
 
     _setup_logging(args.verbose or args.verbose_extra)
     log = logging.getLogger(__name__)
+
+    try:
+        _instance_lock = acquire_single_instance_lock()  # noqa: F841 — held for process lifetime
+    except AlreadyRunningError:
+        log.error("Another CleverSwitch instance is already running; exiting")
+        sys.exit(0)
 
     app_context = setup_context(args)
 
