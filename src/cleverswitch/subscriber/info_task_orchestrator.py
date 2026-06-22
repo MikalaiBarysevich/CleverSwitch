@@ -1,4 +1,5 @@
 import logging
+import threading
 
 from ..event.info_task_progress_event import InfoTaskProgressEvent
 from ..registry.logi_device_registry import LogiDeviceRegistry
@@ -15,6 +16,10 @@ from ..topic.topics import Topics
 from .task.constants import Task
 
 log = logging.getLogger(__name__)
+
+RETRY_BASE_DELAY = 0.5
+RETRY_MAX_DELAY = 10.0
+RETRY_MAX_ATTEMPTS = 5
 
 _TASK_FACTORIES = {
     Task.Feature.Name.CID_REPORTING: CidReportingFeatureTask,
@@ -33,6 +38,7 @@ class InfoTaskOrchestrator(Subscriber):
         self._device_registry = device_registry
         self._topics = topics
         self._announced: set[int] = set()  # wpids already logged as fully discovered
+        self._retry_attempts: dict[tuple[int, str], int] = {}
         topics.info_progress.subscribe(self)
 
     def notify(self, event) -> None:
@@ -42,6 +48,7 @@ class InfoTaskOrchestrator(Subscriber):
     def _handle_progress(self, event: InfoTaskProgressEvent) -> None:
         device = event.device
         if event.success:
+            self._retry_attempts.pop((device.slot, event.step_name), None)
             if not device.pending_steps and device.wpid not in self._announced:
                 self._announced.add(device.wpid)
                 if device.friendly_name is None and device.name is not None:
@@ -49,5 +56,27 @@ class InfoTaskOrchestrator(Subscriber):
                 log.info(f"Device fully discovered: {device}")
         else:
             if device.connected:
-                log.debug(f"Retrying step={event.step_name} slot={device.slot}")
-                _TASK_FACTORIES[event.step_name](device, self._topics).start()
+                self._schedule_retry(device, event.step_name)
+
+    def _schedule_retry(self, device, step_name: str) -> None:
+        key = (device.slot, step_name)
+        attempt = self._retry_attempts.get(key, 0)
+        if attempt >= RETRY_MAX_ATTEMPTS:
+            log.warning(
+                f"Giving up on step={step_name} for wpid=0x{device.wpid:04X} "
+                f"slot={device.slot} after {RETRY_MAX_ATTEMPTS} attempts"
+            )
+            return
+        self._retry_attempts[key] = attempt + 1
+        delay = min(RETRY_BASE_DELAY * (2**attempt), RETRY_MAX_DELAY)
+        log.debug(
+            f"Retrying step={step_name} slot={device.slot} attempt={attempt + 1}/{RETRY_MAX_ATTEMPTS} in {delay}s"
+        )
+        timer = threading.Timer(delay, self._fire_retry, args=(device, step_name))
+        timer.daemon = True
+        timer.start()
+
+    def _fire_retry(self, device, step_name: str) -> None:
+        if not device.connected:
+            return
+        _TASK_FACTORIES[step_name](device, self._topics).start()
