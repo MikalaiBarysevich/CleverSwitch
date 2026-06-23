@@ -70,9 +70,7 @@ _WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
 def _is_file_path(value: str) -> bool:
     """Heuristic: does the string look like a file path rather than a shell command?"""
-    if _WINDOWS_DRIVE_RE.match(value):  # drive-letter path, e.g. C:\... or C:/...
-        return True
-    return value.startswith(("/", "~/", "./", "../", "~\\", ".\\", "..\\", "\\\\"))
+    return _WINDOWS_DRIVE_RE.match(value) or value.startswith(("/", "~/", "./", "../", "~\\", ".\\", "..\\", "\\\\"))
 
 
 def _run(hook: HookEntry, extra_env: dict[str, str]) -> None:
