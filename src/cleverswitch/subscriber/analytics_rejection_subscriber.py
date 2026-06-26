@@ -1,5 +1,6 @@
 import logging
 
+from ..cache.device_cache import DeviceCache
 from ..event.hidpp_response_event import HidppResponseEvent
 from ..event.set_report_flag_event import SetReportFlagEvent
 from ..hidpp.constants import HOST_SWITCH_CIDS, KEY_FLAG_ANALYTICS, SW_ID_DIVERT
@@ -20,9 +21,10 @@ class AnalyticsRejectionSubscriber(Subscriber):
     republish SetReportFlagEvent so SetReportFlagSubscriber re-arms via divert.
     """
 
-    def __init__(self, device_registry: LogiDeviceRegistry, topics: Topics):
+    def __init__(self, device_registry: LogiDeviceRegistry, topics: Topics, device_cache: DeviceCache):
         self._device_registry = device_registry
         self._topics = topics
+        self._device_cache = device_cache
         topics.hid_event.subscribe(self)
 
     def notify(self, event) -> None:
@@ -53,4 +55,5 @@ class AnalyticsRejectionSubscriber(Subscriber):
 
         log.debug(f"wpid=0x{device.wpid:04X}: analytics rejected on CID 0x{cid:04X}, falling back to divert")
         device.supported_flags.discard(KEY_FLAG_ANALYTICS)
+        self._device_cache.save(device)
         self._topics.flags.publish(SetReportFlagEvent(slot=event.slot, pid=device.pid, wpid=device.wpid))

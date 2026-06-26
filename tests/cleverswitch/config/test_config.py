@@ -101,6 +101,24 @@ def test_parse_sets_verbose_extra_from_cli_args():
     assert cfg.arguments_settings.verbose_extra is True
 
 
+def test_parse_uses_default_cache_path_when_unset():
+    from src.cleverswitch.config.config import _DEFAULT_CACHE_PATH
+
+    cfg = _parse({}, _cli_args())
+    assert cfg.cache_path == _DEFAULT_CACHE_PATH
+
+
+def test_parse_reads_cache_path_from_config():
+    raw = {"cache": {"path": "/var/lib/cleverswitch/devices.json"}}
+    cfg = _parse(raw, _cli_args())
+    assert cfg.cache_path == Path("/var/lib/cleverswitch/devices.json")
+
+
+def test_parse_expands_tilde_in_cache_path():
+    cfg = _parse({"cache": {"path": "~/custom/devices.json"}}, _cli_args())
+    assert cfg.cache_path == Path("~/custom/devices.json").expanduser()
+
+
 # ── _parse_hooks ──────────────────────────────────────────────────────────────
 
 

@@ -16,6 +16,7 @@ from ..model.config.hook_entry import HookEntry
 from ..model.config.hooks_config import HooksConfig
 
 _DEFAULT_CONFIG_PATH = Path("~/.config/cleverswitch/config.yaml").expanduser()
+_DEFAULT_CACHE_PATH = Path("~/.config/cleverswitch/device_cache.json").expanduser()
 
 # ── Default config ────────────────────────────────────────────────────────────
 
@@ -24,6 +25,7 @@ def default_config() -> Config:
     return Config(
         hooks=HooksConfig(),
         arguments_settings=ArgsSettings(),
+        cache_path=_DEFAULT_CACHE_PATH,
     )
 
 
@@ -67,7 +69,10 @@ def _parse(raw: dict[str, Any], cli_args: argparse.Namespace) -> Config:
         verbose_extra=cli_args.verbose_extra if cli_args.verbose_extra is not None else False,
     )
 
-    config = Config(hooks=hooks, arguments_settings=arguments_settings)
+    c = raw.get("cache", {})
+    cache_path = Path(os.path.expanduser(str(c["path"]))) if c.get("path") else _DEFAULT_CACHE_PATH
+
+    config = Config(hooks=hooks, arguments_settings=arguments_settings, cache_path=cache_path)
     _validate(config)
     return config
 

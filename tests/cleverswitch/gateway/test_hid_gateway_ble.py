@@ -6,8 +6,6 @@ import asyncio
 import threading
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from cleverswitch.gateway.hid_gateway_ble import BLE_PREPEND, HidGatewayBLE
 from cleverswitch.gateway.hid_gateway_bt import HidGatewayBT
 from cleverswitch.hidpp.transport import HidDeviceInfo
@@ -179,8 +177,6 @@ def test_ble_main_finds_peripheral_when_connected():
     calls = [0]
 
     async def run():
-        mock_device = MagicMock()
-
         async def fake_find(wpid):
             calls[0] += 1
             gw._stop.set()

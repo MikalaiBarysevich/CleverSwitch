@@ -29,9 +29,18 @@ def _make_topics():
     )
 
 
+def _make_cache():
+    cache = MagicMock()
+    cache.find_by_wpid.return_value = None
+    return cache
+
+
 def _make_device(role="keyboard", pending_steps=None):
     device = LogiDevice(
-        wpid=WPID, pid=PID, slot=1, role=role,
+        wpid=WPID,
+        pid=PID,
+        slot=1,
+        role=role,
         available_features={FEATURE_REPROG_CONTROLS_V4: 8, FEATURE_CHANGE_HOST: 9},
     )
     if pending_steps is not None:
@@ -45,7 +54,7 @@ def _make_device(role="keyboard", pending_steps=None):
 def test_new_connection_registers_device():
     registry = LogiDeviceRegistry()
     topics = _make_topics()
-    sub = DeviceConnectionSubscriber(registry, topics)
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
 
     event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1)
     sub.notify(event)
@@ -58,7 +67,7 @@ def test_new_connection_registers_device():
 def test_new_connection_publishes_device_info_request():
     registry = LogiDeviceRegistry()
     topics = _make_topics()
-    sub = DeviceConnectionSubscriber(registry, topics)
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
 
     event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=None)
     sub.notify(event)
@@ -72,7 +81,7 @@ def test_new_connection_publishes_device_info_request():
 def test_new_connection_with_known_type_sets_type_false():
     registry = LogiDeviceRegistry()
     topics = _make_topics()
-    sub = DeviceConnectionSubscriber(registry, topics)
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
 
     event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1)
     sub.notify(event)
@@ -84,7 +93,7 @@ def test_new_connection_with_known_type_sets_type_false():
 def test_new_connection_device_type_not_1_is_mouse():
     registry = LogiDeviceRegistry()
     topics = _make_topics()
-    sub = DeviceConnectionSubscriber(registry, topics)
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
 
     event = DeviceConnectedEvent(slot=2, pid=PID, link_established=True, wpid=0x1234, device_type=3)
     sub.notify(event)
@@ -99,7 +108,7 @@ def test_new_connection_device_type_not_1_is_mouse():
 def test_reconnection_publishes_set_report_flag_event_when_reprog_available():
     registry = LogiDeviceRegistry()
     topics = _make_topics()
-    sub = DeviceConnectionSubscriber(registry, topics)
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
 
     device = _make_device(pending_steps=set())
     device.connected = False
@@ -116,7 +125,7 @@ def test_reconnection_publishes_set_report_flag_event_when_reprog_available():
 def test_reconnection_does_not_divert_on_disconnect():
     registry = LogiDeviceRegistry()
     topics = _make_topics()
-    sub = DeviceConnectionSubscriber(registry, topics)
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
 
     device = _make_device(pending_steps=set())
     registry.register(WPID, device)
@@ -130,10 +139,13 @@ def test_reconnection_does_not_divert_on_disconnect():
 def test_reconnection_does_not_publish_when_no_reprog_feature():
     registry = LogiDeviceRegistry()
     topics = _make_topics()
-    sub = DeviceConnectionSubscriber(registry, topics)
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
 
     device = LogiDevice(
-        wpid=WPID, pid=PID, slot=1, role="keyboard",
+        wpid=WPID,
+        pid=PID,
+        slot=1,
+        role="keyboard",
         available_features={FEATURE_CHANGE_HOST: 9},
     )
     device.pending_steps = set()
@@ -149,7 +161,7 @@ def test_reconnection_does_not_publish_when_no_reprog_feature():
 def test_reconnection_requests_info_if_pending_steps():
     registry = LogiDeviceRegistry()
     topics = _make_topics()
-    sub = DeviceConnectionSubscriber(registry, topics)
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
 
     device = _make_device(pending_steps={Task.Feature.Name.CID_REPORTING})
     device.connected = False
@@ -164,7 +176,7 @@ def test_reconnection_requests_info_if_pending_steps():
 def test_reconnection_does_not_request_info_if_setup_complete():
     registry = LogiDeviceRegistry()
     topics = _make_topics()
-    sub = DeviceConnectionSubscriber(registry, topics)
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
 
     device = _make_device(pending_steps=set())
     device.connected = False
@@ -182,7 +194,7 @@ def test_reconnection_does_not_request_info_if_setup_complete():
 def test_sets_connected_false_on_disconnect():
     registry = LogiDeviceRegistry()
     topics = _make_topics()
-    sub = DeviceConnectionSubscriber(registry, topics)
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
 
     device = _make_device()
     device.connected = True
@@ -197,7 +209,7 @@ def test_sets_connected_false_on_disconnect():
 def test_sets_connected_true_on_reconnect():
     registry = LogiDeviceRegistry()
     topics = _make_topics()
-    sub = DeviceConnectionSubscriber(registry, topics)
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
 
     device = _make_device(pending_steps=set())
     device.connected = False
@@ -216,7 +228,7 @@ def test_same_state_connect_event_is_ignored():
     """Duplicate connect event (device already connected) produces no side effects."""
     registry = LogiDeviceRegistry()
     topics = _make_topics()
-    sub = DeviceConnectionSubscriber(registry, topics)
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
 
     device = _make_device(pending_steps=set())
     device.connected = True  # already connected
@@ -233,7 +245,7 @@ def test_same_state_disconnect_event_is_ignored():
     """Duplicate disconnect event (device already disconnected) produces no side effects."""
     registry = LogiDeviceRegistry()
     topics = _make_topics()
-    sub = DeviceConnectionSubscriber(registry, topics)
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
 
     device = _make_device(pending_steps=set())
     device.connected = False  # already disconnected
@@ -250,7 +262,7 @@ def test_opposite_state_connect_event_triggers_flag_publish():
     """Connect event after disconnect (state transition) still triggers flag publish."""
     registry = LogiDeviceRegistry()
     topics = _make_topics()
-    sub = DeviceConnectionSubscriber(registry, topics)
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
 
     device = _make_device(pending_steps=set())
     device.connected = False
@@ -267,7 +279,7 @@ def test_opposite_state_disconnect_event_updates_connected_flag():
     """Disconnect event after connect (state transition) updates the device connected flag."""
     registry = LogiDeviceRegistry()
     topics = _make_topics()
-    sub = DeviceConnectionSubscriber(registry, topics)
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
 
     device = _make_device(pending_steps=set())
     device.connected = True
@@ -285,5 +297,49 @@ def test_opposite_state_disconnect_event_updates_connected_flag():
 def test_non_device_connected_event_ignored():
     registry = LogiDeviceRegistry()
     topics = _make_topics()
-    sub = DeviceConnectionSubscriber(registry, topics)
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
     sub.notify("not an event")  # must not raise
+
+
+# ── Cache hit ────────────────────────────────────────────────────────────────
+
+
+def test_cache_hit_registers_device_and_arms_flags_without_discovery():
+    """A fully-cached device (not yet in the registry) is registered from cache and
+    reconnected: config (SetReportFlagEvent) fires but no info request is issued."""
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    cache = _make_cache()
+
+    cached = _make_device(pending_steps=set())
+    cached.connected = False
+    cache.find_by_wpid.return_value = cached
+
+    sub = DeviceConnectionSubscriber(registry, topics, cache)
+
+    event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1)
+    sub.notify(event)
+
+    assert registry.get_by_wpid(WPID) is cached
+    assert cached.connected is True
+    topics.flags.publish.assert_called_once()
+    topics.device_info.publish.assert_not_called()
+
+
+def test_cache_hit_requests_info_for_missing_steps():
+    """A partially-cached device still requests discovery for its remaining steps."""
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    cache = _make_cache()
+
+    cached = _make_device(pending_steps={Task.Name.GET_DEVICE_NAME})
+    cached.connected = False
+    cache.find_by_wpid.return_value = cached
+
+    sub = DeviceConnectionSubscriber(registry, topics, cache)
+
+    event = DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1)
+    sub.notify(event)
+
+    assert registry.get_by_wpid(WPID) is cached
+    topics.device_info.publish.assert_called_once()

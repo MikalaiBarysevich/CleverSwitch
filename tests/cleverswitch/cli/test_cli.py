@@ -10,7 +10,6 @@ import pytest
 from src.cleverswitch.cli.cli_module import _parse_args, _setup_logging, main
 from src.cleverswitch.errors.errors import CleverSwitchError
 
-
 # ── _parse_args() ─────────────────────────────────────────────────────────────
 
 
@@ -45,6 +44,18 @@ def test_parse_args_enables_verbose_extra_flag(monkeypatch):
     assert args.verbose_extra is True
 
 
+def test_parse_args_clear_cache_defaults_false(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["cleverswitch"])
+    args = _parse_args()
+    assert args.clear_cache is False
+
+
+def test_parse_args_enables_clear_cache_flag(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["cleverswitch", "--clear-cache"])
+    args = _parse_args()
+    assert args.clear_cache is True
+
+
 # ── _setup_logging() ──────────────────────────────────────────────────────────
 
 
@@ -75,6 +86,23 @@ def test_main_starts_discovery_thread_in_normal_mode(mocker, monkeypatch):
 
     mock_thread.start.assert_called_once()
     mock_thread.join.assert_called_once()
+
+
+def test_main_clears_cache_and_exits_without_starting_daemon(mocker, monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["cleverswitch", "--clear-cache"])
+    mocker.patch("src.cleverswitch.cli.cli_module._setup_logging")
+    mock_load = mocker.patch("src.cleverswitch.cli.cli_module.cfg_module.load")
+    mock_load.return_value.cache_path = "/tmp/some/device_cache.json"
+    mock_cache_cls = mocker.patch("src.cleverswitch.cli.cli_module.DeviceCache")
+    mock_setup = mocker.patch("src.cleverswitch.cli.cli_module.setup_context")
+    mock_thread_cls = mocker.patch("src.cleverswitch.cli.cli_module.threading.Thread")
+
+    main()
+
+    mock_cache_cls.assert_called_once_with("/tmp/some/device_cache.json")
+    mock_cache_cls.return_value.clear.assert_called_once()
+    mock_setup.assert_not_called()
+    mock_thread_cls.assert_not_called()
 
 
 def test_main_exits_with_code_1_on_clever_switch_error(mocker, monkeypatch):

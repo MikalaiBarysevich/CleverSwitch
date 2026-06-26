@@ -5,6 +5,7 @@ import sys
 import threading
 
 from .. import __version__
+from ..cache.device_cache import DeviceCache
 from ..config import config as cfg_module
 from ..config.config import Config
 from ..errors.errors import ConfigError
@@ -35,7 +36,8 @@ def setup_context(args: argparse.Namespace) -> AppContext:
     shutdown = _setup_shutdown()
     topics = _setup_topics()
     registry = _setup_logi_device_registry()
-    _init_subscribers(topics, registry, config)
+    cache = _setup_device_cache(config)
+    _init_subscribers(topics, registry, config, cache)
     return AppContext(registry, topics, config, shutdown)
 
 
@@ -72,13 +74,19 @@ def _setup_logi_device_registry() -> LogiDeviceRegistry:
     return LogiDeviceRegistry()
 
 
-def _init_subscribers(topics: Topics, device_registry: LogiDeviceRegistry, config: Config) -> None:
-    DeviceConnectionSubscriber(device_registry, topics)
+def _setup_device_cache(config: Config) -> DeviceCache:
+    cache = DeviceCache(config.cache_path)
+    cache.load()
+    return cache
+
+
+def _init_subscribers(topics: Topics, device_registry: LogiDeviceRegistry, config: Config, cache: DeviceCache) -> None:
+    DeviceConnectionSubscriber(device_registry, topics, cache)
     DeviceInfoSubscriber(device_registry, topics)
-    InfoTaskOrchestrator(device_registry, topics)
+    InfoTaskOrchestrator(device_registry, topics, cache)
     SetReportFlagSubscriber(device_registry, topics)
     ExternalUnsetFlagSubscriber(device_registry, topics)
-    AnalyticsRejectionSubscriber(device_registry, topics)
+    AnalyticsRejectionSubscriber(device_registry, topics, cache)
     HostChangeSubscriber(device_registry, topics)
     WirelessStatusSubscriber(device_registry, topics)
     TransportDisconnectionSubscriber(device_registry, topics)

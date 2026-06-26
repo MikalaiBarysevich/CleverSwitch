@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 import subprocess
 
+from cleverswitch.hook.hooks import _run, fire, fire_connect, fire_disconnect, fire_switch
 from cleverswitch.model.config.hook_entry import HookEntry
 from cleverswitch.model.config.hooks_config import HooksConfig
-from cleverswitch.hook.hooks import _run, fire, fire_connect, fire_disconnect, fire_switch
 
 # ── fire() ────────────────────────────────────────────────────────────────────
 

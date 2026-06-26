@@ -20,7 +20,10 @@ NAME_IDX = 5
 
 def _make_device(role=None, pending=None, features=None):
     d = LogiDevice(
-        wpid=0x407B, pid=PID, slot=SLOT, role=role,
+        wpid=0x407B,
+        pid=PID,
+        slot=SLOT,
+        role=role,
         available_features=features if features is not None else {FEATURE_DEVICE_TYPE_AND_NAME: NAME_IDX},
     )
     if pending is not None:
@@ -40,7 +43,9 @@ def _make_topics():
 
 def _type_response(device_type: int):
     payload = bytes([device_type]) + bytes(15)
-    return HidppResponseEvent(slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=GET_DEVICE_TYPE_SW_ID, payload=payload)
+    return HidppResponseEvent(
+        slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=GET_DEVICE_TYPE_SW_ID, payload=payload
+    )
 
 
 def test_sets_role_keyboard_for_type_0():

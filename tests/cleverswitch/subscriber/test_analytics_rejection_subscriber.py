@@ -75,7 +75,7 @@ def _make_response(
 def _setup(*, with_analytics: bool = True) -> tuple[AnalyticsRejectionSubscriber, Topics, LogiDevice]:
     registry = LogiDeviceRegistry()
     topics = _make_topics()
-    sub = AnalyticsRejectionSubscriber(registry, topics)
+    sub = AnalyticsRejectionSubscriber(registry, topics, MagicMock())
     device = _make_device(with_analytics=with_analytics)
     registry.register(WPID, device)
     return sub, topics, device
@@ -153,11 +153,25 @@ def test_second_rejection_after_fallback_ignored():
 def test_unregistered_device_ignored():
     registry = LogiDeviceRegistry()
     topics = _make_topics()
-    sub = AnalyticsRejectionSubscriber(registry, topics)
+    sub = AnalyticsRejectionSubscriber(registry, topics, MagicMock())
 
     sub.notify(_make_response(cid=0x00D1, byte9=0x00))
 
     topics.flags.publish.assert_not_called()
+
+
+def test_rejection_persists_dropped_flag_to_cache():
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    cache = MagicMock()
+    sub = AnalyticsRejectionSubscriber(registry, topics, cache)
+    device = _make_device()
+    registry.register(WPID, device)
+
+    sub.notify(_make_response(cid=0x00D1, byte9=0x00))
+
+    assert KEY_FLAG_ANALYTICS not in device.supported_flags
+    cache.save.assert_called_once_with(device)
 
 
 def test_short_payload_ignored():

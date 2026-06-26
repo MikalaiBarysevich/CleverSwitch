@@ -216,7 +216,10 @@ def test_undivert_all_publishes_set_report_flag_event_with_enable_false(mocker):
     mocker.patch("cleverswitch.discovery.discovery.time.sleep")
     registry = LogiDeviceRegistry()
     device = LogiDevice(
-        wpid=0x407B, pid=BOLT_PID, slot=1, role="keyboard",
+        wpid=0x407B,
+        pid=BOLT_PID,
+        slot=1,
+        role="keyboard",
         available_features={FEATURE_REPROG_CONTROLS_V4: 8, FEATURE_CHANGE_HOST: 9},
     )
     registry.register(0x407B, device)
@@ -241,7 +244,10 @@ def test_undivert_all_skips_device_without_reprog_feature(mocker):
     mocker.patch("cleverswitch.discovery.discovery.time.sleep")
     registry = LogiDeviceRegistry()
     device = LogiDevice(
-        wpid=0x407B, pid=BOLT_PID, slot=2, role="mouse",
+        wpid=0x407B,
+        pid=BOLT_PID,
+        slot=2,
+        role="mouse",
         available_features={FEATURE_CHANGE_HOST: 9},
     )
     registry.register(0x407B, device)
@@ -263,7 +269,10 @@ def test_undivert_all_skips_device_with_analytics_flag(mocker):
     mocker.patch("cleverswitch.discovery.discovery.time.sleep")
     registry = LogiDeviceRegistry()
     device = LogiDevice(
-        wpid=0x407B, pid=BOLT_PID, slot=1, role="keyboard",
+        wpid=0x407B,
+        pid=BOLT_PID,
+        slot=1,
+        role="keyboard",
         available_features={FEATURE_REPROG_CONTROLS_V4: 8, FEATURE_CHANGE_HOST: 9},
     )
     device.supported_flags = {KEY_FLAG_ANALYTICS}

@@ -9,8 +9,10 @@ import sys
 import threading
 
 from .. import __version__
+from ..cache.device_cache import DeviceCache
+from ..config import config as cfg_module
 from ..discovery.discovery import discover
-from ..errors.errors import CleverSwitchError
+from ..errors.errors import CleverSwitchError, ConfigError
 from ..setup.app_setup import setup_context
 
 _SYSTEM = platform.system()
@@ -21,6 +23,15 @@ def main() -> None:
 
     _setup_logging(args.verbose or args.verbose_extra)
     log = logging.getLogger(__name__)
+
+    if args.clear_cache:
+        try:
+            config = cfg_module.load(args)
+        except ConfigError as e:
+            log.error(f"{e}")
+            sys.exit(1)
+        DeviceCache(config.cache_path).clear()
+        return
 
     app_context = setup_context(args)
 
@@ -47,6 +58,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("-c", "--config", metavar="FILE", help="path to config YAML file")
     p.add_argument("-v", "--verbose", action="store_true", help="force DEBUG logging")
     p.add_argument("-vv", "--verbose-extra", action="store_true", help="force DEBUG logging including discovery")
+    p.add_argument("--clear-cache", action="store_true", help="delete the discovered-device cache and exit")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return p.parse_args()
 

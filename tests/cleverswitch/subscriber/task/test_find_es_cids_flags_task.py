@@ -15,8 +15,7 @@ from src.cleverswitch.hidpp.constants import (
     KEY_FLAG_PERSISTENTLY_DIVERTABLE,
 )
 from src.cleverswitch.model.logi_device import LogiDevice
-from src.cleverswitch.subscriber.task.constants import FIND_ES_CIDS_FLAGS_SW_ID
-from src.cleverswitch.subscriber.task.constants import Task
+from src.cleverswitch.subscriber.task.constants import FIND_ES_CIDS_FLAGS_SW_ID, Task
 from src.cleverswitch.subscriber.task.find_es_cids_flags_task import FindESCidsFlagsTask
 from src.cleverswitch.topic.topic import Topic
 from src.cleverswitch.topic.topics import Topics
@@ -48,14 +47,16 @@ def _make_topics():
 
 def _count_response(count: int):
     payload = bytes([count]) + bytes(15)
-    return HidppResponseEvent(slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=FIND_ES_CIDS_FLAGS_SW_ID,
-                              payload=payload)
+    return HidppResponseEvent(
+        slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=FIND_ES_CIDS_FLAGS_SW_ID, payload=payload
+    )
 
 
 def _cid_info_response(cid: int, flags: int):
     body = bytes([(cid >> 8) & 0xFF, cid & 0xFF, 0x00, 0x00, flags]) + bytes(11)
-    return HidppResponseEvent(slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=FIND_ES_CIDS_FLAGS_SW_ID,
-                              payload=body)
+    return HidppResponseEvent(
+        slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=FIND_ES_CIDS_FLAGS_SW_ID, payload=body
+    )
 
 
 # ── Happy path: both KEY_FLAG_ANALYTICS and KEY_FLAG_DIVERTABLE ───────────────

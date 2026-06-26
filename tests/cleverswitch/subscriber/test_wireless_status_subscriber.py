@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cleverswitch.event.set_report_flag_event import SetReportFlagEvent
 from cleverswitch.event.hidpp_notification_event import HidppNotificationEvent
+from cleverswitch.event.set_report_flag_event import SetReportFlagEvent
 from cleverswitch.hidpp.constants import (
     BOLT_PID,
     FEATURE_CHANGE_HOST,
@@ -77,7 +77,6 @@ def subscriber(registry, divert_topic) -> WirelessStatusSubscriber:
 
 
 class TestWirelessStatusSubscriber:
-
     def test_reconfig_request_publishes_set_report_flag_event(self, subscriber, registry, divert_topic):
         registry.register(WPID, _make_device())
         subscriber.notify(_make_x1d4b_event())

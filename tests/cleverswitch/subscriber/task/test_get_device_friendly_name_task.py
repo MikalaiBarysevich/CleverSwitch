@@ -20,7 +20,10 @@ FRIENDLY_IDX = 3
 
 def _make_device(friendly_name=None, pending=None, features=None):
     d = LogiDevice(
-        wpid=0x407B, pid=PID, slot=SLOT, role="keyboard",
+        wpid=0x407B,
+        pid=PID,
+        slot=SLOT,
+        role="keyboard",
         available_features=features if features is not None else {FEATURE_DEVICE_FRIENDLY_NAME: FRIENDLY_IDX},
     )
     d.friendly_name = friendly_name
