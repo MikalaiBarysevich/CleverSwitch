@@ -41,7 +41,10 @@ def _make_device(reprog_idx=REPROG_IDX, supported_flags=None):
     if reprog_idx is not None:
         features[FEATURE_REPROG_CONTROLS_V4] = reprog_idx
     device = LogiDevice(
-        wpid=WPID, pid=PID, slot=1, role="keyboard",
+        wpid=WPID,
+        pid=PID,
+        slot=1,
+        role="keyboard",
         available_features=features,
     )
     if supported_flags is not None:

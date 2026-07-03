@@ -1,5 +1,6 @@
 import logging
 
+from ..cache.device_cache import DeviceCache
 from ..event.device_connected_event import DeviceConnectedEvent
 from ..event.device_info_request_event import DeviceInfoRequestEvent
 from ..event.set_report_flag_event import SetReportFlagEvent
@@ -13,9 +14,10 @@ log = logging.getLogger(__name__)
 
 
 class DeviceConnectionSubscriber(Subscriber):
-    def __init__(self, device_registry: LogiDeviceRegistry, topics: Topics) -> None:
+    def __init__(self, device_registry: LogiDeviceRegistry, topics: Topics, cache: DeviceCache) -> None:
         self._device_registry = device_registry
         self._topics = topics
+        self._cache = cache
         topics.hid_event.subscribe(self)
 
     def notify(self, event) -> None:
@@ -27,8 +29,13 @@ class DeviceConnectionSubscriber(Subscriber):
         if logi_device is not None and logi_device.connected == event.link_established:
             return
 
-        if logi_device is not None:
+        cached_device = self._cache.find_by_wpid(event.wpid)
+
+        if logi_device:
             self._reconnection(event, logi_device)
+        elif cached_device:
+            self._device_registry.register(event.wpid, cached_device)
+            self._reconnection(event, cached_device)
         else:
             self._new_connection(event)
 

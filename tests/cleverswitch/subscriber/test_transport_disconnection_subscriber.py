@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 from src.cleverswitch.event.device_connected_event import DeviceConnectedEvent
 from src.cleverswitch.event.transport_disconnected_event import TransportDisconnectedEvent

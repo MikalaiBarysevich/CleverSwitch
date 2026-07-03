@@ -1,4 +1,5 @@
 import dataclasses
+from pathlib import Path
 
 from .args_settings import ArgsSettings
 from .hooks_config import HooksConfig
@@ -8,3 +9,4 @@ from .hooks_config import HooksConfig
 class Config:
     hooks: HooksConfig
     arguments_settings: ArgsSettings
+    cache_path: Path

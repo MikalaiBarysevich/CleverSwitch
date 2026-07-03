@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from cleverswitch.config.config import default_config
 from cleverswitch.hidpp.constants import BOLT_PID
 from cleverswitch.model.config.config import Config

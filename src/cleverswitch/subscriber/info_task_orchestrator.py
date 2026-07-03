@@ -1,5 +1,6 @@
 import logging
 
+from ..cache.device_cache import DeviceCache
 from ..event.info_task_progress_event import InfoTaskProgressEvent
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
@@ -29,9 +30,10 @@ _TASK_FACTORIES = {
 
 
 class InfoTaskOrchestrator(Subscriber):
-    def __init__(self, device_registry: LogiDeviceRegistry, topics: Topics) -> None:
+    def __init__(self, device_registry: LogiDeviceRegistry, topics: Topics, cache: DeviceCache) -> None:
         self._device_registry = device_registry
         self._topics = topics
+        self._cache = cache
         self._announced: set[int] = set()  # wpids already logged as fully discovered
         topics.info_progress.subscribe(self)
 
@@ -44,6 +46,7 @@ class InfoTaskOrchestrator(Subscriber):
         if event.success:
             if not device.pending_steps and device.wpid not in self._announced:
                 self._announced.add(device.wpid)
+                self._cache.save(device)
                 if device.friendly_name is None and device.name is not None:
                     device.friendly_name = device.name
                 log.info(f"Device fully discovered: {device}")

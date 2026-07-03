@@ -77,9 +77,11 @@ discovery.py
 DeviceConnectionSubscriber.notify(DeviceConnectedEvent)
   ├── idempotence: skips if logi_device.connected == event.link_established (absorbs duplicates
   │     from Windows multi-collection enumeration and the disconnect fan-out)
+  ├── new device + cache hit → cached LogiDevice registered, then reconnection path (skips discovery)
   ├── new device + link_established=True  → LogiDevice registered, DeviceInfoRequestEvent published
   ├── new device + link_established=False → skipped (stale pairing entry from receiver enumeration)
-  └── reconnect → logi_device.connected updated, SetReportFlagEvent re-published if supported_flags known
+  └── reconnect → logi_device.connected updated, SetReportFlagEvent re-published if supported_flags known,
+        DeviceInfoRequestEvent published only for still-pending_steps
 
 DeviceInfoSubscriber.notify(DeviceInfoRequestEvent)
   └── starts InfoTask threads: CidReportingFeatureTask, ChangeHostFeatureTask, NameAndTypeFeatureTask, FriendlyNameFeatureTask
@@ -90,7 +92,10 @@ InfoTask (Thread + Subscriber)
   └── publishes InfoTaskProgressEvent to info_progress
 
 InfoTaskOrchestrator.notify(InfoTaskProgressEvent)
-  ├── success + pending_steps empty → applies friendly_name fallback (copies device.name if friendly_name is None), logs "Device fully discovered" (once per wpid)
+  ├── success + pending_steps empty → cache.save(device) FIRST, then applies friendly_name fallback
+  │     (copies device.name if friendly_name is None), logs "Device fully discovered" (once per wpid).
+  │     Saving before the fallback keeps a genuinely-missing friendly_name persisted as null (re-fetched
+  │     next launch) rather than baking in the marketing name.
   └── failure + device.connected → retries the task immediately
 ```
 
@@ -134,9 +139,20 @@ Design:
 - `role`, `name`, `friendly_name` — populated during setup; `name` is the marketing string from feature 0x0005 (e.g. "Wireless Keyboard MX Keys"), `friendly_name` is the short label from feature 0x0007 (e.g. "MX Keys")
 - `display_name` property — returns `friendly_name or name`. **All log lines and hook calls must label devices via `device.display_name`, never `device.name` directly**, so the short label is preferred wherever it's available
 
+### Device cache
+
+`DeviceCache` (`cache/device_cache.py`) persists discovered devices to a JSON file so a known device skips HID++ discovery on the next launch. It wraps its own `LogiDeviceRegistry`; entries are whole `LogiDevice` objects serialized via a `DiskCache` dataclass (`model/disk_cache.py`) — `{version, devices: [...]}`, a list keyed internally by wpid.
+
+- **Path**: `config.cache_path`, from config key `cache.path`; defaults to `~/.config/cleverswitch/device_cache.json`. `--clear-cache` deletes the file and exits without starting the daemon.
+- **Never crashes startup**: `load()` degrades to empty on any read failure (missing/corrupt file, wrong `version`, malformed `devices`), and skips individual malformed entries.
+- **Fits the existing architecture — no new event or topic.** `setup_context()` builds the cache (loaded once) and injects it into `DeviceConnectionSubscriber`, `InfoTaskOrchestrator`, and `AnalyticsRejectionSubscriber`.
+  - Read on connect: `DeviceConnectionSubscriber` registers a cache-hit device and runs the reconnection path — arming flags and requesting info only for still-pending steps (so a partially-cached device fetches just the gaps).
+  - Written by `InfoTaskOrchestrator.save` on full discovery, and by `AnalyticsRejectionSubscriber` when it drops `KEY_FLAG_ANALYTICS`.
+- `save()` writes the whole file atomically (temp file + `os.replace`) and swallows write errors (logs a warning; in-memory entry still updates).
+
 ### Wiring
 
-`setup/app_setup.py:setup_context()` creates Topics, LogiDeviceRegistry, and all subscribers. It is the single place where components are connected.
+`setup/app_setup.py:setup_context()` creates Topics, LogiDeviceRegistry, the DeviceCache (see [Device cache](#device-cache)), and all subscribers. It is the single place where components are connected.
 
 Active subscribers: `DeviceConnectionSubscriber`, `DeviceInfoSubscriber`, `InfoTaskOrchestrator`, `SetReportFlagSubscriber`, `ExternalUnsetFlagSubscriber`, `AnalyticsRejectionSubscriber`, `HostChangeSubscriber`, `EventHookSubscriber`, `WirelessStatusSubscriber`, `TransportDisconnectionSubscriber`.
 
@@ -148,7 +164,7 @@ The parser detects ES CID presses (fn=0 diverted, fn=2 analytics press-only) and
 
 `ExternalUnsetFlagSubscriber` detects when an external app (Solaar, logiops) clears the ES key reporting flag via `setCidReporting` (fn=3, sw_id in 1–7). The parser emits `ExternalUnsetFlagEvent`; the subscriber re-publishes `SetReportFlagEvent` to restore the flag.
 
-`AnalyticsRejectionSubscriber` detects keyboards that advertise `KEY_FLAG_ANALYTICS` in getCidInfo but silently reject the analytics enable: the device echoes our `setCidReporting` request (sw_id=`SW_ID_DIVERT`, fn=3) with byte 9 cleared to 0x00 instead of the requested 0x03 (observed on the K850). Per the HID++ 2.0 0x1B04 spec, the response is a verbatim echo, so byte 9 = 0x00 is a definitive rejection signal. The subscriber discards `KEY_FLAG_ANALYTICS` from `device.supported_flags` and re-publishes `SetReportFlagEvent`; `SetReportFlagSubscriber` then naturally takes the divert branch on the retry.
+`AnalyticsRejectionSubscriber` detects keyboards that advertise `KEY_FLAG_ANALYTICS` in getCidInfo but silently reject the analytics enable: the device echoes our `setCidReporting` request (sw_id=`SW_ID_DIVERT`, fn=3) with byte 9 cleared to 0x00 instead of the requested 0x03 (observed on the K850). Per the HID++ 2.0 0x1B04 spec, the response is a verbatim echo, so byte 9 = 0x00 is a definitive rejection signal. The subscriber discards `KEY_FLAG_ANALYTICS` from `device.supported_flags`, persists the change via `DeviceCache.save`, and re-publishes `SetReportFlagEvent`; `SetReportFlagSubscriber` then naturally takes the divert branch on the retry.
 
 ## Testing conventions
 

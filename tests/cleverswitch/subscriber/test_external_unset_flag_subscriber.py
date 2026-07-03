@@ -32,7 +32,10 @@ def _make_device(slot=1, reprog_idx=REPROG_IDX):
     if reprog_idx is not None:
         features[FEATURE_REPROG_CONTROLS_V4] = reprog_idx
     return LogiDevice(
-        wpid=0x407B, pid=PID, slot=slot, role="keyboard",
+        wpid=0x407B,
+        pid=PID,
+        slot=slot,
+        role="keyboard",
         available_features=features,
     )
 
