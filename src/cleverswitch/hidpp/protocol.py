@@ -12,6 +12,7 @@ import struct
 from time import time
 
 from ..errors.errors import TransportError
+from ..util.util import decode_string_response
 from .constants import (
     CHANGE_HOST_FN_SET,
     FEATURE_ROOT,
@@ -218,7 +219,7 @@ def get_device_name(
             break
         chars.extend(chunk)
 
-    return bytes(chars).decode("utf-8", errors="replace") if chars else None
+    return decode_string_response(bytes(chars))
 
 
 def get_device_type(
