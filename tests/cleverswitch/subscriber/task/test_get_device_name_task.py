@@ -84,6 +84,20 @@ def test_assembles_name_from_multiple_chunks():
     assert device.name == "MX Master 3S Keys"
 
 
+def test_strips_nul_padding_from_name():
+    device = _make_device(pending={Task.Name.GET_DEVICE_NAME})
+    topics = _make_topics()
+    task = GetDeviceNameTask(device, topics)
+
+    # firmware reports a count of 10 but pads the tail with NULs (_response zero-fills)
+    task._response_queue.put(_response(bytes([10])))
+    task._response_queue.put(_response(b"MX Keys"))  # 7 real chars + 3 NUL pad bytes read
+    task.doTask()
+
+    assert device.name == "MX Keys"
+    assert Task.Name.GET_DEVICE_NAME not in device.pending_steps
+
+
 def test_skips_when_name_already_known():
     device = _make_device(name="MX Keys", pending={Task.Name.GET_DEVICE_NAME})
     topics = _make_topics()

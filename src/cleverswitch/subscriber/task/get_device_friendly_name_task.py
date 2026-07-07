@@ -5,6 +5,7 @@ from ...hidpp.constants import FEATURE_DEVICE_FRIENDLY_NAME, FEATURE_ROOT
 from ...model.logi_device import LogiDevice
 from ...subscriber.task.info_task import InfoTask
 from ...topic.topics import Topics
+from ...util.util import decode_string_response
 from .constants import GET_DEVICE_FRIENDLY_NAME_SW_ID, Task
 
 log = logging.getLogger(__name__)
@@ -56,7 +57,7 @@ class GetDeviceFriendlyNameTask(InfoTask):
             chars.extend(chunk)
 
         if len(chars) == name_len:
-            self._device.friendly_name = bytes(chars).decode("utf-8", errors="replace")
+            self._device.friendly_name = decode_string_response(bytes(chars))
             log.debug(f"wpid=0x{self._device.wpid:04X}: friendly_name={self._device.friendly_name}")
             self._device.pending_steps.discard(self._step_name)
         else:

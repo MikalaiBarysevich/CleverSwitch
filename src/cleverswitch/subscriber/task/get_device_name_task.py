@@ -5,6 +5,7 @@ from ...hidpp.constants import FEATURE_DEVICE_TYPE_AND_NAME, FEATURE_ROOT
 from ...model.logi_device import LogiDevice
 from ...subscriber.task.info_task import InfoTask
 from ...topic.topics import Topics
+from ...util.util import decode_string_response
 from .constants import GET_DEVICE_NAME_SW_ID, Task
 
 log = logging.getLogger(__name__)
@@ -53,7 +54,7 @@ class GetDeviceNameTask(InfoTask):
             chars.extend(chunk)
 
         if len(chars) == name_len:
-            self._device.name = bytes(chars).decode("utf-8", errors="replace")
+            self._device.name = decode_string_response(bytes(chars))
             log.debug(f"wpid=0x{self._device.wpid:04X}: name={self._device.name}")
             self._device.pending_steps.discard(self._step_name)
         else:

@@ -271,6 +271,18 @@ def test_get_device_name_returns_name_from_single_chunk(mocker, fake_transport):
     assert result == "MX Keys"
 
 
+def test_get_device_name_strips_nul_padding(mocker, fake_transport):
+    mocker.patch(
+        "cleverswitch.hidpp.protocol.request",
+        side_effect=[
+            b"\x0a",  # getDeviceNameCount → nameLen=10 (firmware over-reports)
+            b"MX Keys" + b"\x00" * 9,  # getDeviceName(0) → 7 real chars + NUL padding
+        ],
+    )
+    result = get_device_name(fake_transport, devnumber=1, feat_idx=2)
+    assert result == "MX Keys"
+
+
 def test_get_device_name_assembles_name_from_multiple_chunks(mocker, fake_transport):
     mocker.patch(
         "cleverswitch.hidpp.protocol.request",
@@ -306,4 +318,4 @@ def test_get_device_name_returns_partial_name_when_chunk_request_fails(mocker, f
         ],
     )
     result = get_device_name(fake_transport, devnumber=1, feat_idx=2)
-    assert result == "MX "
+    assert result == "MX"

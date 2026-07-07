@@ -85,7 +85,7 @@ def test_assembles_friendly_name_from_multiple_chunks():
     task._response_queue.put(_response(bytes([15]) + second_chunk))
     task.doTask()
 
-    assert device.friendly_name == full_name.decode()
+    assert device.friendly_name == full_name.decode().strip()
     assert Task.Name.GET_DEVICE_FRIENDLY_NAME not in device.pending_steps
 
     # Verify three writes total: len request, chunk@0, chunk@15
@@ -94,6 +94,20 @@ def test_assembles_friendly_name_from_multiple_chunks():
     # The second fn=1 request must carry byteIndex=15 in its payload (byte 4 of long report)
     second_write_msg = calls[2].args[0].hid_message
     assert second_write_msg[4] == 15
+
+
+def test_strips_nul_padding_from_friendly_name():
+    device = _make_device(pending={Task.Name.GET_DEVICE_FRIENDLY_NAME})
+    topics = _make_topics()
+    task = GetDeviceFriendlyNameTask(device, topics)
+
+    # firmware reports len 10 but pads the tail with NULs (_response zero-fills after the chunk)
+    task._response_queue.put(_response(bytes([10, 15, 10])))
+    task._response_queue.put(_response(bytes([0]) + b"MX Keys"))  # 7 real chars + 3 NUL pad bytes read
+    task.doTask()
+
+    assert device.friendly_name == "MX Keys"
+    assert Task.Name.GET_DEVICE_FRIENDLY_NAME not in device.pending_steps
 
 
 def test_feature_unavailable_and_feature_step_done_discards_step():
