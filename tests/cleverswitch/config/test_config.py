@@ -16,6 +16,7 @@ from src.cleverswitch.config.config import (
 )
 from src.cleverswitch.errors.errors import ConfigError
 from src.cleverswitch.model.config.config import Config
+from src.cleverswitch.model.config.hook_type import HookType
 
 
 def _cli_args(**overrides) -> argparse.Namespace:
@@ -55,13 +56,14 @@ def test_load_parses_valid_yaml_file(tmp_path):
     cfg_file.write_text(
         textwrap.dedent("""\
             hooks:
-              on_switch:
-                - "/usr/bin/hook.sh"
+              myHook:
+                path: "/usr/bin/hook.sh"
+                type: SWITCH
         """)
     )
     args = _cli_args(config=str(cfg_file))
     cfg = load(args)
-    assert len(cfg.hooks.on_switch) == 1
+    assert len(cfg.hooks.for_type(HookType.SWITCH)) == 1
 
 
 def test_load_returns_default_config_when_no_default_path_exists(mocker):
@@ -80,20 +82,23 @@ def test_parse_empty_dict_falls_back_to_all_defaults():
     assert cfg.hooks == defaults.hooks
 
 
-def test_parse_populates_on_switch_hooks_from_mixed_entries():
+def test_parse_populates_named_hooks_and_fire_for_all_devices():
     raw = {
         "hooks": {
-            "on_switch": [
-                "/usr/local/bin/switch.sh",
-                {"path": "/opt/myhook.sh", "timeout": 10},
-            ]
+            "fire_for_all_devices": True,
+            "notify": {"command": "notify-send hi", "type": "SWITCH"},
+            "syncInput": {"path": "/opt/myhook.sh", "type": ["CONNECT", "DISCONNECT"], "timeout": 10},
         }
     }
     cfg = _parse(raw, _cli_args())
-    assert len(cfg.hooks.on_switch) == 2
-    assert cfg.hooks.on_switch[0].path == "/usr/local/bin/switch.sh"
-    assert cfg.hooks.on_switch[0].timeout == 5  # default timeout
-    assert cfg.hooks.on_switch[1].timeout == 10
+    assert cfg.hooks.fire_for_all_devices is True
+    assert set(cfg.hooks.hooks) == {"notify", "syncInput"}
+    assert cfg.hooks.hooks["notify"].command == "notify-send hi"
+    assert cfg.hooks.hooks["notify"].timeout == 5  # default timeout
+    assert cfg.hooks.hooks["syncInput"].path == "/opt/myhook.sh"
+    assert cfg.hooks.hooks["syncInput"].timeout == 10
+    assert cfg.hooks.for_type(HookType.CONNECT) == (cfg.hooks.hooks["syncInput"],)
+    assert cfg.hooks.for_type(HookType.DISCONNECT) == (cfg.hooks.hooks["syncInput"],)
 
 
 def test_parse_sets_verbose_extra_from_cli_args():
@@ -122,34 +127,85 @@ def test_parse_expands_tilde_in_cache_path():
 # ── _parse_hooks ──────────────────────────────────────────────────────────────
 
 
-def test_parse_hooks_returns_empty_list_for_none_input():
-    assert _parse_hooks(None) == []
+def test_parse_hooks_returns_empty_dict_for_none_input():
+    assert _parse_hooks(None) == {}
 
 
-def test_parse_hooks_returns_empty_list_for_empty_list():
-    assert _parse_hooks([]) == []
+def test_parse_hooks_returns_empty_dict_for_empty_dict():
+    assert _parse_hooks({}) == {}
 
 
-def test_parse_hooks_parses_plain_string_entry_with_default_timeout():
-    result = _parse_hooks(["/usr/bin/myhook.sh"])
-    assert len(result) == 1
-    assert result[0].path == "/usr/bin/myhook.sh"
-    assert result[0].timeout == 5
+def test_parse_hooks_ignores_fire_for_all_devices_key():
+    result = _parse_hooks({"fire_for_all_devices": True, "h": {"path": "/a.sh", "type": "SWITCH"}})
+    assert set(result) == {"h"}
 
 
-def test_parse_hooks_parses_dict_entry_with_custom_timeout():
-    result = _parse_hooks([{"path": "/bin/hook.sh", "timeout": 15}])
-    assert result[0].timeout == 15
+def test_parse_hooks_parses_command_entry_with_type_list():
+    result = _parse_hooks({"h": {"command": "echo hi", "type": ["CONNECT", "SWITCH"]}})
+    assert result["h"].name == "h"
+    assert result["h"].command == "echo hi"
+    assert result["h"].path is None
+    assert result["h"].types == frozenset({HookType.CONNECT, HookType.SWITCH})
 
 
-def test_parse_hooks_expands_tilde_in_string_entry():
-    result = _parse_hooks(["~/myhook.sh"])
-    assert not result[0].path.startswith("~")
+def test_parse_hooks_parses_path_entry_with_custom_timeout():
+    result = _parse_hooks({"h": {"path": "/bin/hook.sh", "type": "SWITCH", "timeout": 15}})
+    assert result["h"].timeout == 15
+    assert result["h"].types == frozenset({HookType.SWITCH})
 
 
-def test_parse_hooks_expands_tilde_in_dict_entry():
-    result = _parse_hooks([{"path": "~/scripts/hook.sh"}])
-    assert not result[0].path.startswith("~")
+def test_parse_hooks_type_is_case_insensitive():
+    result = _parse_hooks({"h": {"path": "/a.sh", "type": "connect"}})
+    assert result["h"].types == frozenset({HookType.CONNECT})
+
+
+def test_parse_hooks_fire_for_all_devices_defaults_to_none_when_absent():
+    result = _parse_hooks({"h": {"path": "/a.sh", "type": "SWITCH"}})
+    assert result["h"].fire_for_all_devices is None
+
+
+def test_parse_hooks_fire_for_all_devices_reads_explicit_true_and_false():
+    result = _parse_hooks(
+        {
+            "on": {"path": "/a.sh", "type": "SWITCH", "fire_for_all_devices": True},
+            "off": {"path": "/b.sh", "type": "SWITCH", "fire_for_all_devices": False},
+        }
+    )
+    assert result["on"].fire_for_all_devices is True
+    assert result["off"].fire_for_all_devices is False
+
+
+def test_parse_hooks_skips_entry_with_both_path_and_command(caplog):
+    with caplog.at_level("ERROR"):
+        result = _parse_hooks({"h": {"path": "/a.sh", "command": "echo hi", "type": "SWITCH"}})
+    assert result == {}
+    assert "both" in caplog.text
+
+
+def test_parse_hooks_skips_entry_with_neither_path_nor_command(caplog):
+    with caplog.at_level("ERROR"):
+        result = _parse_hooks({"h": {"type": "SWITCH"}})
+    assert result == {}
+    assert "neither" in caplog.text
+
+
+def test_parse_hooks_skips_entry_with_no_valid_type(caplog):
+    with caplog.at_level("ERROR"):
+        result = _parse_hooks({"h": {"path": "/a.sh", "type": "BOGUS"}})
+    assert result == {}
+
+
+def test_parse_hooks_skips_non_mapping_entry(caplog):
+    with caplog.at_level("ERROR"):
+        result = _parse_hooks({"h": "/a.sh"})
+    assert result == {}
+
+
+def test_parse_hooks_ignores_unknown_type_but_keeps_valid_ones(caplog):
+    with caplog.at_level("ERROR"):
+        result = _parse_hooks({"h": {"path": "/a.sh", "type": ["SWITCH", "BOGUS"]}})
+    assert result["h"].types == frozenset({HookType.SWITCH})
+    assert "invalid type" in caplog.text
 
 
 def test_verbose_extra_applied_when_no_config_file():

@@ -1,5 +1,4 @@
 # CleverSwitch
-[![oosmetrics](https://api.oosmetrics.com/api/v1/badge/achievement/810d19c9-f1cf-43c6-816c-443e704be9b2.svg)](https://oosmetrics.com/repo/MikalaiBarysevich/CleverSwitch)
 
 A small, headless, cross-platform daemon that synchronizes host switching between Logitech keyboard and mouse.
 When you press the Easy-Switch button on the keyboard, CleverSwitch detects it and immediately sends the same host-switch command to the mouse — so both devices land on the same host simultaneously.
@@ -69,20 +68,32 @@ You can override this path with the `--config` CLI flag.
 
 A starting point is provided in [`config.example.yaml`](config.example.yaml) — copy it to the path above and rename it to `config.yaml`.
 
-Each hook entry is either a plain string (a script path or shell command) or a mapping with `path` and an optional `timeout` (seconds before the hook process is killed; default: `5`).
+Each hook is a **named** entry with the following keys:
+
+| Key       | Description                                                                            |
+|-----------|----------------------------------------------------------------------------------------|
+| `path`    | A script to run directly, without a shell. Mutually exclusive with `command`.           |
+| `command` | A shell command (supports pipes, `$VAR` expansion, etc). Mutually exclusive with `path`. |
+| `type`    | Which event(s) fire the hook: `CONNECT`, `SWITCH`, `DISCONNECT` — a single value or a list. |
+| `timeout` | Seconds before the hook process is killed (default: `5`).                               |
+| `fire_for_all_devices` | Optional per-hook override of the global `hooks.fire_for_all_devices`. Set `true` to also fire for mouse events, or `false` to stay keyboard-only; omit to inherit the global default. |
+
+Specify exactly one of `path` or `command`; setting both (or neither) logs an error and skips that hook.
 
 ```yaml
 hooks:
   # Set to true to also fire hooks for mouse events (default: false)
   # fire_for_all_devices: false
 
-  on_switch:
-    - "notify-send 'CleverSwitch' \"Switched to host $CLEVERSWITCH_TARGET_HOST\""
-    - path: "~/.config/cleverswitch/on_switch.sh"
-      timeout: 10
+  notifyOnSwitch:
+    command: "notify-send 'CleverSwitch' \"Switched to host $CLEVERSWITCH_TARGET_HOST\""
+    type: SWITCH
 
-  on_connect: []
-  on_disconnect: []
+  syncDisplayInput:
+    path: "~/.config/cleverswitch/on_connect.sh"
+    type: [CONNECT, DISCONNECT]
+    fire_for_all_devices: true   # this hook also fires for the mouse
+    timeout: 10
 ```
 
 ## Found a Bug?

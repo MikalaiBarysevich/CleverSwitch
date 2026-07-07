@@ -10,18 +10,25 @@
 #   CLEVERSWITCH_DEVICE_NAME   e.g. MX Keys, MX Master 3
 #   CLEVERSWITCH_TARGET_HOST   1 | 2 | 3     (switch events only, 1-based)
 #
-# If the entry resolves to an existing file, it runs as a script (no shell).
-# Otherwise, it runs as a shell command (supports pipes, $VAR expansion, etc.)
+# Each hook is a named entry with:
+#   path                   a script to run directly (no shell)      -- mutually exclusive
+#   command                a shell command (pipes, $VAR expansion)  -- with path
+#   type                   CONNECT | SWITCH | DISCONNECT, or a list of them
+#   timeout                seconds before the hook is killed (default: 5)
+#   fire_for_all_devices   per-hook override of the global below (omit to inherit)
 #
 hooks:
   # By default, hooks only fire for keyboard events.
   # Set to true to fire hooks for all devices (keyboard + mouse).
   # fire_for_all_devices: false
 
-  on_switch:
-    # - "notify-send 'CleverSwitch' \"Switched to host $CLEVERSWITCH_TARGET_HOST\""
-    # - path: "~/.config/cleverswitch/on_switch.sh"
-    #   timeout: 5        # seconds before the hook is killed (default: 5)
-    # - "~/.config/cleverswitch/on_switch.sh"
-  on_connect: []
-  on_disconnect: []
+  notifyOnSwitch:
+    command: "notify-send 'CleverSwitch' \"Switched to host $CLEVERSWITCH_TARGET_HOST\""
+    type: SWITCH
+
+  syncDisplayInput:
+    path: "~/.config/cleverswitch/on_connect.sh"
+    type: [CONNECT, DISCONNECT]
+    fire_for_all_devices: true   # this hook also fires for the mouse
+    timeout: 10
+

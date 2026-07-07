@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,10 @@ from ..errors.errors import ConfigError
 from ..model.config.args_settings import ArgsSettings
 from ..model.config.config import Config
 from ..model.config.hook_entry import HookEntry
+from ..model.config.hook_type import HookType
 from ..model.config.hooks_config import HooksConfig
+
+log = logging.getLogger(__name__)
 
 _DEFAULT_CONFIG_PATH = Path("~/.config/cleverswitch/config.yaml").expanduser()
 _DEFAULT_CACHE_PATH = Path("~/.config/cleverswitch/device_cache.json").expanduser()
@@ -33,8 +37,6 @@ def default_config() -> Config:
 
 
 def load(cli_args: argparse.Namespace) -> Config:
-    """Load config from *path*. Falls back to ~/.config/cleverswitch/config.yaml,
-    then to built-in defaults if no file is found."""
     path = cli_args.config
     cfg_path = Path(path).expanduser() if path else _DEFAULT_CONFIG_PATH
 
@@ -56,13 +58,10 @@ def load(cli_args: argparse.Namespace) -> Config:
 
 
 def _parse(raw: dict[str, Any], cli_args: argparse.Namespace) -> Config:
-    # ── hooks ─────────────────────────────────────────────────────────────────
     h = raw.get("hooks", {})
     hooks = HooksConfig(
         fire_for_all_devices=bool(h.get("fire_for_all_devices", False)),
-        on_switch=tuple(_parse_hooks(h.get("on_switch", []))),
-        on_connect=tuple(_parse_hooks(h.get("on_connect", []))),
-        on_disconnect=tuple(_parse_hooks(h.get("on_disconnect", []))),
+        hooks=_parse_hooks(h),
     )
 
     arguments_settings = ArgsSettings(
@@ -77,19 +76,54 @@ def _parse(raw: dict[str, Any], cli_args: argparse.Namespace) -> Config:
     return config
 
 
-def _parse_hooks(entries: list) -> list[HookEntry]:
-    result = []
-    for entry in entries or []:
-        if isinstance(entry, str):
-            result.append(HookEntry(path=os.path.expanduser(entry)))
-        elif isinstance(entry, dict):
-            result.append(
-                HookEntry(
-                    path=os.path.expanduser(str(entry["path"])),
-                    timeout=int(entry.get("timeout", 5)),
-                )
-            )
+def _parse_hooks(raw_hooks: dict[str, Any]) -> dict[str, HookEntry]:
+    """Parse the named-hook mapping. Malformed entries are logged and skipped so a
+    single bad hook never brings down the daemon."""
+    result: dict[str, HookEntry] = {}
+    for name, spec in (raw_hooks or {}).items():
+        if name == "fire_for_all_devices":
+            continue
+        if not isinstance(spec, dict):
+            log.error(f"Hook '{name}' must be a mapping; skipping")
+            continue
+
+        path = spec.get("path")
+        command = spec.get("command")
+        if path and command:
+            log.error(f"Hook '{name}' specifies both 'path' and 'command'; skipping")
+            continue
+        if not path and not command:
+            log.error(f"Hook '{name}' specifies neither 'path' nor 'command'; skipping")
+            continue
+
+        types = _parse_hook_types(name, spec.get("type"))
+        if not types:
+            log.error(f"Hook '{name}' has no valid 'type'; skipping")
+            continue
+
+        override = spec.get("fire_for_all_devices")
+        result[name] = HookEntry(
+            name=name,
+            types=types,
+            path=str(path) if path else None,
+            command=str(command) if command else None,
+            timeout=int(spec.get("timeout", 5)),
+            fire_for_all_devices=None if override is None else bool(override),
+        )
     return result
+
+
+def _parse_hook_types(name: str, raw_type: Any) -> frozenset[HookType]:
+    if raw_type is None:
+        return frozenset()
+    values = raw_type if isinstance(raw_type, list) else [raw_type]
+    result: set[HookType] = set()
+    for value in values:
+        try:
+            result.add(HookType[str(value).strip().upper()])
+        except KeyError:
+            log.error(f"Hook '{name}' has invalid type '{value}'; ignoring")
+    return frozenset(result)
 
 
 def _validate(config: Config) -> None:

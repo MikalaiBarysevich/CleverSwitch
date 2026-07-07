@@ -1,9 +1,3 @@
-"""External hook script execution.
-
-Scripts are invoked asynchronously in a thread pool so they never block
-the main monitor loop.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -12,6 +6,7 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
 from ..model.config.hook_entry import HookEntry
+from ..model.config.hook_type import HookType
 from ..model.config.hooks_config import HooksConfig
 
 log = logging.getLogger(__name__)
@@ -20,16 +15,17 @@ _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="cleverswitch-h
 
 
 def fire(hooks: tuple[HookEntry, ...], env_vars: dict[str, str], *, fire_for_all_devices: bool = False) -> None:
-    """Submit all *hooks* for async execution with the given environment."""
-    if not fire_for_all_devices and env_vars.get("CLEVERSWITCH_DEVICE") != "keyboard":
-        return
+    is_keyboard = env_vars.get("CLEVERSWITCH_DEVICE") == "keyboard"
     for hook in hooks:
+        all_devices = fire_for_all_devices if hook.fire_for_all_devices is None else hook.fire_for_all_devices
+        if not all_devices and not is_keyboard:
+            continue
         _executor.submit(_run, hook, env_vars)
 
 
 def fire_switch(hooks_cfg: HooksConfig, device_name: str, role: str, target_host: int) -> None:
     fire(
-        hooks_cfg.on_switch,
+        hooks_cfg.for_type(HookType.SWITCH),
         {
             "CLEVERSWITCH_EVENT": "switch",
             "CLEVERSWITCH_DEVICE": role,
@@ -42,7 +38,7 @@ def fire_switch(hooks_cfg: HooksConfig, device_name: str, role: str, target_host
 
 def fire_connect(hooks_cfg: HooksConfig, device_name: str, role: str) -> None:
     fire(
-        hooks_cfg.on_connect,
+        hooks_cfg.for_type(HookType.CONNECT),
         {
             "CLEVERSWITCH_EVENT": "connect",
             "CLEVERSWITCH_DEVICE": role,
@@ -54,7 +50,7 @@ def fire_connect(hooks_cfg: HooksConfig, device_name: str, role: str) -> None:
 
 def fire_disconnect(hooks_cfg: HooksConfig, device_name: str, role: str) -> None:
     fire(
-        hooks_cfg.on_disconnect,
+        hooks_cfg.for_type(HookType.DISCONNECT),
         {
             "CLEVERSWITCH_EVENT": "disconnect",
             "CLEVERSWITCH_DEVICE": role,
@@ -64,29 +60,22 @@ def fire_disconnect(hooks_cfg: HooksConfig, device_name: str, role: str) -> None
     )
 
 
-def _is_file_path(value: str) -> bool:
-    """Heuristic: does the string look like a file path rather than a shell command?"""
-    return value.startswith(("/", "~/", "./", "../"))
-
-
 def _run(hook: HookEntry, extra_env: dict[str, str]) -> None:
-    """Run one hook synchronously (called from a worker thread)."""
     env = {**os.environ, **extra_env}
-    expanded = os.path.expanduser(hook.path)
+    label = hook.name
 
-    if _is_file_path(hook.path):
-        if not os.path.exists(expanded):
-            log.warning(f"Hook script not found: {expanded}")
+    if hook.command is not None:
+        cmd = hook.command
+        shell = True
+        log.debug(f"Running hook command '{label}': {hook.command} (timeout={hook.timeout}s)")
+    else:
+        expanded = os.path.expanduser(hook.path)
+        if not os.path.isfile(expanded):
+            log.warning(f"Hook '{label}' script not found: {expanded}")
             return
         cmd = [expanded]
         shell = False
-        label = expanded
-        log.debug(f"Running hook script: {label} (timeout={hook.timeout}s)")
-    else:
-        cmd = hook.path
-        shell = True
-        label = hook.path
-        log.debug(f"Running hook command: {label} (timeout={hook.timeout}s)")
+        log.debug(f"Running hook script '{label}': {expanded} (timeout={hook.timeout}s)")
 
     try:
         result = subprocess.run(
