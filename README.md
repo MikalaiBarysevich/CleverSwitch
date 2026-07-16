@@ -23,13 +23,6 @@ If you find this project useful, consider supporting its development:
 
 See [installation guide](docs/Installation.md) for full installation, update, startup, and uninstall instructions for all platforms.
 
-#### Homebrew
-
-Will be available once the [Homebrew formulae criteria](https://docs.brew.sh/Acceptable-Formulae#niche-or-self-submitted-stuff) are met:
-
-> - be known (e.g. GitHub repositories should have >=30 forks, >=30 watchers or >=75 stars)
-> - be used by someone other than the author
-
 
 ## Hook Scripts
 

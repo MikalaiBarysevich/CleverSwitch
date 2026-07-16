@@ -14,7 +14,27 @@ pip install .
 
 ## macOS
 
-### Option 1: Pre-built binary (recommended)
+### Option 1: Homebrew (recommended)
+
+```bash
+brew tap mikalaibarysevich/cleverswitch
+brew trust mikalaibarysevich/cleverswitch
+brew install cleverswitch
+brew services start cleverswitch
+```
+
+`brew trust` is required once because this is a personal tap rather than a core Homebrew formula — without it, Homebrew refuses to load the formula.
+
+`brew services start` runs CleverSwitch immediately and again at every login. Logs are written to `$(brew --prefix)/var/log/cleverswitch.log`.
+
+On first run, macOS will prompt for **Input Monitoring** permission.
+If no prompt appears, grant it manually:
+
+1. Open **System Settings > Privacy & Security > Input Monitoring**.
+2. Click the **+** button.
+3. Press **Cmd + Shift + G**, paste `/opt/homebrew/bin/cleverswitch` (Apple Silicon) or `/usr/local/bin/cleverswitch` (Intel), and click Open.
+
+### Option 2: Pre-built binary
 
 1. Download `cleverswitch_macOS.tar.gz` from the [Releases](https://github.com/MikalaiBarysevich/CleverSwitch/releases) page.
 2. Double-click the downloaded file to extract it — a `cleverswitch_macOS` folder will appear.
@@ -28,7 +48,7 @@ If no prompt appears, grant it manually:
 2. Click the **+** button.
 3. Press **Cmd + Shift + G**, paste `~/.local/bin/cleverswitch`, and click Open.
 
-### Option 2: From source
+### Option 3: From source
 
 1. Clone the repository.
 2. Open Terminal and navigate to the project folder.
@@ -96,7 +116,9 @@ The script checks for Python 3, installs CleverSwitch via pip, sets up udev rule
 
 ### macOS
 
-Handled by `install.command` or `install_from_sources.sh` during installation. To set up separately:
+**Homebrew:** `brew services start cleverswitch` runs CleverSwitch now and at every login; `brew services stop cleverswitch` disables it.
+
+For the pre-built binary or source install, this is handled by `install.command` or `install_from_sources.sh`. To set up separately:
 ```bash
 chmod +x scripts/mac/setup_startup.command
 ./scripts/mac/setup_startup.command
@@ -116,7 +138,13 @@ Handled by `install.sh` or `install_from_sources.sh` during installation. To set
 
 ### macOS
 
-Open the `cleverswitch_macOS` folder and double-click **`uninstall.command`**. This stops and removes the launch agent (if configured) and removes the CleverSwitch binary.
+**Homebrew:**
+```bash
+brew services stop cleverswitch
+brew uninstall cleverswitch
+```
+
+**Pre-built binary / source:** open the `cleverswitch_macOS` folder and double-click **`uninstall.command`**. This stops and removes the launch agent (if configured) and removes the CleverSwitch binary.
 
 ### Linux
 
