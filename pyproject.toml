@@ -1,16 +1,18 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "cleverswitch"
-version = "1.4.2"
+version = "1.4.3"
 description = "Synchronize host switching between Logitech MX Keys and MX Master 3"
 requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE.txt"]
 dependencies = [
     "hid >= 1.0.9 ; sys_platform == 'win32'",  # provides hidapi.dll on Windows; Linux/macOS use system libhidapi
     "pyyaml >= 6.0",
-    "bleak >= 0.22; sys_platform == 'darwin'",
+    "bleak >= 0.22, < 3; sys_platform == 'darwin'",  # 3.x uses the uv_build backend; can't build from sdist in Homebrew
     "pyobjc-framework-CoreBluetooth ; sys_platform == 'darwin'",
 ]
 
