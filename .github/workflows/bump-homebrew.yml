@@ -1,0 +1,25 @@
+name: Bump Homebrew formula
+
+# When a non-prerelease GitHub release is published, update the `url` + `sha256`
+# in the CleverSwitch Homebrew tap so `brew upgrade` picks up the new version.
+on:
+  release:
+    types: [released]
+
+jobs:
+  homebrew:
+    name: Bump Homebrew formula
+    runs-on: ubuntu-latest
+    steps:
+      - uses: mislav/bump-homebrew-formula-action@v4
+        with:
+          formula-name: cleverswitch
+          formula-path: Formula/cleverswitch.rb
+          homebrew-tap: MikalaiBarysevich/homebrew-cleverswitch
+          tag-name: ${{ github.event.release.tag_name }}
+          # download-url defaults to
+          #   https://github.com/<owner>/<repo>/archive/refs/tags/<tag>.tar.gz
+          # which is exactly what the formula uses, so it is left unset.
+        env:
+          # PAT with `repo` scope and write access to the tap repo.
+          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
