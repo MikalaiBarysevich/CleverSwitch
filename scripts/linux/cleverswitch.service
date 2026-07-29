@@ -1,0 +1,14 @@
+[Unit]
+Description=Daemon to synchronize Easy-Switch host switching between Logitech devices
+Documentation=https://github.com/MikalaiBarysevich/CleverSwitch
+
+[Service]
+Type=simple
+# %h expands to the user's home. setup_startup.sh rewrites this line to the
+# resolved binary path so installs outside ~/.local/bin still work.
+ExecStart=%h/.local/bin/cleverswitch
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

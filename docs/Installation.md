@@ -98,7 +98,7 @@ cleverswitch
 chmod +x install.sh && ./install.sh
 ```
 
-The installer copies the binary to `~/.local/bin/`, checks that the directory is on your PATH, installs udev rules for non-root HID access (with your confirmation), and offers to set up autostart.
+The installer copies the binary to `~/.local/bin/`, checks that the directory is on your PATH, installs udev rules for non-root HID access (with your confirmation), and offers to run CleverSwitch as a systemd user service on login.
 
 ### Option 2: From source
 
@@ -110,7 +110,7 @@ chmod +x scripts/linux/install_from_sources.sh
 ./scripts/linux/install_from_sources.sh
 ```
 
-The script checks for Python 3, installs CleverSwitch via pip, sets up udev rules, and optionally creates an autostart entry.
+The script checks for Python 3, installs CleverSwitch via pip, sets up udev rules, and optionally sets up a systemd user service to start on login.
 
 ## Run on Startup
 
@@ -132,7 +132,19 @@ To verify, open Task Manager and look for `cleverswitch.exe` in the **Details** 
 
 ### Linux
 
-Handled by `install.sh` or `install_from_sources.sh` during installation. To set up separately, use your distro's autostart mechanism (e.g., GNOME Tweaks, KDE Autostart) or see [other methods](https://www.baeldung.com/linux/run-script-on-startup).
+CleverSwitch runs as a systemd **user** service. Handled by `install.sh` or `install_from_sources.sh` during installation. To set it up separately, run:
+```bash
+chmod +x scripts/linux/setup_startup.sh
+./scripts/linux/setup_startup.sh
+```
+This installs `~/.config/systemd/user/cleverswitch.service`, which auto-restarts on failure and logs to journald. Control it with:
+```bash
+systemctl --user status cleverswitch         # check state
+systemctl --user restart cleverswitch        # restart
+systemctl --user disable --now cleverswitch  # stop and remove from login
+journalctl --user -u cleverswitch -f         # follow logs
+```
+It runs inside your graphical session, so it starts at login (not at boot before login — which is what the udev HID access rule requires).
 
 ## Uninstall
 
@@ -153,7 +165,7 @@ chmod +x scripts/linux/uninstall.sh
 ./scripts/linux/uninstall.sh
 ```
 
-This removes the autostart entry, removes the binary from `~/.local/bin/`, uninstalls the CleverSwitch pip package if present, and optionally removes udev rules.
+This stops and removes the systemd user service (and any XDG autostart entry), removes the binary from `~/.local/bin/`, uninstalls the CleverSwitch pip package if present, and optionally removes udev rules.
 
 ### Windows
 

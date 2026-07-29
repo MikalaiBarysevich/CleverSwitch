@@ -74,23 +74,7 @@ fi
 # ── Step 4: Autostart (optional) ─────────────────────────────────────
 
 if ask_yes_no "Start CleverSwitch automatically on login?"; then
-    AUTOSTART_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/autostart"
-    DESKTOP_FILE="$AUTOSTART_DIR/$APP_NAME.desktop"
-
-    mkdir -p "$AUTOSTART_DIR"
-
-    cat > "$DESKTOP_FILE" <<EOF
-[Desktop Entry]
-Type=Application
-Name=CleverSwitch
-Exec=$INSTALL_PATH
-Hidden=false
-NoDisplay=true
-X-GNOME-Autostart-enabled=true
-Comment=Synchronize Logitech Easy-Switch host switching
-EOF
-
-    ok "Autostart entry created at $DESKTOP_FILE"
+    bash "$SCRIPT_DIR/setup_startup.sh"
 else
     info "Skipped. You can run CleverSwitch manually with: $APP_NAME"
 fi

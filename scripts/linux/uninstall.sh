@@ -23,16 +23,28 @@ ask_yes_no() {
     done
 }
 
-# ── Step 1: Remove autostart entry ───────────────────────────────────
+# ── Step 1: Stop and remove the systemd user service ─────────────────
 
+UNIT_NAME="$APP_NAME.service"
+UNIT_DST="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$UNIT_NAME"
+
+if [ -f "$UNIT_DST" ]; then
+    info "Stopping and disabling the systemd user service..."
+    systemctl --user disable --now "$UNIT_NAME" 2>/dev/null || true
+    rm -f "$UNIT_DST"
+    systemctl --user daemon-reload 2>/dev/null || true
+    ok "Service removed."
+else
+    info "No systemd user service found — skipping."
+fi
+
+# Legacy: remove the old XDG autostart entry from pre-systemd installs.
 DESKTOP_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/$APP_NAME.desktop"
 
 if [ -f "$DESKTOP_FILE" ]; then
-    info "Removing autostart entry..."
+    info "Removing old autostart entry..."
     rm -f "$DESKTOP_FILE"
     ok "Autostart entry removed."
-else
-    info "No autostart entry found — skipping."
 fi
 
 # ── Step 2: Remove installed binary ──────────────────────────────────
