@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 from cleverswitch.topic.topic import Topic
 from cleverswitch.topic.topics import Topics
 
+
 def _make_topics():
     return Topics(
         hid_event=MagicMock(spec=Topic),
@@ -40,10 +41,14 @@ topics.hid_event.publish.reset_mock()
 ## LogiDevice factory pattern
 
 ```python
-def _make_device(*, slot=1, wpid=0x407B, pid=BOLT_PID, role="keyboard",
-                 features=None, divertable_cids=None, pending_steps=None):
+def _make_device(
+    *, slot=1, wpid=0x407B, pid=BOLT_PID, role="keyboard", features=None, divertable_cids=None, pending_steps=None
+):
     device = LogiDevice(
-        wpid=wpid, pid=pid, slot=slot, role=role,
+        wpid=wpid,
+        pid=pid,
+        slot=slot,
+        role=role,
         available_features=features or {FEATURE_REPROG_CONTROLS_V4: 8, FEATURE_CHANGE_HOST: 9},
         divertable_cids=divertable_cids if divertable_cids is not None else set(),
     )
