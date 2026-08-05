@@ -71,3 +71,25 @@ If either divert=1 or persist=1 (with valid bit set), control is diverted via HI
 - Temporary divert takes priority over persistent divert
 - remap=0 means "keep previous remap" (not "clear remap"); to clear, remap to own CID
 - resetAllCidReportSettings (fn [5]) clears all diversions at once, also buffered
+
+## Divert persistence and reset semantics (x1b04 v6, p7-9)
+- **Temporary divert** (`divert=1, dvalid=1`, bfield=0x03): RAM-only; cleared on every HID++
+  configuration reset
+- **Persistent divert** (`persist=1, pvalid=1`, bfield=0x0C): survives resets; stored in NV memory
+- **Both** (`bfield=0x0F`): active immediately AND survives resets — recommended for CleverSwitch
+- A "HID++ configuration reset" is defined by feature 0x0020 (doc not in repo). Known triggers:
+  - Device power-on / battery insert
+  - Host switch: 0x1814 setCurrentHost says "device will most probably reset"
+  - RF reconnection (deep sleep wake, link loss recovery)
+- 0x1D4B `request=0x01` is the authoritative signal that volatile HID++ config was lost →
+  re-apply (see [[x1d4b-wireless-status]])
+
+## setCidReporting is BUFFERED (x1b04 v6, Table 6 NOTE)
+- The divert flag is NOT applied immediately; device queues it until no CID is currently pressed
+- Same applies to resetAllCidReportSettings (fn [5])
+- Creates a timing window: ack received but divert not yet active; press in this window goes native
+
+## resetAllCidReportSettings (fn [5] of 0x1B04)
+- Clears ALL diversions at once; response has NO per-CID payload
+- An older codebase revision's ExternalUndivertEvent logic did not detect this case — known gap
+  at that time; re-verify current `parser.py` if relevant.

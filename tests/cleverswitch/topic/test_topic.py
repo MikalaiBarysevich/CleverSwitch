@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import queue
 import threading
 import time
 
@@ -86,3 +87,107 @@ def test_subscriber_exception_does_not_crash_topic():
 def test_no_subscribers_publish_does_not_raise():
     topic = Topic()
     topic.publish(Event(slot=1, pid=0xC548))  # must not raise
+
+
+# ── unsubscribe ───────────────────────────────────────────────────────────────
+
+
+class _GatedSubscriber(Subscriber):
+    def __init__(self):
+        self.received = []
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def notify(self, event):
+        self.entered.set()
+        self.release.wait(timeout=1.0)
+        self.received.append(event)
+
+
+def _drain_thread_of(topic, subscriber):
+    before = set(threading.enumerate())
+    subscription = topic.subscribe(subscriber)
+    new_threads = set(threading.enumerate()) - before
+    assert len(new_threads) == 1
+    return subscription, new_threads.pop()
+
+
+def test_unsubscribe_stops_delivery():
+    topic = Topic()
+    sub = _FakeSubscriber()
+    subscription = topic.subscribe(sub)
+
+    topic.publish(Event(slot=1, pid=0xC548))
+    sub.wait()
+
+    topic.unsubscribe(subscription)
+    topic.publish(Event(slot=2, pid=0xC548))
+    time.sleep(0.1)
+
+    assert len(sub.received) == 1
+
+
+def test_unsubscribe_terminates_drain_thread():
+    topic = Topic()
+    sub = _FakeSubscriber()
+    subscription, thread = _drain_thread_of(topic, sub)
+
+    topic.unsubscribe(subscription)
+    thread.join(timeout=1.0)
+
+    assert not thread.is_alive()
+
+
+def test_unsubscribe_delivers_events_already_queued():
+    topic = Topic()
+    sub = _GatedSubscriber()
+    subscription, thread = _drain_thread_of(topic, sub)
+
+    first = Event(slot=1, pid=0xC548)
+    second = Event(slot=2, pid=0xC548)
+    topic.publish(first)
+    sub.entered.wait(timeout=1.0)
+    topic.publish(second)
+    topic.unsubscribe(subscription)
+    sub.release.set()
+    thread.join(timeout=1.0)
+
+    assert not thread.is_alive()
+    assert sub.received == [first, second]
+
+
+def test_unsubscribe_twice_does_not_raise():
+    topic = Topic()
+    sub = _FakeSubscriber()
+    subscription = topic.subscribe(sub)
+
+    topic.unsubscribe(subscription)
+    topic.unsubscribe(subscription)  # must not raise
+
+
+def test_unsubscribe_unknown_handle_does_not_raise():
+    topic = Topic()
+    sub = _FakeSubscriber()
+    topic.subscribe(sub)
+
+    topic.unsubscribe(queue.Queue())  # must not raise
+
+    topic.publish(Event(slot=1, pid=0xC548))
+    sub.wait()
+    assert len(sub.received) == 1
+
+
+def test_unsubscribe_leaves_other_subscribers_unaffected():
+    topic = Topic()
+    leaving = _FakeSubscriber()
+    staying = _FakeSubscriber()
+    subscription = topic.subscribe(leaving)
+    topic.subscribe(staying)
+
+    topic.unsubscribe(subscription)
+    topic.publish(Event(slot=1, pid=0xC548))
+    staying.wait()
+    time.sleep(0.1)
+
+    assert len(staying.received) == 1
+    assert leaving.received == []

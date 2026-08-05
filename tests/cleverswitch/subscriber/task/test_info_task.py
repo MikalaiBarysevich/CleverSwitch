@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from cleverswitch.event.hidpp_error_event import HidppErrorEvent
 from cleverswitch.event.hidpp_response_event import HidppResponseEvent
 from cleverswitch.hidpp.constants import BOLT_PID
@@ -247,3 +249,31 @@ def test_wait_response_returns_none_on_timeout():
 
     result = task._wait_response(timeout=0.05)
     assert result is None
+
+
+# ── subscription lifecycle ────────────────────────────────────────────────────
+
+
+def test_run_unsubscribes():
+    device = _make_device(pending={"test_step"})
+    topics = _make_topics()
+
+    task = _ConcreteTask(device, topics, step_name="test_step")
+    task.run()
+
+    topics.hid_event.unsubscribe.assert_called_once_with(topics.hid_event.subscribe.return_value)
+
+
+def test_run_unsubscribes_when_fire_dependent_steps_raises():
+    device = _make_device(pending=set())
+    topics = _make_topics()
+
+    class _TaskWithFailingDependent(_ConcreteTask):
+        def _fire_dependent_steps(self):
+            raise RuntimeError("boom")
+
+    task = _TaskWithFailingDependent(device, topics, step_name="test_step")
+    with pytest.raises(RuntimeError):
+        task.run()
+
+    topics.hid_event.unsubscribe.assert_called_once_with(topics.hid_event.subscribe.return_value)

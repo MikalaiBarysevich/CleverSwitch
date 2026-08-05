@@ -18,7 +18,10 @@ RESPONSE_TIMEOUT = 2.0
 
 
 class InfoTask(ABC, Subscriber, Thread):
-    """Base class for device info tasks that subscribe to hid_event and wait for HID++ responses."""
+    """Base class for device info tasks that subscribe to hid_event and wait for HID++ responses.
+
+    The hid_event subscription is released when run() completes; a subclass overriding run() must preserve that.
+    """
 
     def __init__(
         self,
@@ -35,7 +38,7 @@ class InfoTask(ABC, Subscriber, Thread):
         self._response_queue: queue.Queue = queue.Queue()
         self._sw_id = sw_id
         self._request_id = (request_id & 0xFFF0) | self._sw_id
-        topics.hid_event.subscribe(self)
+        self._subscription = topics.hid_event.subscribe(self)
 
     def notify(self, event) -> None:
         if (
@@ -47,25 +50,28 @@ class InfoTask(ABC, Subscriber, Thread):
             self._response_queue.put(event)
 
     def run(self) -> None:
-        already_done = self._step_name not in self._device.pending_steps
-        if not already_done:
-            try:
-                self.doTask()
-            except Exception:
-                log.exception(f"Unhandled error in task {self._step_name} for wpid=0x{self._device.wpid:04X}")
-        success = already_done or self._step_name not in self._device.pending_steps
-        if success:
-            self._device.connected = True
-            self._fire_dependent_steps()
-        self._topics.info_progress.publish(
-            InfoTaskProgressEvent(
-                slot=self._device.slot,
-                pid=self._device.pid,
-                step_name=self._step_name,
-                success=success,
-                device=self._device,
+        try:
+            already_done = self._step_name not in self._device.pending_steps
+            if not already_done:
+                try:
+                    self.doTask()
+                except Exception:
+                    log.exception(f"Unhandled error in task {self._step_name} for wpid=0x{self._device.wpid:04X}")
+            success = already_done or self._step_name not in self._device.pending_steps
+            if success:
+                self._device.connected = True
+                self._fire_dependent_steps()
+            self._topics.info_progress.publish(
+                InfoTaskProgressEvent(
+                    slot=self._device.slot,
+                    pid=self._device.pid,
+                    step_name=self._step_name,
+                    success=success,
+                    device=self._device,
+                )
             )
-        )
+        finally:
+            self._topics.hid_event.unsubscribe(self._subscription)
 
     @abstractmethod
     def doTask(self) -> None: ...

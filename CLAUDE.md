@@ -58,7 +58,7 @@ The core of the architecture is a typed pub-sub system with one daemon thread pe
 - `flags` — apply/re-apply key reporting flags (SetReportFlagEvent); `SetReportFlagSubscriber` selects analytics mode (byte 9) or divert mode (byte 6) based on `device.supported_flags`
 - `info_progress` — task completion feedback (InfoTaskProgressEvent)
 
-**`Topic`** (`topic/topic.py`) — each `subscribe(subscriber)` call creates a private `queue.Queue` and a daemon thread that drains it by calling `subscriber.notify(event)`. `publish(event)` enqueues on all subscriber queues simultaneously.
+**`Topic`** (`topic/topic.py`) — each `subscribe(subscriber)` call creates a private `queue.Queue` and a daemon thread that drains it by calling `subscriber.notify(event)`, and returns that queue as a handle. `publish(event)` enqueues on all subscriber queues simultaneously. `unsubscribe(subscription)` takes the handle back, removes the queue, and stops its drain thread via an internal sentinel — short-lived subscribers (`InfoTask`) must call it or they leak a thread and a queue for the life of the process.
 
 **Subscribers** implement `notify(event) -> None` and filter by event type internally. All subscribers call `topics.<channel>.subscribe(self)` in `__init__`.
 
@@ -105,7 +105,7 @@ InfoTaskOrchestrator.notify(InfoTaskProgressEvent)
 - Subscribes to `hid_event`; `notify()` filters on `slot + pid + sw_id` and enqueues matching `HidppResponseEvent` / `HidppErrorEvent`
 - `_send_request(*params)` builds a long-format HID++ message and publishes a `WriteEvent`
 - `_wait_response(timeout=2.0)` blocks on the private queue; returns `None` on timeout
-- `run()` checks `step_name in device.pending_steps`; skips `doTask()` if already complete; always publishes `InfoTaskProgressEvent`
+- `run()` checks `step_name in device.pending_steps`; skips `doTask()` if already complete; always publishes `InfoTaskProgressEvent`; releases the `hid_event` subscription in a `finally` — a subclass overriding `run()` must preserve that
 
 Task dependency chain:
 - `CidReportingFeatureTask` → fires `FindESCidsFlagsTask`
