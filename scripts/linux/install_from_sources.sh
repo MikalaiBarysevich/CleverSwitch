@@ -33,13 +33,25 @@ if command -v python3 &>/dev/null; then
     PYTHON="$(command -v python3)"
     ok "Python found: $PYTHON ($($PYTHON --version))"
 else
-    error "Python 3 is not installed. Install it with your package manager (e.g. sudo apt install python3 python3-pip)."
+    error "Python 3 is not installed. Install it with your package manager (e.g. sudo apt install python3 pipx)."
 fi
 
 # ── Step 2: CleverSwitch ─────────────────────────────────────────────
 
+# pipx, not pip: PEP 668 rejects `pip install` outside a venv on Arch,
+# Debian 12+, Ubuntu 23.04+ and Fedora 38+. pipx often ships as a standalone
+# binary that `python3 -m pipx` cannot import, so prefer the one on PATH.
+
+if command -v pipx &>/dev/null; then
+    PIPX=(pipx)
+elif "$PYTHON" -m pipx --version &>/dev/null; then
+    PIPX=("$PYTHON" -m pipx)
+else
+    error "pipx is not installed. Install it with your package manager (e.g. sudo pacman -S python-pipx, sudo apt install pipx, sudo dnf install pipx)."
+fi
+
 info "Installing CleverSwitch..."
-"$PYTHON" -m pip install "$PROJECT_DIR"
+"${PIPX[@]}" install --force --python "$PYTHON" "$PROJECT_DIR"
 
 BINARY_PATH="$(command -v "$APP_NAME" 2>/dev/null || true)"
 [ -n "$BINARY_PATH" ] && [ -x "$BINARY_PATH" ] || error "CleverSwitch binary not found after install. You may need to add ~/.local/bin to your PATH."

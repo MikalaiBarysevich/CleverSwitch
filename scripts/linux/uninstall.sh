@@ -47,11 +47,31 @@ if [ -f "$DESKTOP_FILE" ]; then
     ok "Autostart entry removed."
 fi
 
-# ── Step 2: Remove installed binary ──────────────────────────────────
+# ── Step 2: Uninstall the pipx package ───────────────────────────────
+# Must run before the binary removal below: pipx owns both the venv and the
+# ~/.local/bin symlink, and deleting the symlink first orphans the venv.
+
+if command -v pipx &>/dev/null; then
+    PIPX=(pipx)
+elif command -v python3 &>/dev/null && python3 -m pipx --version &>/dev/null; then
+    PIPX=(python3 -m pipx)
+else
+    PIPX=()
+fi
+
+if [ ${#PIPX[@]} -gt 0 ] && "${PIPX[@]}" list --short 2>/dev/null | grep -q "^$APP_NAME "; then
+    info "Uninstalling CleverSwitch pipx package..."
+    "${PIPX[@]}" uninstall "$APP_NAME"
+    ok "CleverSwitch pipx package uninstalled."
+else
+    info "CleverSwitch pipx package is not installed — skipping."
+fi
+
+# ── Step 3: Remove installed binary ──────────────────────────────────
 
 BINARY_PATH="$HOME/.local/bin/$APP_NAME"
 
-if [ -f "$BINARY_PATH" ]; then
+if [ -e "$BINARY_PATH" ] || [ -L "$BINARY_PATH" ]; then
     info "Removing $BINARY_PATH..."
     rm -f "$BINARY_PATH"
     ok "Binary removed."
@@ -59,9 +79,9 @@ else
     info "No binary found at $BINARY_PATH — skipping."
 fi
 
-# ── Step 3: Uninstall pip package (backward compat) ──────────────────
+# ── Step 4: Uninstall pip package (backward compat) ──────────────────
 
-if pip3 show "$APP_NAME" &>/dev/null; then
+if command -v pip3 &>/dev/null && pip3 show "$APP_NAME" &>/dev/null; then
     info "Uninstalling CleverSwitch pip package..."
     pip3 uninstall -y "$APP_NAME"
     ok "CleverSwitch pip package uninstalled."
@@ -69,7 +89,7 @@ else
     info "CleverSwitch pip package is not installed — skipping."
 fi
 
-# ── Step 3: Remove udev rules (optional) ─────────────────────────────
+# ── Step 5: Remove udev rules (optional) ─────────────────────────────
 
 RULES_DST="/etc/udev/rules.d/$UDEV_RULE"
 
