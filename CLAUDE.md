@@ -96,7 +96,12 @@ InfoTaskOrchestrator.notify(InfoTaskProgressEvent)
   │     (copies device.name if friendly_name is None), logs "Device fully discovered" (once per wpid).
   │     Saving before the fallback keeps a genuinely-missing friendly_name persisted as null (re-fetched
   │     next launch) rather than baking in the marketing name.
-  └── failure + device.connected → retries the task immediately
+  └── failure + device.connected → retries the task immediately, up to MAX_DISCOVERY_ATTEMPTS (5)
+        for the three steps in _CAPPED_STEPS (CHANGE_HOST, CID_REPORTING, FIND_ES_CIDS_FLAGS);
+        on exhaustion logs once at CRITICAL and keeps running. Cosmetic steps retry unbounded.
+        The step stays in pending_steps, so the device is never cached and gets a fresh budget
+        when DeviceInfoRequestEvent arrives (the orchestrator's second subscription, on
+        device_info) — this makes it the only two-topic subscriber, hence the lock on _attempts.
 ```
 
 ### InfoTask design
