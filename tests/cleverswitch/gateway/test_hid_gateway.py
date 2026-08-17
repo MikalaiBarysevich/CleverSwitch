@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from unittest.mock import MagicMock
 
+from cleverswitch.errors.errors import TransportError
 from cleverswitch.event.transport_disconnected_event import TransportDisconnectedEvent
 from cleverswitch.event.write_event import WriteEvent
 from cleverswitch.gateway.hid_gateway import HidGateway
@@ -70,6 +73,51 @@ def test_notify_writes_when_connected():
     mock_transport.write.assert_called_once_with(msg)
 
 
+def test_notify_drops_write_when_never_connected_and_grace_expired():
+    """Regression guard for #92: a collection that never connects must not park the drain thread.
+
+    HidGateway.notify runs on the write topic's per-subscriber drain thread. The old code spun
+    `while not self._connected` forever when _ever_connected was False, so the queue behind it grew
+    without bound. The wait is now capped by a one-shot grace window measured from construction.
+    """
+    event_listener = MagicMock(spec=EventListener)
+    gw = HidGateway(_device_info(), event_listener)
+    gw._connected = False
+    gw._ever_connected = False
+    gw._grace_deadline = time.monotonic() - 1.0
+    mock_transport = MagicMock()
+    gw._transport = mock_transport
+
+    event = WriteEvent(slot=1, pid=BOLT_PID, hid_message=b"\x11" + bytes(19))
+    # Run on a worker so a reintroduced spin fails the test instead of hanging the suite.
+    worker = threading.Thread(target=gw.notify, args=(event,), daemon=True)
+    worker.start()
+    worker.join(timeout=2.0)
+
+    assert not worker.is_alive(), "notify must return once the first-connect grace has expired"
+    mock_transport.write.assert_not_called()
+
+
+def test_notify_within_grace_writes_once_gateway_connects():
+    event_listener = MagicMock(spec=EventListener)
+    gw = HidGateway(_device_info(), event_listener)
+    gw._connected = False
+    gw._ever_connected = False
+    gw._grace_deadline = time.monotonic() + 5.0
+    mock_transport = MagicMock()
+    gw._transport = mock_transport
+
+    connector = threading.Timer(0.1, gw._set_connected, args=(True,))
+    connector.start()
+    try:
+        msg = bytes([REPORT_LONG]) + bytes(19)
+        gw.notify(WriteEvent(slot=1, pid=BOLT_PID, hid_message=msg))
+    finally:
+        connector.cancel()
+
+    mock_transport.write.assert_called_once_with(msg)
+
+
 # ── HidGateway.close ─────────────────────────────────────────────────────────
 
 
@@ -89,6 +137,60 @@ def test_close_noop_when_no_transport():
     gw = HidGateway(_device_info(), event_listener)
     gw._transport = None
     gw.close()  # must not raise
+
+
+def test_close_sets_stop_even_without_transport():
+    """A gateway that never connected still has a running run() loop that must be told to exit."""
+    event_listener = MagicMock(spec=EventListener)
+    gw = HidGateway(_device_info(), event_listener)
+    gw._transport = None
+
+    gw.close()
+
+    assert gw._stop.is_set()
+
+
+# ── HidGateway.run teardown ─────────────────────────────────────────────────
+
+
+def _stopping_gateway() -> HidGateway:
+    """A connected gateway whose next read() fails the way close() makes it fail.
+
+    Mirrors the shutdown sequence: the thread is blocked in read() when close() sets _stop and
+    closes the transport, so the in-flight read raises with _stop already set.
+    """
+    gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
+    gw._transport = MagicMock()
+
+    def read_after_close():
+        gw._stop.set()
+        raise TransportError("read on closed transport")
+
+    gw._transport.read.side_effect = read_after_close
+    gw._set_connected(True)
+    return gw
+
+
+def test_run_exits_without_reconnecting_when_stopped(mocker):
+    """close() must actually stop the thread instead of having it reopen the closed transport."""
+    gw = _stopping_gateway()
+    try_connect = mocker.patch.object(gw, "_try_connect")
+
+    gw.start()
+    gw.join(timeout=2.0)
+
+    assert not gw.is_alive(), "run() must exit once _stop is set"
+    try_connect.assert_not_called()
+
+
+def test_run_stopped_transport_error_does_not_mark_disconnected(mocker):
+    """On shutdown the read failure is expected — it must not fan out a disconnect."""
+    gw = _stopping_gateway()
+    set_connected = mocker.patch.object(gw, "_set_connected")
+
+    gw.run()
+
+    set_connected.assert_not_called()
 
 
 # ── HidGatewayBT._do_write ──────────────────────────────────────────────────

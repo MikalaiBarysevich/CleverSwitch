@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from cleverswitch.errors.errors import TransportError
 from cleverswitch.event.transport_disconnected_event import TransportDisconnectedEvent
 from cleverswitch.gateway.hid_gateway_receiver import HidGatewayReceiver
 from cleverswitch.hidpp.constants import BOLT_PID
@@ -90,6 +91,27 @@ def test_set_connected_false_publishes_with_slot_zero():
     gw._set_connected(False)
     event = topics.hid_event.publish.call_args[0][0]
     assert event.slot == 0
+
+
+# ── Shutdown ─────────────────────────────────────────────────────────────────
+
+
+def test_stopped_read_failure_publishes_no_transport_disconnected():
+    """close() closing the transport makes the in-flight read fail — that is not a real disconnect."""
+    gw, trigger, topics = _make_gateway()
+    gw._transport = MagicMock()
+
+    def read_after_close():
+        gw._stop.set()
+        raise TransportError("read on closed transport")
+
+    gw._transport.read.side_effect = read_after_close
+    gw._set_connected(True)
+    topics.hid_event.publish.reset_mock()
+
+    gw.run()
+
+    topics.hid_event.publish.assert_not_called()
 
 
 # ── Reconnect after disconnect ───────────────────────────────────────────────

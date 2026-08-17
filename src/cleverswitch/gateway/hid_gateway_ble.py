@@ -41,7 +41,6 @@ class HidGatewayBLE(HidGatewayBT):
 
     def __init__(self, device_info, event_listener) -> None:
         super().__init__(device_info, event_listener)
-        self._stop = threading.Event()
         self._ble_client: BleakClient | None = None
         self._ble_loop: asyncio.AbstractEventLoop | None = None
         self._ble_subscribed = threading.Event()
@@ -73,10 +72,6 @@ class HidGatewayBLE(HidGatewayBT):
                 self._try_connect()
             else:
                 time.sleep(0.5)
-
-    def close(self) -> None:
-        self._stop.set()
-        super().close()
 
     def _run_ble_loop(self) -> None:
         loop = asyncio.new_event_loop()

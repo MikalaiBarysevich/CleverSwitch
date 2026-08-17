@@ -1,5 +1,6 @@
 import logging
 import platform
+import threading
 import time
 from threading import Thread
 
@@ -14,6 +15,11 @@ log = logging.getLogger(__name__)
 
 _IS_WINDOWS = platform.system() == "Windows"
 
+# How long a write may wait for a gateway that has never connected yet. Measured once from
+# construction, so a collection that never connects can only ever park the write topic's drain
+# thread for this window. Aligned with RESPONSE_TIMEOUT in subscriber/task/info_task.py.
+_FIRST_CONNECT_GRACE = 2.0
+
 _USAGE_TO_REPORT_ID = {
     HIDPP_USAGE_SHORT: REPORT_SHORT,
     HIDPP_USAGE_LONG: REPORT_LONG,
@@ -25,13 +31,26 @@ class HidGateway(Thread, Subscriber):
     def __init__(self, device_info: HidDeviceInfo, event_listener: EventListener) -> None:
         super().__init__(daemon=True)
         self._device_info = device_info
-        self._connected: bool = False
+        self._connected_signal = threading.Event()
         self._ever_connected: bool = False
+        self._grace_deadline = time.monotonic() + _FIRST_CONNECT_GRACE
+        self._stop = threading.Event()
         self._transport: HIDTransport | None = None
         self._event_listener: EventListener = event_listener
 
+    @property
+    def _connected(self) -> bool:
+        return self._connected_signal.is_set()
+
+    @_connected.setter
+    def _connected(self, state: bool) -> None:
+        if state:
+            self._connected_signal.set()
+        else:
+            self._connected_signal.clear()
+
     def run(self):
-        while True:
+        while not self._stop.is_set():
             if self._connected:
                 try:
                     hid_event = self._transport.read()
@@ -40,6 +59,8 @@ class HidGateway(Thread, Subscriber):
                         f"Received HID event from pid=0x{self._device_info.pid:04X}: {hid_event.hex()}",
                     )
                 except TransportError:
+                    if self._stop.is_set():
+                        break
                     log.debug(f"Device disconnected pid=0x{self._device_info.pid:04X}")
                     self._set_connected(False)
             else:
@@ -48,7 +69,7 @@ class HidGateway(Thread, Subscriber):
     def _try_connect(self):
         this_device_collection = enumerate_hid_devices(product_id=self._device_info.pid)
         if len(this_device_collection) == 0:
-            time.sleep(1)
+            self._stop.wait(1)
             return
 
         for device in this_device_collection[self._device_info.pid]:
@@ -81,10 +102,8 @@ class HidGateway(Thread, Subscriber):
             return
 
         if not self._connected:
-            if not self._ever_connected:
-                while not self._connected:
-                    time.sleep(0.5)
-            else:
+            grace = max(0.0, self._grace_deadline - time.monotonic())
+            if self._ever_connected or not self._connected_signal.wait(grace):
                 log.debug(f"Dropping write to pid=0x{self._device_info.pid:04X}: device disconnected")
                 return
 
@@ -110,6 +129,7 @@ class HidGateway(Thread, Subscriber):
         self._transport.write(msg)
 
     def close(self):
+        self._stop.set()
         if self._transport is None:
             return
         self._transport.close()
