@@ -148,7 +148,7 @@ chmod +x scripts/mac/setup_startup.command
 
 ### Windows
 
-Handled by `install.ps1` during installation. To set up separately, run `setup_startup_windows.bat` from the folder containing `cleverswitch.exe`.
+Handled by `install.bat` during installation. To set up separately, run `setup_startup_windows.bat` from the folder containing `cleverswitch.exe`.
 
 To verify, open Task Manager and look for `cleverswitch.exe` in the **Details** tab.
 

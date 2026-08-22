@@ -9,15 +9,17 @@ set "INSTALL_DIR=%LOCALAPPDATA%\Programs\CleverSwitch"
 set "INSTALL_PATH=%INSTALL_DIR%\%EXE_NAME%"
 set "STARTUP_FOLDER=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 
+:: Paths are expanded as !VAR! inside ( ) blocks — see the note in install.bat.
+
 :: 2. Resolve the executable path for the VBS shim.
 :: Prefer the canonical install location so the VBS survives deletion of the
 :: source archive folder. Fall back to PATH for manual installs.
 set "VBS_EXE_PATH="
-if exist "%INSTALL_PATH%" (
+if exist "!INSTALL_PATH!" (
     REM Use a literal env var in the VBS so it stays user-portable.
     REM WScript.Shell.Run expands environment variables in the command string.
     set "VBS_EXE_PATH=%%localappdata%%\Programs\CleverSwitch\%EXE_NAME%"
-    set "FOUND_AT=%INSTALL_PATH%"
+    set "FOUND_AT=!INSTALL_PATH!"
 ) else (
     for %%i in (%EXE_NAME%) do set "PATH_EXE=%%~$PATH:i"
     if defined PATH_EXE (
@@ -27,7 +29,7 @@ if exist "%INSTALL_PATH%" (
 )
 
 if "!VBS_EXE_PATH!"=="" (
-    echo Error: %EXE_NAME% not found at %INSTALL_PATH% or on your PATH.
+    echo Error: %EXE_NAME% not found at "!INSTALL_PATH!" or on your PATH.
     echo Please run install.bat first.
     pause
     exit /b
@@ -54,4 +56,4 @@ echo.
 start wscript.exe "%STARTUP_FOLDER%\%VBS_NAME%"
 echo Application launched in background.
 
-pause
+pause

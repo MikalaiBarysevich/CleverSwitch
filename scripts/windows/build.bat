@@ -16,8 +16,8 @@ set "ROOT_DIR=%CD%"
 :: ── Preflight ─────────────────────────────────────────────────────────
 :: hidapi.dll must sit at the project root; the ";." packs it beside the exe.
 
-if not exist "%ROOT_DIR%\hidapi.dll" (
-    echo [ERROR] hidapi.dll not found at %ROOT_DIR%.
+if not exist "!ROOT_DIR!\hidapi.dll" (
+    echo [ERROR] hidapi.dll not found at "!ROOT_DIR!".
     echo Download it from https://github.com/libusb/hidapi/releases and place it at the project root.
     popd
     exit /b 1

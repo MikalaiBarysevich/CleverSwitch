@@ -13,6 +13,19 @@
 Confirmed by the transaction log in `logitech_hidpp_2.0_specification_draft_2012-06-04.pdf`
 (C52B Unifying receiver): `X 10 ... GetFeature(0x0003)` → `R 11 ...`; `X 10 ... GetFwInfo` → `R 11 ...`.
 
+## Software ID (sw_id) convention — applies to EVERY HID++ 2.0 feature, not just one
+Byte 3 lower nibble = sw_id. Per the actual spec text (Software ID field,
+`logitech_hidpp_2.0_specification_draft_2012-06-04.pdf`): *"0 Do not use (allows to distinguish a
+notification from a response)."* Compliant software must use non-zero sw_id (1-15); firmware
+echoes that sw_id back in responses. Consequence: **sw_id==0 is a universal, spec-guaranteed
+marker for "unsolicited device notification"** — never a reply to anyone's request. A packet with
+fn matching some function-index but sw_id!=0 is always a response/reply (to whichever software
+owns that sw_id), never a notification — regardless of feature. CleverSwitch's own
+`hidpp/constants.py` codifies this exact rule in a comment (line ~41: "Notifications from device
+have sw_id=0, so bit 3 distinguishes our responses"). Filtering "genuine notification" must check
+sw_id==0 specifically, not merely "!= my own sw_id" (see [[x1814-change-host]] for a concrete loop
+bug caused by the weaker check).
+
 ## HID++ 1.0 register sub_ids
 - 0x81: GET_SHORT_REGISTER request; 0x81 response on short 0x10 report
 - 0x82: SET_LONG_REGISTER (write)

@@ -93,3 +93,48 @@ If either divert=1 or persist=1 (with valid bit set), control is diverted via HI
 - Clears ALL diversions at once; response has NO per-CID payload
 - An older codebase revision's ExternalUndivertEvent logic did not detect this case — known gap
   at that time; re-verify current `parser.py` if relevant.
+
+## analyticsKeyEvt vs divert: does analytics suppress the native action? (2026-08 investigation)
+No local PDF and no web mirror (lekensteyn's x1b04 HTML, PixlOne/logiops wiki) documents the
+analyticsKeyEvt flag's semantics in prose — it's simply absent from the older mirrors (v6-era
+addition). Best evidence is **architectural, not a direct spec quote**:
+- Solaar issue #1512 (MX Keys Mini): Host Switch Channel CIDs (0xD1-D3) report flags "FN, FN
+  sensitive, analytics key events" — **no divertable, no persistently divertable flag at all**.
+  Since there is no divert capability on this device's ES CIDs, analytics key events *cannot* be
+  implemented as "divert-then-notify" — it must be a parallel/observational notification that
+  coexists with the native (undivertable) action. This is strong indirect proof that
+  analyticsKeyEvt is architecturally independent of divert and does NOT suppress the native
+  action — Logitech added it specifically so hosts can observe events on controls whose native
+  behavior can't be (or isn't meant to be) suppressed.
+- Corroborates CleverSwitch's own design choice in `set_report_flag_subscriber.py`: analytics
+  mode is preferred unconditionally over divert whenever advertised, precisely because
+  CleverSwitch wants the keyboard to keep performing its OWN native Easy-Switch host change
+  (so it doesn't have to reimplement that logic) and just wants a heads-up notification to
+  mirror to the mouse — the opposite of what divert-mode would give (native switch suppressed).
+- By contrast divert (bit0/1 of byte 6) is spec-documented (Table 6/7, this file above) as
+  literally replacing the native HID report with an HID++ notification — that suppression
+  behavior IS explicit in the v6 spec text, unlike analytics.
+- Conclusion given to user: treat as high-confidence *inference*, not a verified spec sentence,
+  since the authoritative x1b04 v6 PDF (which does mention analyticsKeyEvt, see byte 9 table
+  above) was not locally available this session to check its prose around Table 6 for an
+  explicit statement — flag this gap if asked again with local PDFs present.
+
+## Device generation comparison: divertable flag presence on ES CIDs (0xD1/D2/D3)
+Confirmed via Solaar GitHub issues (2026-08 web search, not local docs):
+- **MX Keys (original, full-size, wpid 4082/408A-ish era)**: ES CIDs report
+  "nonstandard, divertable, persistently divertable, analytics key events" — ALL flags present.
+  (Solaar wiki "Example: Diverted Host Switch Channel keys", issue #1070.)
+- **MX Keys Mini**: ES CIDs report "FN, FN sensitive, analytics key events" only — divertable and
+  persistently divertable flags ABSENT. (Solaar issue #1512.)
+- **MX Mechanical Mini**: ES CIDs present + FN-sensitive but NOT divertable either (issue #1751,
+  already in [[x1814-change-host]]) — same pattern as MX Keys Mini.
+- **MX Keys S (wpid 0xB378)**: NOT independently confirmed this session — no raw getCidInfo dump
+  or solaar-show output found via web search. By analogy to the Mini/Mechanical-Mini generation
+  (newer, smaller-form-factor keyboards), it likely follows the "analytics-only, no divert" flag
+  pattern, but this is inference-by-generation, not verified data. Recommend CleverSwitch trust
+  its own runtime getCidInfo read over any hardcoded assumption — the code already does this
+  (`device.supported_flags` populated by `FindESCidsFlagsTask`), which is the right approach.
+- Pattern suggests Logitech's newer firmware increasingly ships ES CIDs as analytics-only
+  (non-divertable) — makes sense given the analyticsKeyEvt-does-not-suppress-native conclusion
+  above: Logitech doesn't want third-party divert to break Easy-Switch's own host-switch UX, but
+  still wants to expose an observation channel to software.
