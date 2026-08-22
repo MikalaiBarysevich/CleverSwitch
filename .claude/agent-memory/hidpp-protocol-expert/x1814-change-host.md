@@ -1,9 +1,70 @@
 ---
 name: x1814-change-host
-description: Feature 0x1814 CHANGE_HOST byte layout, the undocumented notification behavior, and how to discriminate it from setCurrentHost echoes and from 0x1D4B events
+description: Feature 0x1814 CHANGE_HOST byte layout, the undocumented notification behavior, discriminating it from setCurrentHost echoes/0x1D4B, version history (v0 vs v1), and the undocumented fn4 (possible Enhanced Easy-Switch lead-capability getter)
 metadata:
   type: reference
 ---
+
+## Function 4 — UNDOCUMENTED, possible Enhanced Easy-Switch capability getter (2026-08, CleverSwitch issue #102 full -vv log)
+**[INFERENCE — no source names fn4's purpose; only circumstantial evidence below]**
+- Observed: Logi Options+ (sw_id=11) calls feature_index=10 (=0x1814, confirmed), function=4,
+  immediately after a getHostInfo (fn0) call on the SAME device. Response payload:
+  `01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00` (byte0=0x01, rest zero).
+- **Keyboard-only in this session**: called twice on the MX Keys S (pid 45944, leadCoupledEasySwitch
+  per Options+' own `devices.json` catalog), never on the MX Master 3 (pid 45091) in the same
+  session — even though Options+ repeatedly polls the mouse's fn0 getHostInfo. CAVEAT: the MX
+  Master 3 (non-S) is absent from Options+' coupled-device list entirely (only MX Master 3S has
+  `followCoupledEasySwitch`), so this session cannot distinguish "fn4 is keyboard-only by protocol
+  design" from "Options+ simply never asks a mouse its local catalog already knows is ineligible."
+  Needs a capture containing an EES-eligible mouse (e.g. MX Master 3S) to settle which explanation
+  is correct.
+- **No source documents fn4 or any 0x1814 function beyond fn3**: checked OpenLogi
+  (github.com/AprilNEA/OpenLogi, `crates/openlogi-hidpp/src/feature/change_host.rs`) — implements
+  only fn0 `get_host_info`, fn1 `set_current_host`, fn2 `get_cookies`, fn3 `set_cookie`; no fn4.
+  Also checked Logitech's own cpg-docs (`hidpp20/README.rst`) — lists 0x1814 by name only, no
+  function table at all (matches prior finding that cpg-docs only fully documents 0x0000 as a
+  worked example). No hit in Solaar, PixlOne/logiops wiki, or cvuchener/hidpp either (all already
+  confirmed to have zero 0x1814 function-level detail — see notes above).
+- **Version history — CONFIRMED, this resolves a real gap**: OpenLogi's `change_host.rs` module
+  declares itself as targeting "Feature ID: 0x1814, Version: 0" (their own minimum-supported-version
+  constant, likely NOT read live from the device — they only need fn0-3 which plausibly exist in
+  both v0 and v1). But a real-world OpenLogi device-support issue
+  (github.com/AprilNEA/OpenLogi#521, MX Keys) contains a raw feature-table dump showing
+  **`10   0x1814  v1   ChangeHost`** — feature index 10 (0x0A), matching the index independently
+  resolved for MX Keys S in both #91 and #102. So **0x1814 v1 is confirmed to exist in the wild**
+  on the MX Keys product family. This is consistent with fn4 being a v1-only addition that OpenLogi
+  (whose own code only implements v0-era functions) simply hasn't reverse-engineered/added yet —
+  the most parsimonious explanation for "undocumented function on a feature every other source
+  claims stops at fn3." The exact function list v1 adds beyond v0 is NOT documented anywhere found.
+- **Why "EES lead-capability getter" is the leading hypothesis over mundane alternatives**:
+  - Payload shape (single boolean-looking byte, 0x01, rest zero) matches the common HID++
+    "capability/enabled getter" pattern used throughout the protocol far more than a host-name or
+    cookie-variant call would (cookies are already fn2/fn3 and take a host-index parameter; this
+    call takes none visible and returns a flat scalar).
+  - Timing (called right after getHostInfo, on the keyboard specifically) matches Options+ needing
+    "does this specific currently-connected device support being an EES lead" state, which logically
+    piggybacks on the per-device host-info query it already just made.
+  - Logitech's own support article (support.logi.com, "Enhanced Easy-Switch Feature Guide") states
+    coupling **"settings are stored directly on the device"** and that pressing Easy-Switch on the
+    *mouse* does NOT trigger following — only the *keyboard's* Easy-Switch key drives the sync. This
+    establishes an asymmetric keyboard-is-special protocol role independent of any packet capture,
+    which is consistent with (though does not prove) a keyboard-queried lead-capability getter.
+  - No dedicated separate feature for this was found anywhere: surveyed cpg-docs' full feature list
+    (checked 2026-08) for anything host/pair/couple/multi/link/lead/follow-named near 0x1814-0x1820
+    — only hits were 0x1814 itself, 0x1df0 "Remaining Pairings" (receiver pairing-slot count, an
+    unrelated Bolt/Unifying receiver capacity feature) and 0x4530 "Dual Platform" (OS-layout mode
+    switching — Windows/Mac icon set — unrelated to host coupling despite the "platform" name).
+    OpenLogi's own `hosts_info.rs` (0x1815) implementation likewise has zero coupled/lead/follow
+    fields. Absence of a dedicated feature anywhere in the surveyed sources is circumstantial
+    support for "bolted onto 0x1814" over "lives on a separate unresolved feature" (question 4),
+    but is not conclusive — a brand-new feature ID that simply hasn't been reverse-engineered by
+    any of these community projects yet remains possible and unfalsifiable from available sources.
+- **Recommendation if CleverSwitch ever needs to resolve this empirically**: call fn4 (with a
+  zero-length or single-parameter request, matching what was captured) against a known
+  EES-ineligible device and a known EES-eligible device of the same generation and diff the
+  response; also worth calling fn4 on a follower-capable mouse (MX Master 3S) to resolve the
+  keyboard-only-vs-catalog-skipped ambiguity above. Design decision on whether to actually build on
+  an undocumented function belongs to `@software-architect` per CLAUDE.md, not this note.
 
 ## Feature 0x1814 — CHANGE_HOST
 - Source: `x1814_change_host_v0.pdf` — **no events defined in the spec at all**
@@ -63,6 +124,28 @@ metadata:
   and re-confirmed by the #102 capture (`03 00` on a 3-host device = nbHost=3, currHost=0). Do not
   confuse this reply layout with the (structurally different) unsolicited notification above.
 - setCurrentHost request: byte[4]=target host (fn=1, byte[3]&0xF0==0x10)
+- **NEGATIVE RESULT, worth recording so nobody tries this again — byte[6] (flags) is NOT an
+  Enhanced Easy-Switch marker (2026-08, CleverSwitch #102 full -vv log)**: every getHostInfo reply
+  captured in the session is `03 01 00` (nbHost=3, currHost=1, **flags=0x00**) — on a keyboard that
+  demonstrably fires 0x1814 host-switch notifications and is `leadCoupledEasySwitch=True` per
+  Options+'s own catalog. The mouse (not EES-coupled) returns the byte-identical `03 01 00`. So
+  flags=0x00 carries no EES signal either way here — it's indistinguishable between a coupled-lead
+  keyboard and a non-coupled mouse in this capture. OpenLogi's `change_host.rs` names the one flag
+  bit it documents in this byte `ENHANCED_HOST_SWITCH` (bit 0, `1<<0`) with the description "on a
+  failed connection the device falls back to another host with a non-zero cookie before returning
+  to the original host" — i.e. **cookie-based connection failover**, not Logitech's marketing
+  "Enhanced Easy-Switch" coupling feature. This is a plain **name collision** between OpenLogi's
+  internal bitflag name and Logitech's product marketing term — do not conflate them, and do not
+  build EES-lead detection on this bit. (No prior CleverSwitch memory actually claimed this bit was
+  an EES marker — recording this now purely to prevent the mistake being made later.)
+- **Fourth independent confirmation of the `[departing_host, target_host]` notification layout**:
+  the same #102 log captures the notification directly — `HidppNotificationEvent(feature_index=10,
+  function=0, payload=b'\x01\x00\x00...')` — with the device on host 2 (currHost=1 per a
+  getHostInfo reply 8 seconds earlier in the same session) pressing host 1. `01` = departing host 2
+  (0-indexed 1), `00` = target host 1 (0-indexed 0). Matches the layout exactly, and independently
+  re-confirms byte[4] is not nbHost (nbHost=3 in the same session's getHostInfo replies, byte[4]=
+  0x01 in the notification) on the very same physical device/session as the getHostInfo evidence —
+  no cross-session or cross-device inference needed for this one, strongest single data point yet.
 - **No independent 3rd-party doc corroborates the notification's byte layout** (checked 2026-08:
   Solaar has zero 0x1814 code at all in both `hidpp20.py` and `notifications.py`; PixlOne/logiops
   wiki and cvuchener/hidpp have no 0x1814 event definitions either). The layout above is derived
