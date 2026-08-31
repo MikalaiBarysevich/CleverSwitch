@@ -62,6 +62,7 @@ copy /y config.example.yaml "%STAGE%\" >nul
 copy /y scripts\windows\install.bat "%STAGE%\" >nul
 copy /y scripts\windows\uninstall.bat "%STAGE%\" >nul
 copy /y scripts\windows\setup_startup_windows.bat "%STAGE%\" >nul
+copy /y scripts\windows\set_user_path.ps1 "%STAGE%\" >nul
 powershell -Command "Compress-Archive -Path '%STAGE%\*' -DestinationPath 'dist\%ARCHIVE%.zip' -Force" || (echo [ERROR] Compress-Archive failed. & popd & exit /b 1)
 rmdir /s /q "%STAGE%"
 

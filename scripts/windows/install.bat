@@ -38,12 +38,31 @@ set "PATH_PROBE=!USER_PATH:%INSTALL_DIR%=!"
 if "!PATH_PROBE!"=="!USER_PATH!" (
     echo [INFO] Adding "!INSTALL_DIR!" to your user PATH...
     if defined USER_PATH (
-        setx PATH "!USER_PATH!;!INSTALL_DIR!" >nul
+        set "NEW_PATH=!USER_PATH!;!INSTALL_DIR!"
     ) else (
-        setx PATH "!INSTALL_DIR!" >nul
+        set "NEW_PATH=!INSTALL_DIR!"
     )
-    echo [OK] PATH updated.
-    echo [WARN] Restart your terminal for the PATH change to take effect.
+    REM setx.exe silently truncates values over 1024 characters instead of
+    REM erroring - easy to hit once Python/Git/VS Code/WinGet/npm etc. have
+    REM all added their own PATH entries, and it would drop the very entry
+    REM this step is trying to add without any warning. set_user_path.ps1
+    REM writes straight to the registry and isn't subject to that limit.
+    REM NEW_PATH is read from this process's environment, not passed as a
+    REM command-line argument - see the note at the top of that script.
+    if not exist "!SCRIPT_DIR!set_user_path.ps1" (
+        echo [WARN] set_user_path.ps1 not found alongside install.bat - skipping PATH update.
+        echo [WARN] Add "!INSTALL_DIR!" to your PATH manually if needed.
+    ) else (
+        set "CS_PATH_WRITE=1"
+        powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "!SCRIPT_DIR!set_user_path.ps1"
+        if errorlevel 1 (
+            echo [ERROR] Failed to update PATH - it was not changed.
+            echo [ERROR] Add "!INSTALL_DIR!" to your PATH manually if needed.
+        ) else (
+            echo [OK] PATH updated.
+            echo [WARN] Restart your terminal for the PATH change to take effect.
+        )
+    )
 ) else (
     echo [OK] "!INSTALL_DIR!" is already on your PATH.
 )

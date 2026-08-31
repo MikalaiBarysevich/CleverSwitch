@@ -4,6 +4,7 @@ setlocal EnableDelayedExpansion
 set "APP_NAME=cleverswitch"
 set "EXE_NAME=cleverswitch.exe"
 set "VBS_NAME=run_cleverswitch.vbs"
+set "SCRIPT_DIR=%~dp0"
 set "INSTALL_DIR=%LOCALAPPDATA%\Programs\CleverSwitch"
 set "STARTUP_FOLDER=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 set "VBS_PATH=%STARTUP_FOLDER%\%VBS_NAME%"
@@ -33,8 +34,25 @@ if "!NEW_PATH!"=="!USER_PATH!" (
     echo [INFO] "!INSTALL_DIR!" was not on your PATH - skipping.
 ) else (
     echo [INFO] Removing "!INSTALL_DIR!" from user PATH...
-    setx PATH "!NEW_PATH!" >nul
-    echo [OK] PATH updated.
+    REM See the note in install.bat: setx.exe silently truncates values over
+    REM 1024 characters, so it isn't safe for writing PATH back either.
+    REM If the install dir was the only PATH entry, NEW_PATH ends up
+    REM undefined here (batch has no defined-but-empty variable state), so
+    REM it isn't part of the environment set_user_path.ps1 inherits and
+    REM $env:NEW_PATH reads as $null there - the script explicitly treats
+    REM that as an empty string rather than skipping the write, so PATH
+    REM ends up present-but-empty instead of being deleted outright.
+    if not exist "!SCRIPT_DIR!set_user_path.ps1" (
+        echo [WARN] set_user_path.ps1 not found alongside uninstall.bat - skipping PATH update.
+    ) else (
+        set "CS_PATH_WRITE=1"
+        powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "!SCRIPT_DIR!set_user_path.ps1"
+        if errorlevel 1 (
+            echo [ERROR] Failed to update PATH - it was not changed.
+        ) else (
+            echo [OK] PATH updated.
+        )
+    )
 )
 
 :: ── Step 3: Remove install directory ─────────────────────────────────
