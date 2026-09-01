@@ -18,6 +18,7 @@ import logging
 import os
 import platform
 import sys
+import threading
 
 from ..errors.errors import TransportError
 from .constants import (
@@ -176,6 +177,21 @@ if _hid_send_output_report is not None:
     log.debug("hidapi: hid_send_output_report available (>= 0.15)")
 
 
+_hid_version_str = getattr(_lib, "hid_version_str", None)
+if _hid_version_str is not None:
+    _hid_version_str.restype = ctypes.c_char_p
+    _hid_version_str.argtypes = []
+
+
+def hidapi_version() -> str:
+    """Version of the loaded hidapi. Reported in --version and the log header — issue #108 hinged
+    on which build shipped, and the bundled DLL is not pinned."""
+    if _hid_version_str is None:
+        return "unknown"
+    raw = _hid_version_str()
+    return raw.decode() if raw else "unknown"
+
+
 def _hid_err(dev: int | None = None) -> str:
     msg = _lib.hid_error(dev)
     return msg if msg else "unknown hidapi error"
@@ -187,6 +203,16 @@ _IS_LINUX = _SYSTEM == "Linux"
 _IS_WINDOWS = _SYSTEM == "Windows"
 
 
+# hid_enumerate walks and frees a process-global linked list. Concurrent callers (the discovery
+# loop plus every disconnected gateway's _try_connect) must not overlap.
+_ENUM_LOCK = threading.Lock()
+
+# Bounded read poll. The handle lock is released between polls, so an outbound write never queues
+# behind an idle reader. Worst-case added host-switch latency is one poll; in the common case the
+# read has just returned the ES-key notification and releases the lock immediately.
+_READ_POLL_MS = 100
+
+
 def _is_hidpp_interface(info: dict) -> bool:
     """True if this enumeration entry is the HID++ interface."""
     return info["usage_page"] in HIDPP_USAGE_PAGES
@@ -196,6 +222,14 @@ def enumerate_hid_devices(
     vendor_id: int = LOGITECH_VENDOR_ID, product_id: int = 0, verbose_extra: bool = False
 ) -> dict[int, list[HidDeviceInfo]]:
     """Call hid_enumerate and return HID++ capable devices (receivers + BT), freeing the linked list."""
+    with _ENUM_LOCK:
+        result = _enumerate_locked(vendor_id, product_id)
+    _log(f"All suitable hid devices={result}", verbose_extra)
+    return result
+
+
+def _enumerate_locked(vendor_id: int, product_id: int) -> dict[int, list[HidDeviceInfo]]:
+    """Caller must hold _ENUM_LOCK — the walk dereferences nodes owned by the returned list."""
     head = _lib.hid_enumerate(vendor_id, product_id)
     result: dict[int, list[HidDeviceInfo]] = {}
     seen_paths: set[bytes] = set()
@@ -239,7 +273,6 @@ def enumerate_hid_devices(
         result[pid] = pid_collections
 
     _lib.hid_free_enumeration(head)
-    _log(f"All suitable hid devices={result}", verbose_extra)
     return dict(result)
 
 
@@ -272,43 +305,69 @@ class HIDTransport:
     def __init__(self, kind: str, path: bytes) -> None:
         self._kind = kind
         self._path = path
-        self._dev = None
-        self.try_open()
+        self._dev: int | None = None
+        # Serializes every hidapi call on this handle. The reader thread, the write topic's drain
+        # thread and (at shutdown) the discovery thread all reach the same hid_device*; without
+        # this, a write can land inside hid_close's free. Plain Lock, never RLock — the _locked
+        # helpers below exist so no public method ever re-enters.
+        self._lock = threading.Lock()
+        with self._lock:
+            self._open_locked()
         log.debug(f"Opened {kind} path={path}")
 
     # ── sync I/O (used by discovery / protocol layer) ─────────────────────────
 
-    def try_open(self) -> None:
-        self._dev: int | None = _lib.hid_open_path(self._path)
+    def _open_locked(self) -> None:
+        self._dev = _lib.hid_open_path(self._path)
         if not self._dev:
+            self._dev = None
             raise OSError(_hid_err())
 
-    def try_reopen(self) -> None:
-        self.close()
-        self.try_open()
+    def _close_locked(self) -> None:
+        if self._dev is not None:
+            _lib.hid_close(self._dev)
+            self._dev = None
 
-    def read(self, timeout: int = -1) -> bytes | None:
+    def try_open(self) -> None:
+        with self._lock:
+            self._open_locked()
+
+    def try_reopen(self) -> None:
+        with self._lock:
+            self._close_locked()
+            self._open_locked()
+
+    def read(self, timeout: int = _READ_POLL_MS) -> bytes | None:
         """Block for up to *timeout* ms waiting for one HID packet.
 
         timeout=0  → non-blocking (return None immediately if no data)
-        timeout=-1 → block until data arrives
+        timeout=-1 → block until data arrives (holds the handle lock for that whole time)
         timeout>0  → wait at most *timeout* ms
 
         Returns None on timeout. Raises TransportError on device error.
         """
-        if self._dev is None:
-            log.warning("read on closed transport")
-            raise TransportError("read on closed transport")
-        buf = (ctypes.c_ubyte * MAX_READ_SIZE)()
-        n = _lib.hid_read_timeout(self._dev, buf, MAX_READ_SIZE, timeout)
-        if n < 0:
-            log.debug(f"hid_read_timeout failed: {_hid_err(self._dev)}")
-
-            raise TransportError(f"hid_read_timeout failed: {_hid_err(self._dev)}")
-        return bytes(buf[:n]) if n > 0 else None
+        with self._lock:
+            if self._dev is None:
+                log.warning("read on closed transport")
+                raise TransportError("read on closed transport")
+            buf = (ctypes.c_ubyte * MAX_READ_SIZE)()
+            n = _lib.hid_read_timeout(self._dev, buf, MAX_READ_SIZE, timeout)
+            if n < 0:
+                # One read of the per-device error string — it is freed and re-duped by any
+                # concurrent hidapi call, so never sample it twice for one failure.
+                err = _hid_err(self._dev)
+                log.debug(f"hid_read_timeout failed: {err}")
+                raise TransportError(f"hid_read_timeout failed: {err}")
+            return bytes(buf[:n]) if n > 0 else None
 
     def write(self, msg: bytes) -> None:
         """Write one HID packet (first byte must be the report ID)."""
+        with self._lock:
+            self._write_locked(msg)
+
+    def _write_locked(self, msg: bytes) -> None:
+        if self._dev is None:
+            raise TransportError("write on closed transport")
         buf = (ctypes.c_ubyte * len(msg))(*msg)
         n = _lib.hid_write(self._dev, buf, len(msg))
         if n < 0:
@@ -320,20 +379,22 @@ class HIDTransport:
         Uses GATT Write With Response on BT — more reliable than WriteFile
         (GATT Write Without Response). Falls back to hid_write if hidapi < 0.15.
         """
-        if _hid_send_output_report is None:
-            self.write(msg)
-            return
-        buf = (ctypes.c_ubyte * len(msg))(*msg)
-        n = _hid_send_output_report(self._dev, buf, len(msg))
-        if n < 0:
-            raise TransportError(f"hid_send_output_report failed: {_hid_err(self._dev)}")
+        with self._lock:
+            if _hid_send_output_report is None:
+                self._write_locked(msg)
+                return
+            if self._dev is None:
+                raise TransportError("write_output_report on closed transport")
+            buf = (ctypes.c_ubyte * len(msg))(*msg)
+            n = _hid_send_output_report(self._dev, buf, len(msg))
+            if n < 0:
+                raise TransportError(f"hid_send_output_report failed: {_hid_err(self._dev)}")
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
     def close(self) -> None:
-        if self._dev is not None:
-            _lib.hid_close(self._dev)
-            self._dev = None
+        with self._lock:
+            self._close_locked()
 
     def __repr__(self) -> str:
-        return f"HIDTransport(kind={self.kind!r}, pid=0x{self.pid:04X})"
+        return f"HIDTransport(kind={self._kind!r}, path={self._path!r})"

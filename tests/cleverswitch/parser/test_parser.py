@@ -224,3 +224,34 @@ def test_parse_unknown_long_sw_id_returns_none():
     # fn=0, sw_id=0x02 (not 0, not bit3 set, not fn=3)
     raw = _long_msg(slot=1, feature_id=5, fn_sw=0x02, data=bytes(16))
     assert parse(PID, raw) is None
+
+
+# ── Truncated reports (issue #108 — must not raise IndexError) ────────────────
+
+
+def test_parse_returns_none_for_empty_buffer():
+    assert parse(PID, b"") is None
+
+
+def test_parse_returns_none_for_buffer_shorter_than_header():
+    assert parse(PID, bytes([REPORT_LONG, 0x01])) is None
+
+
+def test_parse_returns_none_for_truncated_short_report():
+    # 0x41 device-connection reads up to index 6; a 5-byte report would IndexError
+    assert parse(PID, bytes([REPORT_SHORT, 0x01, 0x41, 0x00, 0x01])) is None
+
+
+def test_parse_returns_none_for_truncated_long_report():
+    # sw_id=0 notification reads payload[0] and payload[1]
+    assert parse(PID, bytes([REPORT_LONG, 0x01, 0x05, 0x00, 0x00])) is None
+
+
+def test_parse_returns_none_for_truncated_set_cid_reporting_echo():
+    # fn=3 external-unset branch reads index 9
+    assert parse(PID, bytes([REPORT_LONG, 0x01, 0x05, 0x31, 0x00, 0xD1, 0x00])) is None
+
+
+def test_parse_still_accepts_full_length_reports():
+    raw = bytes([REPORT_SHORT, 0x01, 0x41, 0x00, 0x01, 0x7B, 0x40])
+    assert parse(PID, raw) is not None

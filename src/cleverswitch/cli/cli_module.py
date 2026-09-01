@@ -13,6 +13,7 @@ from ..cache.device_cache import DeviceCache
 from ..config import config as cfg_module
 from ..discovery.discovery import discover
 from ..errors.errors import CleverSwitchError, ConfigError
+from ..hidpp.transport import hidapi_version
 from ..setup.app_setup import setup_context
 
 _SYSTEM = platform.system()
@@ -59,7 +60,11 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("-v", "--verbose", action="store_true", help="force DEBUG logging")
     p.add_argument("-vv", "--verbose-extra", action="store_true", help="force DEBUG logging including discovery")
     p.add_argument("--clear-cache", action="store_true", help="delete the discovered-device cache and exit")
-    p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    p.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__} (hidapi {hidapi_version()}, {_SYSTEM})",
+    )
     return p.parse_args()
 
 

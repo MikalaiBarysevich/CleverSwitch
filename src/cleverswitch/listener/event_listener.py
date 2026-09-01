@@ -22,9 +22,14 @@ class EventListener(Thread):
     def run(self):
         while True:
             raw_event = self._event_queue.get()
-            parsed_event = parse(self._device_info.pid, raw_event)
-            if parsed_event is None:
-                continue
+            # One malformed report must not kill this thread — it is the only path from HID to
+            # the topics, so its death makes the whole process deaf. Mirrors Topic._notify.
+            try:
+                parsed_event = parse(self._device_info.pid, raw_event)
+                if parsed_event is None:
+                    continue
 
-            log.debug(f"Parsed event: {parsed_event}")
-            self._topics.hid_event.publish(parsed_event)
+                log.debug(f"Parsed event: {parsed_event}")
+                self._topics.hid_event.publish(parsed_event)
+            except Exception:
+                log.exception(f"Failed to handle HID event from pid=0x{self._device_info.pid:04X}")

@@ -15,10 +15,13 @@ set "ROOT_DIR=%CD%"
 
 :: ── Preflight ─────────────────────────────────────────────────────────
 :: hidapi.dll must sit at the project root; the ";." packs it beside the exe.
+:: Use 0.15.0 or newer: hid_send_output_report (the Bluetooth write path) needs 0.15, and
+:: 0.14 made hidapi's error strings thread-local. The exact version shipped is recorded by the
+:: smoke test below -- issue #108 cost a round trip because the bundled DLL was not identified.
 
 if not exist "!ROOT_DIR!\hidapi.dll" (
     echo [ERROR] hidapi.dll not found at "!ROOT_DIR!".
-    echo Download it from https://github.com/libusb/hidapi/releases and place it at the project root.
+    echo Download 0.15.0 or newer from https://github.com/libusb/hidapi/releases and place it at the project root.
     popd
     exit /b 1
 )
@@ -47,6 +50,16 @@ pyinstaller --onefile --name %APP_NAME% --paths src --hidden-import yaml --add-b
 
 echo [INFO] Smoke-testing the binary...
 "dist\%EXE_NAME%" --version || (echo [ERROR] Binary failed to start - a build dependency was likely dropped; see the dependency-install step. & popd & exit /b 1)
+
+:: Record which hidapi actually shipped, and fail if the bundled DLL could not report a version.
+for /f "delims=" %%v in ('"dist\%EXE_NAME%" --version') do set "VERSION_LINE=%%v"
+echo [INFO] Built: !VERSION_LINE!
+echo !VERSION_LINE! | findstr /c:"hidapi unknown" >nul && (
+    echo [ERROR] Bundled hidapi.dll did not report a version - it is older than 0.14 or failed to load.
+    echo Replace "!ROOT_DIR!\hidapi.dll" with 0.15.0 or newer.
+    popd
+    exit /b 1
+)
 
 :: ── Step 4: Assemble archive ──────────────────────────────────────────
 

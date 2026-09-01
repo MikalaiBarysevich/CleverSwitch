@@ -9,6 +9,7 @@ from cleverswitch.event.hidpp_notification_event import HidppNotificationEvent
 from cleverswitch.hidpp.constants import BOLT_PID, REPORT_LONG
 from cleverswitch.hidpp.transport import HidDeviceInfo
 from cleverswitch.listener.event_listener import EventListener
+from cleverswitch.parser.parser import parse
 from cleverswitch.topic.topic import Topic
 from cleverswitch.topic.topics import Topics
 
@@ -57,3 +58,48 @@ def test_listen_skips_unparseable_events():
     time.sleep(0.1)
 
     topics.hid_event.publish.assert_not_called()
+
+
+def test_listener_survives_a_parse_failure(mocker):
+    """One bad report must not kill the listener — it is the only HID → topics path."""
+    topics = _make_topics()
+    listener = EventListener(_device_info(), topics)
+    listener.daemon = True
+
+    good = bytes([REPORT_LONG, 0x01, 0x05, 0x00]) + bytes(16)
+    calls: list[bytes] = []
+
+    def flaky_parse(pid, raw_event):
+        calls.append(raw_event)
+        if len(calls) == 1:
+            raise ValueError("boom")
+        return real_parse(pid, raw_event)
+
+    real_parse = parse
+    mocker.patch("cleverswitch.listener.event_listener.parse", side_effect=flaky_parse)
+    listener.start()
+
+    listener.listen(good)
+    time.sleep(0.1)
+    listener.listen(good)
+    time.sleep(0.1)
+
+    assert listener.is_alive(), "listener thread must survive a parse exception"
+    topics.hid_event.publish.assert_called_once()
+
+
+def test_listener_survives_a_publish_failure():
+    topics = _make_topics()
+    topics.hid_event.publish.side_effect = [RuntimeError("topic down"), None]
+    listener = EventListener(_device_info(), topics)
+    listener.daemon = True
+    listener.start()
+
+    raw = bytes([REPORT_LONG, 0x01, 0x05, 0x00]) + bytes(16)
+    listener.listen(raw)
+    time.sleep(0.1)
+    listener.listen(raw)
+    time.sleep(0.1)
+
+    assert listener.is_alive()
+    assert topics.hid_event.publish.call_count == 2

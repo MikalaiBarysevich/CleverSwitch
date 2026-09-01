@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 from cleverswitch.errors.errors import TransportError
 from cleverswitch.event.transport_disconnected_event import TransportDisconnectedEvent
 from cleverswitch.event.write_event import WriteEvent
-from cleverswitch.gateway.hid_gateway import HidGateway
+from cleverswitch.gateway.hid_gateway import _RECONNECT_BACKOFF_MAX, _RECONNECT_BACKOFF_MIN, HidGateway
 from cleverswitch.gateway.hid_gateway_bt import HidGatewayBT
 from cleverswitch.hidpp.constants import BOLT_PID, REPORT_LONG
 from cleverswitch.hidpp.transport import HidDeviceInfo
@@ -204,7 +204,7 @@ def test_bt_gateway_uses_write_output_report():
     gw._connected = True
 
     msg = bytes([REPORT_LONG]) + bytes(19)
-    gw._do_write(msg)
+    gw._do_write(mock_transport, msg)
 
     mock_transport.write_output_report.assert_called_once_with(msg)
 
@@ -256,3 +256,161 @@ def test_bt_gateway_set_connected_false_does_not_publish_transport_disconnected(
     raw = event_listener.listen.call_args[0][0]
     assert isinstance(raw, bytes), "BT gateway should only call event_listener.listen with raw bytes"
     assert not isinstance(raw, TransportDisconnectedEvent)
+
+
+# ── Handle ownership: only the reader thread closes its transport (issue #108) ─
+
+
+def test_close_from_foreign_thread_lets_reader_close_its_own_handle(make_fake_transport):
+    """hid_close's CancelIo only cancels I/O issued by the calling thread.
+
+    close() must therefore stop-and-join rather than close the handle itself.
+    """
+    transport = make_fake_transport()
+    gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
+    gw._transport = transport
+    gw._set_connected(True)
+    gw.start()
+    time.sleep(0.05)
+
+    gw.close()
+
+    assert not gw.is_alive()
+    assert transport.close_count == 1
+    assert transport.closed_by == gw.name, "the reader thread must be the one that closes"
+
+
+def test_close_on_own_thread_does_not_deadlock(make_fake_transport, mocker):
+    transport = make_fake_transport()
+    gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
+    gw._transport = transport
+    mocker.patch.object(gw, "_try_connect", side_effect=lambda: gw.close())
+
+    gw.start()
+    gw.join(timeout=2.0)
+
+    assert not gw.is_alive()
+    assert transport.close_count == 1
+
+
+def test_close_still_closes_transport_when_thread_never_started(make_fake_transport):
+    transport = make_fake_transport()
+    gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
+    gw._transport = transport
+
+    gw.close()
+
+    assert transport.close_count == 1
+
+
+# ── Thread-death guards ─────────────────────────────────────────────────────
+
+
+def test_run_continues_after_none_read():
+    """read() now polls, so None is the idle path — it must not reach hid_event.hex()."""
+    event_listener = MagicMock(spec=EventListener)
+    gw = HidGateway(_device_info(), event_listener)
+    gw._transport = MagicMock()
+    event = bytes([REPORT_LONG]) + bytes(19)
+
+    def reads():
+        yield None
+        yield None
+        yield event
+        gw._stop.set()
+        yield None
+
+    gen = reads()
+    gw._transport.read.side_effect = lambda: next(gen)
+    gw._set_connected(True)
+
+    gw.run()
+
+    event_listener.listen.assert_called_once_with(event)
+
+
+def test_try_connect_with_no_transport_and_changed_path_does_not_raise(mocker):
+    info = _device_info()
+    gw = HidGateway(info, MagicMock(spec=EventListener))
+    gw._transport = None
+    moved = HidDeviceInfo(
+        path=b"/dev/hidraw9",
+        vid=0x046D,
+        pid=info.pid,
+        usage_page=info.usage_page,
+        usage=info.usage,
+        connection_type="receiver",
+    )
+    mocker.patch("cleverswitch.gateway.hid_gateway.enumerate_hid_devices", return_value={info.pid: [moved]})
+    transport_cls = mocker.patch("cleverswitch.gateway.hid_gateway.HIDTransport")
+
+    gw._try_connect()  # must not raise AttributeError on the None transport
+
+    assert gw._device_info.path == b"/dev/hidraw9"
+    transport_cls.assert_called_once()
+    assert gw._connected
+
+
+def test_write_uses_snapshot_when_transport_is_nulled_concurrently(mocker):
+    """_write must not re-read self._transport after its own None check."""
+    gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
+    transport = MagicMock()
+    gw._transport = transport
+    gw._connected = True
+
+    def null_it(_transport, _msg):
+        gw._transport = None
+
+    mocker.patch.object(gw, "_do_write", side_effect=null_it)
+
+    gw._write(bytes([REPORT_LONG]) + bytes(19))  # must not raise AttributeError
+
+    gw._do_write.assert_called_once()
+    assert gw._do_write.call_args[0][0] is transport
+
+
+# ── Reconnect backoff ───────────────────────────────────────────────────────
+
+
+def test_backoff_grows_while_device_absent(mocker):
+    gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
+    mocker.patch("cleverswitch.gateway.hid_gateway.enumerate_hid_devices", return_value={})
+    waits: list[float] = []
+    mocker.patch.object(gw._stop, "wait", side_effect=lambda t: waits.append(t))
+
+    for _ in range(3):
+        gw._try_connect()
+
+    assert waits == [1.0, 2.0, 4.0]
+
+
+def test_backoff_is_capped(mocker):
+    gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
+    mocker.patch("cleverswitch.gateway.hid_gateway.enumerate_hid_devices", return_value={})
+    waits: list[float] = []
+    mocker.patch.object(gw._stop, "wait", side_effect=lambda t: waits.append(t))
+
+    for _ in range(20):
+        gw._try_connect()
+
+    assert max(waits) == _RECONNECT_BACKOFF_MAX
+
+
+def test_backoff_resets_after_successful_connect(mocker):
+    info = _device_info()
+    gw = HidGateway(info, MagicMock(spec=EventListener))
+    gw._backoff = 16.0
+    same_path = HidDeviceInfo(
+        path=info.path,
+        vid=0x046D,
+        pid=info.pid,
+        usage_page=info.usage_page,
+        usage=info.usage,
+        connection_type="receiver",
+    )
+    mocker.patch("cleverswitch.gateway.hid_gateway.enumerate_hid_devices", return_value={info.pid: [same_path]})
+    mocker.patch("cleverswitch.gateway.hid_gateway.HIDTransport")
+
+    gw._try_connect()
+
+    assert gw._backoff == _RECONNECT_BACKOFF_MIN

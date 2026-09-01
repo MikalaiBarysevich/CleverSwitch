@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cleverswitch"
-version = "1.5.1"
+version = "1.5.2.dev0"
 description = "Synchronize host switching between Logitech MX Keys and MX Master 3"
 requires-python = ">=3.10"
 license = "GPL-3.0-or-later"
@@ -31,6 +31,9 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Import cleverswitch from the working tree. Without this, a non-editable install in the venv
+# shadows src/ and the suite silently tests the installed copy instead of local changes.
+pythonpath = ["src"]
 addopts = "--tb=short --cov --cov-fail-under=90"
 
 [tool.coverage.run]
