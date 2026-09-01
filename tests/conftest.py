@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 from cleverswitch.config.config import default_config
@@ -14,6 +16,9 @@ class FakeTransport:
 
     Captures all written bytes in `written` for assertion.
     Pops responses one-by-one on each read(); returns None when exhausted.
+
+    Set `fail_next` to a TransportError to make the next read() or write() raise, simulating a
+    device that drops mid-operation. `closed_by` records the thread that called close().
     """
 
     def __init__(
@@ -27,15 +32,38 @@ class FakeTransport:
         self.kind = kind
         self.pid = pid
         self.closed = False
+        self.close_count = 0
+        self.closed_by: str | None = None
+        self.reopened = 0
+        self.fail_next: Exception | None = None
+
+    def _maybe_fail(self) -> None:
+        if self.fail_next is not None:
+            error, self.fail_next = self.fail_next, None
+            raise error
 
     def write(self, data: bytes) -> None:
+        self._maybe_fail()
         self.written.append(bytes(data))
 
+    def write_output_report(self, data: bytes) -> None:
+        self.write(data)
+
     def read(self, timeout: int = 500) -> bytes | None:
+        self._maybe_fail()
         return self._responses.pop(0) if self._responses else None
+
+    def try_open(self) -> None:
+        self.closed = False
+
+    def try_reopen(self) -> None:
+        self.reopened += 1
+        self.closed = False
 
     def close(self) -> None:
         self.closed = True
+        self.close_count += 1
+        self.closed_by = threading.current_thread().name
 
 
 @pytest.fixture

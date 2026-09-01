@@ -15,8 +15,15 @@ from ..hidpp.constants import (
     SW_ID_MASK,
 )
 
+# A report shorter than its type promises is malformed — indexing it would raise IndexError and
+# kill the listener thread, leaving the process alive but deaf.
+_MIN_LEN_BY_REPORT = {REPORT_SHORT: 7, REPORT_LONG: 20}
+
 
 def parse(pid: int, raw_event: bytes) -> Event | None:
+    if not raw_event or len(raw_event) < _MIN_LEN_BY_REPORT.get(raw_event[0], 3):
+        return None
+
     report_id = raw_event[0]
     slot = raw_event[1]
     feature_id = raw_event[2]

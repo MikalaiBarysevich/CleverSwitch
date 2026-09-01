@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from cleverswitch.gateway.hid_gateway_ble import BLE_PREPEND, HidGatewayBLE
@@ -545,3 +546,35 @@ def test_find_peripheral_by_wpid_skips_probe_exception():
 
     result = asyncio.run(run())
     assert result is None
+
+
+# ── Handle ownership (issue #108) ────────────────────────────────────────────
+
+
+def test_run_closes_its_own_transport_on_exit(mocker):
+    """run() fully overrides the base loop, so it needs the same teardown."""
+    mocker.patch("cleverswitch.gateway.hid_gateway_ble._BLE_OK", False)
+    gw, _ = _make_gw()
+    transport = MagicMock()
+    gw._transport = transport
+    gw._stop.set()
+
+    gw.run()
+
+    transport.close.assert_called_once()
+
+
+def test_close_from_foreign_thread_lets_ble_reader_close_its_handle(mocker, make_fake_transport):
+    mocker.patch("cleverswitch.gateway.hid_gateway_ble._BLE_OK", False)
+    gw, _ = _make_gw()
+    transport = make_fake_transport()
+    gw._transport = transport
+    gw._connected = True  # skip _try_connect; the loop just sleeps
+    gw.start()
+    time.sleep(0.05)
+
+    gw.close()
+
+    assert not gw.is_alive()
+    assert transport.close_count == 1
+    assert transport.closed_by == gw.name
