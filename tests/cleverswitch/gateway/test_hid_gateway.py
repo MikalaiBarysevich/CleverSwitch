@@ -147,7 +147,7 @@ def test_close_sets_stop_even_without_transport():
 
     gw.close()
 
-    assert gw._stop.is_set()
+    assert gw._stop_event.is_set()
 
 
 # ── HidGateway.run teardown ─────────────────────────────────────────────────
@@ -156,14 +156,14 @@ def test_close_sets_stop_even_without_transport():
 def _stopping_gateway() -> HidGateway:
     """A connected gateway whose next read() fails the way close() makes it fail.
 
-    Mirrors the shutdown sequence: the thread is blocked in read() when close() sets _stop and
-    closes the transport, so the in-flight read raises with _stop already set.
+    Mirrors the shutdown sequence: the thread is blocked in read() when close() sets _stop_event and
+    closes the transport, so the in-flight read raises with _stop_event already set.
     """
     gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
     gw._transport = MagicMock()
 
-    def read_after_close():
-        gw._stop.set()
+    def read_after_close(timeout=None):
+        gw._stop_event.set()
         raise TransportError("read on closed transport")
 
     gw._transport.read.side_effect = read_after_close
@@ -179,7 +179,7 @@ def test_run_exits_without_reconnecting_when_stopped(mocker):
     gw.start()
     gw.join(timeout=2.0)
 
-    assert not gw.is_alive(), "run() must exit once _stop is set"
+    assert not gw.is_alive(), "run() must exit once _stop_event is set"
     try_connect.assert_not_called()
 
 

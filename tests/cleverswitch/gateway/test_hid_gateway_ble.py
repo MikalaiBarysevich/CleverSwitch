@@ -42,7 +42,7 @@ def test_initial_state():
     gw, _ = _make_gw()
     assert not gw._connected
     assert not gw._ever_connected
-    assert not gw._stop.is_set()
+    assert not gw._stop_event.is_set()
 
 
 # ── close() ──────────────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ def test_close_sets_stop_event():
     gw, _ = _make_gw()
     gw._transport = MagicMock()
     gw.close()
-    assert gw._stop.is_set()
+    assert gw._stop_event.is_set()
 
 
 def test_close_also_closes_transport():
@@ -72,7 +72,7 @@ def test_run_skips_ble_thread_when_ble_unavailable(mocker):
     thread_cls = mocker.patch("cleverswitch.gateway.hid_gateway_ble.Thread")
 
     gw, _ = _make_gw()
-    gw._stop.set()  # exit immediately after first iteration check
+    gw._stop_event.set()  # exit immediately after first iteration check
 
     with patch.object(gw, "_try_connect"):
         gw.run()
@@ -87,7 +87,7 @@ def test_run_logs_warning_when_ble_unavailable(mocker, caplog):
     mocker.patch("cleverswitch.gateway.hid_gateway_ble.Thread")
 
     gw, _ = _make_gw(pid=0xB023)
-    gw._stop.set()
+    gw._stop_event.set()
 
     with patch.object(gw, "_try_connect"), caplog.at_level(logging.WARNING):
         gw.run()
@@ -101,7 +101,7 @@ def test_run_spawns_ble_thread_when_ble_ok(mocker):
     thread_cls = mocker.patch("cleverswitch.gateway.hid_gateway_ble.Thread", return_value=mock_thread_instance)
 
     gw, _ = _make_gw()
-    gw._stop.set()
+    gw._stop_event.set()
 
     with patch.object(gw, "_try_connect"):
         gw.run()
@@ -118,7 +118,7 @@ def test_run_calls_try_connect_when_not_connected(mocker):
 
     def fake_try_connect():
         call_count[0] += 1
-        gw._stop.set()
+        gw._stop_event.set()
 
     with patch.object(gw, "_try_connect", side_effect=fake_try_connect):
         gw.run()
@@ -160,7 +160,7 @@ def test_ble_main_sleeps_when_not_connected():
     async def run():
         async def fake_sleep(t):
             sleep_count[0] += 1
-            gw._stop.set()
+            gw._stop_event.set()
 
         with patch("cleverswitch.gateway.hid_gateway_ble.asyncio.sleep", side_effect=fake_sleep):
             with patch.object(gw, "_find_peripheral_by_wpid", new_callable=AsyncMock) as find_mock:
@@ -180,7 +180,7 @@ def test_ble_main_finds_peripheral_when_connected():
     async def run():
         async def fake_find(wpid):
             calls[0] += 1
-            gw._stop.set()
+            gw._stop_event.set()
             return None
 
         with patch.object(gw, "_find_peripheral_by_wpid", side_effect=fake_find):
@@ -205,7 +205,7 @@ def test_ble_main_calls_connect_and_listen_when_peripheral_found():
 
         async def fake_connect(device):
             connect_calls[0] += 1
-            gw._stop.set()
+            gw._stop_event.set()
 
         with patch.object(gw, "_find_peripheral_by_wpid", side_effect=fake_find):
             with patch.object(gw, "_connect_and_listen", side_effect=fake_connect):
@@ -227,7 +227,7 @@ def test_ble_main_sleeps_on_exception():
 
         async def fake_sleep(t):
             sleep_calls[0] += 1
-            gw._stop.set()
+            gw._stop_event.set()
 
         with patch.object(gw, "_find_peripheral_by_wpid", side_effect=fake_find):
             with patch("cleverswitch.gateway.hid_gateway_ble.asyncio.sleep", side_effect=fake_sleep):
@@ -250,7 +250,7 @@ def test_connect_and_listen_subscribes_to_notify_characteristic():
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
     async def run():
-        gw._stop.set()  # exit the inner while immediately
+        gw._stop_event.set()  # exit the inner while immediately
 
         with patch("cleverswitch.gateway.hid_gateway_ble.BleakClient", return_value=mock_client):
             await gw._connect_and_listen(MagicMock())
@@ -278,7 +278,7 @@ def test_connect_and_listen_disconnected_callback_calls_set_connected_false():
         return mock_client
 
     async def run():
-        gw._stop.set()
+        gw._stop_event.set()
 
         with patch("cleverswitch.gateway.hid_gateway_ble.BleakClient", side_effect=fake_bleak_client):
             await gw._connect_and_listen(MagicMock())
@@ -310,7 +310,7 @@ def test_connect_and_listen_disconnected_callback_synthesizes_0x41_disconnect_ev
         return mock_client
 
     async def run():
-        gw._stop.set()
+        gw._stop_event.set()
 
         with patch("cleverswitch.gateway.hid_gateway_ble.BleakClient", side_effect=fake_bleak_client):
             await gw._connect_and_listen(MagicMock())
@@ -386,7 +386,7 @@ def test_set_connected_true_does_not_fire_if_stop_set_during_wait(mocker):
 
     # Don't set _ble_subscribed; trigger shutdown instead
     assert fired.wait(timeout=0.3) is False
-    gw._stop.set()
+    gw._stop_event.set()
 
     assert fired.wait(timeout=2.0) is True
     event_listener.listen.assert_not_called()
@@ -419,7 +419,7 @@ def test_connect_and_listen_sets_ble_subscribed_event():
     mock_client.__aexit__ = AsyncMock(return_value=False)
 
     async def run():
-        gw._stop.set()
+        gw._stop_event.set()
         with patch("cleverswitch.gateway.hid_gateway_ble.BleakClient", return_value=mock_client):
             await gw._connect_and_listen(MagicMock())
 
