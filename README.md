@@ -95,9 +95,9 @@ CleverSwitch's normal relay listens for the keyboard's own "I just switched host
 
 `easy_switch.peer_host_index` is an **opt-in fallback for the common two-machine setup**. Instead of waiting for a switch announcement, it reacts to a plain disconnect: whenever either device disconnects here while its paired counterpart is still connected here, the counterpart is commanded to follow to a fixed, pre-configured host number. Unlike Logitech's own keyboard-only Enhanced Easy-Switch, this is symmetric - pressing the mouse's Easy-Switch key also brings the keyboard along.
 
-This is an **alternative path, not a replacement** for the normal relay: both mechanisms are always active. If your device does emit the switch announcement, that still fires first and this fallback never triggers. Only configure this if the normal relay doesn't work for you.
+This is an **alternative path, not a replacement** for the normal relay: both mechanisms are always active. When a device does emit the switch announcement, that announcement wins and the fallback stays out of the way - it suppresses itself for a couple of seconds after seeing any announced switch, so the two never issue conflicting commands. Only configure this if the normal relay doesn't work for you.
 
-**Trade-off:** there is no way to tell an intentional Easy-Switch press apart from an ordinary RF dropout on the wire, so a device that merely goes out of range or loses power will also (incorrectly) send its counterpart away. Only enable this if you have exactly two machines and are comfortable with that trade-off.
+**Trade-off:** there is no way to tell an intentional Easy-Switch press apart from an ordinary RF dropout on the wire, so a device that merely goes out of range or loses power will also (incorrectly) send its counterpart away. Unplugging the receiver looks the same, and will log a relay and fire `SWITCH` hooks even though the `CHANGE_HOST` command itself goes nowhere. Only enable this if you have exactly two machines and are comfortable with that trade-off.
 
 Configuration is keyed **by device role**, not a single shared number - each device keeps its own independent host pairing table, so the keyboard's and the mouse's index for "the same other machine" aren't guaranteed to match:
 
@@ -108,7 +108,7 @@ easy_switch:
     mouse: 2
 ```
 
-To find each value: on the target machine, with that device connected there, run `cleverswitch -vv` and look for a `getHostInfo`-style response (or ask in the project's issue tracker for a small helper script). Host numbers are 1-based, like `CLEVERSWITCH_TARGET_HOST` above.
+Each value is the number on that device's **own** Easy-Switch key for the other machine - press the keys once to see which key leads where. Host numbers are 1-based, like `CLEVERSWITCH_TARGET_HOST` above, so Easy-Switch key 1 is `1`. An unknown role or an out-of-range number is reported at startup and that entry is skipped.
 
 ## Found a Bug?
 
