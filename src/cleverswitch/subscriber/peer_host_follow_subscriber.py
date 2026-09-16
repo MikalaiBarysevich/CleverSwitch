@@ -14,7 +14,14 @@ log = logging.getLogger(__name__)
 
 # How long an externally-announced switch keeps the fallback suppressed. Covers the normal
 # ordering, where the announcement is observed before the departing device's disconnect.
-ANNOUNCED_SWITCH_WINDOW_S = 2.0
+#
+# Sized against the same physical interval measured from the other side: how long a device takes
+# to actually drop its link after being told to switch. On MX Keys S + MX Ergo S through a Bolt
+# receiver (n=37) that is p50 0.71s, p90 1.02s, p95 1.17s, max 1.87s. That measurement is an
+# upper bound on the interval this window actually has to cover — it also includes the outbound
+# write and the time the device spends processing an inbound command, neither of which exists on
+# the announcement path, where the device only reports a switch it has already decided to make.
+ANNOUNCED_SWITCH_WINDOW_S = 1.0
 
 # How long the relay waits before publishing, to let a slightly-late announcement land first.
 # See the class docstring for why this delay exists and why it cannot be a plain sleep.
