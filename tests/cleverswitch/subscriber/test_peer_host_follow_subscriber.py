@@ -1,5 +1,6 @@
 """Tests for PeerHostFollowSubscriber — symmetric two-host fallback when x1814 never announces a switch."""
 
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -69,7 +70,16 @@ def topics() -> Topics:
 
 @pytest.fixture
 def subscriber(registry, topics) -> PeerHostFollowSubscriber:
-    return PeerHostFollowSubscriber(registry, topics, EasySwitchConfig(peer_host_index=PEER_HOST_INDEX_BY_ROLE))
+    return _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE)
+
+
+def _make_subscriber(registry, topics, peer_host_index: dict[str, int], *, grace: float = 0.0):
+    """Grace defaults to 0 so the deferred relay lands as soon as the timer thread is scheduled.
+    The delay only exists to let a slightly-late x1814 announcement overtake the disconnect
+    (see the class docstring); tests that care about that ordering set it explicitly."""
+    return PeerHostFollowSubscriber(
+        registry, topics, EasySwitchConfig(peer_host_index=peer_host_index), announcement_grace_s=grace
+    )
 
 
 def _connect(subscriber, *, slot: int, wpid: int) -> None:
@@ -78,6 +88,22 @@ def _connect(subscriber, *, slot: int, wpid: int) -> None:
     already, legitimately, paired elsewhere as "disconnected") would falsely look like a fresh
     departure. Every test that wants a genuine departure must connect first."""
     subscriber.notify(_make_event(slot=slot, wpid=wpid, link_established=True))
+
+
+def _wait_for_publish(topics, *, timeout: float = 2.0) -> None:
+    """The relay is published from a timer thread, so it is never visible synchronously."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if topics.hid_event.publish.called:
+            return
+        time.sleep(0.005)
+    raise AssertionError("relay was never published")
+
+
+def _assert_never_publishes(topics, *, grace: float = 0.1) -> None:
+    """Suppression happens inside the timer callback, so 'not called' has to outlive the timer."""
+    time.sleep(grace)
+    topics.hid_event.publish.assert_not_called()
 
 
 class TestPeerHostFollowSubscriber:
@@ -89,6 +115,7 @@ class TestPeerHostFollowSubscriber:
 
         subscriber.notify(_make_event())
 
+        _wait_for_publish(topics)
         topics.hid_event.publish.assert_called_once()
         event = topics.hid_event.publish.call_args[0][0]
         assert isinstance(event, HostChangeEvent)
@@ -109,6 +136,7 @@ class TestPeerHostFollowSubscriber:
 
         subscriber.notify(_make_event(slot=MOUSE_SLOT, wpid=MOUSE_WPID))
 
+        _wait_for_publish(topics)
         topics.hid_event.publish.assert_called_once()
         event = topics.hid_event.publish.call_args[0][0]
         assert isinstance(event, HostChangeEvent)
@@ -137,7 +165,7 @@ class TestPeerHostFollowSubscriber:
         topics.hid_event.publish.assert_not_called()
 
     def test_disconnect_with_no_configured_roles_ignored(self, registry, topics):
-        subscriber = PeerHostFollowSubscriber(registry, topics, EasySwitchConfig(peer_host_index={}))
+        subscriber = _make_subscriber(registry, topics, {})
         registry.register(KEYBOARD_WPID, _make_keyboard())
         registry.register(MOUSE_WPID, _make_mouse())
         _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
@@ -150,7 +178,7 @@ class TestPeerHostFollowSubscriber:
     def test_disconnect_with_peer_role_not_in_config_ignored(self, registry, topics):
         """Only the mouse's role is configured — a keyboard departure has no mouse index to use,
         so it must not fall back to the keyboard's own (differently-scoped) index."""
-        subscriber = PeerHostFollowSubscriber(registry, topics, EasySwitchConfig(peer_host_index={"keyboard": 2}))
+        subscriber = _make_subscriber(registry, topics, {"keyboard": 2})
         registry.register(KEYBOARD_WPID, _make_keyboard())
         registry.register(MOUSE_WPID, _make_mouse())
         _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
@@ -238,13 +266,102 @@ class TestPeerHostFollowSubscriber:
         registry.register(MOUSE_WPID, _make_mouse())
         _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
         subscriber.notify(_make_event())
+        _wait_for_publish(topics)
+        topics.hid_event.publish.reset_mock()
+
+        subscriber.notify(_make_event())
+
+        _assert_never_publishes(topics)
+
+    def test_subscribes_to_hid_event_topic(self, registry, topics):
+        subscriber = _make_subscriber(registry, topics, {})
+
+        topics.hid_event.subscribe.assert_called_once_with(subscriber)
+
+
+class TestAnnouncedSwitchSuppression:
+    """A device whose x1814 (or CID) announcement does work is already relayed by
+    ChangeHostNotificationSubscriber / HostChangeSubscriber. Relaying again on the disconnect
+    that follows would send the peer to the configured index instead of the announced target —
+    a visible bug on any setup with more than two hosts."""
+
+    def test_announced_switch_suppresses_the_relay(self, subscriber, registry, topics):
+        registry.register(KEYBOARD_WPID, _make_keyboard())
+        registry.register(MOUSE_WPID, _make_mouse())
+        _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
+        subscriber.notify(HostChangeEvent(slot=KEYBOARD_SLOT, pid=PID, target_host=0))
+        topics.hid_event.publish.reset_mock()
+
+        subscriber.notify(_make_event())
+
+        _assert_never_publishes(topics)
+
+    def test_announcement_from_one_device_suppresses_the_other_devices_disconnect(self, subscriber, registry, topics):
+        """Suppression is not keyed per device on purpose: the keyboard announces, the mouse is
+        commanded to follow, and then the mouse's own disconnect must not fire a second relay."""
+        registry.register(KEYBOARD_WPID, _make_keyboard())
+        registry.register(MOUSE_WPID, _make_mouse())
+        _connect(subscriber, slot=MOUSE_SLOT, wpid=MOUSE_WPID)
+        subscriber.notify(HostChangeEvent(slot=KEYBOARD_SLOT, pid=PID, target_host=0))
+        topics.hid_event.publish.reset_mock()
+
+        subscriber.notify(_make_event(slot=MOUSE_SLOT, wpid=MOUSE_WPID))
+
+        _assert_never_publishes(topics)
+
+    def test_own_relayed_event_does_not_suppress_the_next_relay(self, subscriber, registry, topics):
+        """The relay's own HostChangeEvent comes back on this subscriber's queue. Treating it as
+        an announcement would make the fallback disable itself after a single use."""
+        registry.register(KEYBOARD_WPID, _make_keyboard())
+        registry.register(MOUSE_WPID, _make_mouse())
+        _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
+        subscriber.notify(_make_event())
+        _wait_for_publish(topics)
+        subscriber.notify(topics.hid_event.publish.call_args[0][0])
+        topics.hid_event.publish.reset_mock()
+
+        _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
+        subscriber.notify(_make_event())
+
+        _wait_for_publish(topics)
+        assert topics.hid_event.publish.call_args[0][0].target_host == MOUSE_PEER_INDEX
+
+    def test_relay_fires_again_once_the_suppression_window_expires(self, subscriber, registry, topics, mocker):
+        mocker.patch("cleverswitch.subscriber.peer_host_follow_subscriber.ANNOUNCED_SWITCH_WINDOW_S", 0.05)
+        registry.register(KEYBOARD_WPID, _make_keyboard())
+        registry.register(MOUSE_WPID, _make_mouse())
+        _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
+        subscriber.notify(HostChangeEvent(slot=KEYBOARD_SLOT, pid=PID, target_host=0))
+        topics.hid_event.publish.reset_mock()
+        time.sleep(0.06)
+
+        subscriber.notify(_make_event())
+
+        _wait_for_publish(topics)
+        topics.hid_event.publish.assert_called_once()
+
+    def test_relay_is_deferred_not_published_inline(self, registry, topics):
+        """The x1814 announcement is translated on another subscriber's thread, so it can arrive
+        just after the disconnect. Publishing inline would lose that race irrecoverably."""
+        subscriber = _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE, grace=5.0)
+        registry.register(KEYBOARD_WPID, _make_keyboard())
+        registry.register(MOUSE_WPID, _make_mouse())
+        _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
         topics.hid_event.publish.reset_mock()
 
         subscriber.notify(_make_event())
 
         topics.hid_event.publish.assert_not_called()
 
-    def test_subscribes_to_hid_event_topic(self, registry, topics):
-        subscriber = PeerHostFollowSubscriber(registry, topics, EasySwitchConfig(peer_host_index={}))
+    def test_peer_leaving_during_the_grace_period_cancels_the_relay(self, registry, topics):
+        subscriber = _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE, grace=0.2)
+        mouse = _make_mouse()
+        registry.register(KEYBOARD_WPID, _make_keyboard())
+        registry.register(MOUSE_WPID, mouse)
+        _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
+        topics.hid_event.publish.reset_mock()
 
-        topics.hid_event.subscribe.assert_called_once_with(subscriber)
+        subscriber.notify(_make_event())
+        mouse.connected = False
+
+        _assert_never_publishes(topics, grace=0.4)
