@@ -212,3 +212,50 @@ def test_verbose_extra_applied_when_no_config_file():
     args = argparse.Namespace(config=None, verbose_extra=True)
     config = load(args)
     assert config.arguments_settings.verbose_extra is True
+
+
+# ── easy_switch ───────────────────────────────────────────────────────────────
+
+
+def test_parse_defaults_peer_host_index_to_empty_dict_when_unset():
+    cfg = _parse({}, _cli_args())
+    assert cfg.easy_switch.peer_host_index == {}
+
+
+def test_parse_converts_peer_host_index_from_1based_to_0based_per_role():
+    raw = {"easy_switch": {"peer_host_index": {"keyboard": 3, "mouse": 1}}}
+    cfg = _parse(raw, _cli_args())
+    assert cfg.easy_switch.peer_host_index == {"keyboard": 2, "mouse": 0}
+
+
+def test_parse_skips_zero_peer_host_index_for_role(caplog):
+    with caplog.at_level("ERROR"):
+        cfg = _parse({"easy_switch": {"peer_host_index": {"mouse": 0}}}, _cli_args())
+    assert cfg.easy_switch.peer_host_index == {}
+    assert "mouse" in caplog.text
+
+
+def test_parse_skips_negative_peer_host_index_for_role(caplog):
+    with caplog.at_level("ERROR"):
+        cfg = _parse({"easy_switch": {"peer_host_index": {"keyboard": -3}}}, _cli_args())
+    assert cfg.easy_switch.peer_host_index == {}
+
+
+def test_parse_skips_non_numeric_peer_host_index_for_role(caplog):
+    with caplog.at_level("ERROR"):
+        cfg = _parse({"easy_switch": {"peer_host_index": {"keyboard": "many"}}}, _cli_args())
+    assert cfg.easy_switch.peer_host_index == {}
+
+
+def test_parse_keeps_valid_roles_when_one_role_is_malformed(caplog):
+    raw = {"easy_switch": {"peer_host_index": {"keyboard": 2, "mouse": 0}}}
+    with caplog.at_level("ERROR"):
+        cfg = _parse(raw, _cli_args())
+    assert cfg.easy_switch.peer_host_index == {"keyboard": 1}
+
+
+def test_parse_rejects_non_mapping_peer_host_index(caplog):
+    with caplog.at_level("ERROR"):
+        cfg = _parse({"easy_switch": {"peer_host_index": 2}}, _cli_args())
+    assert cfg.easy_switch.peer_host_index == {}
+    assert "mapping" in caplog.text
