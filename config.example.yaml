@@ -56,15 +56,15 @@ hooks:
 # send its counterpart away. Only enable this if you have exactly two machines and are
 # comfortable with that trade-off.
 #
-# How to find each value: on each machine, with the device connected there, run `cleverswitch -vv`
-# and look for a "getHostInfo"-style response, or ask in the project's issue tracker for a small
-# helper script. Host numbers are 1-based here, like CLEVERSWITCH_TARGET_HOST.
+# A receiver unplug looks the same as a departure to this fallback, so it also logs the relay and
+# fires SWITCH hooks. The CHANGE_HOST write itself goes nowhere (the transport is gone), but keep
+# it in mind if a SWITCH hook does real work.
+#
+# Each value is just the number on that device's own Easy-Switch key for the other machine: press
+# the keys once to see which is which. Host numbers are 1-based here, like
+# CLEVERSWITCH_TARGET_HOST, so key 1 is 1.
 #
 # easy_switch:
 #   peer_host_index:
 #     keyboard: 2
 #     mouse: 2
-
-
-
-

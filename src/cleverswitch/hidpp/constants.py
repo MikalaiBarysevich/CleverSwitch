@@ -63,6 +63,11 @@ DEVICE_TYPE_TRACKBALL = 5  # treat as mouse-class
 # Host-Switch Channel CID codes → 0-based host index
 HOST_SWITCH_CIDS = {0x00D1: 0, 0x00D2: 1, 0x00D3: 2}
 
+# Every 0-based host index a device can be commanded to, derived from the CIDs above. Single
+# source of truth for both the notification path (validating an announced target) and config
+# loading (validating a user-supplied Easy-Switch host number).
+VALID_HOSTS = frozenset(HOST_SWITCH_CIDS.values())
+
 # REPROG_CONTROLS_V4 key capability flag (byte 4 of getCidInfo response)
 KEY_FLAG_DIVERTABLE = 0x20  # key can be temporarily diverted
 KEY_FLAG_PERSISTENTLY_DIVERTABLE = 0x40  # key can be persistently diverted
