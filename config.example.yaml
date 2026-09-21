@@ -52,11 +52,15 @@ hooks:
 # a role with no entry is left alone (never commanded to follow).
 #
 # There is no way to distinguish an intentional Easy-Switch press from an ordinary RF dropout on
-# the wire. Brief dropouts are absorbed by deferring the follow ~2 seconds and cancelling it if
-# the device reconnects within that window — at the cost of the same ~2-second delay on a genuine
-# switch. A device that stays away longer (out of range, dead battery) will still (incorrectly)
-# send its counterpart away. Only enable this if you have exactly two machines and are
-# comfortable with that trade-off.
+# the wire, so disconnects are filtered heuristically. Brief dropouts are absorbed by deferring
+# the follow ~2 seconds and cancelling it if the device reconnects within that window — at the
+# cost of the same ~2-second delay on a genuine switch. Idle power-save link drops are filtered
+# by watching when each device last produced input (timestamps only — report contents are never
+# inspected or stored; the input collections are only opened when peer_host_index is set): a
+# disconnect after prolonged silence on a long-lived link is not treated as a departure. A device
+# departing during active use for other reasons (out of range, dead battery) will still
+# (incorrectly) send its counterpart away. Only enable this if you have exactly two machines and
+# are comfortable with that trade-off.
 #
 # A receiver unplug looks the same as a departure to this fallback, so it also logs the relay and
 # fires SWITCH hooks. The CHANGE_HOST write itself goes nowhere (the transport is gone), but keep
