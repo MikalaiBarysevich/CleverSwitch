@@ -73,12 +73,13 @@ def subscriber(registry, topics) -> PeerHostFollowSubscriber:
     return _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE)
 
 
-def _make_subscriber(registry, topics, peer_host_index: dict[str, int], *, grace: float = 0.0):
-    """Grace defaults to 0 so the deferred relay lands as soon as the timer thread is scheduled.
-    The delay only exists to let a slightly-late x1814 announcement overtake the disconnect
-    (see the class docstring); tests that care about that ordering set it explicitly."""
+def _make_subscriber(registry, topics, peer_host_index: dict[str, int], *, delay: float = 0.0):
+    """Delay defaults to 0 so the deferred relay lands as soon as the timer thread is scheduled.
+    The delay exists to debounce RF micro-dropouts (a reconnect inside the window cancels the
+    relay) and to let a slightly-late x1814 announcement overtake the disconnect (see the class
+    docstring); tests that care about either behaviour set it explicitly."""
     return PeerHostFollowSubscriber(
-        registry, topics, EasySwitchConfig(peer_host_index=peer_host_index), announcement_grace_s=grace
+        registry, topics, EasySwitchConfig(peer_host_index=peer_host_index), relay_delay_s=delay
     )
 
 
@@ -343,7 +344,7 @@ class TestAnnouncedSwitchSuppression:
     def test_relay_is_deferred_not_published_inline(self, registry, topics):
         """The x1814 announcement is translated on another subscriber's thread, so it can arrive
         just after the disconnect. Publishing inline would lose that race irrecoverably."""
-        subscriber = _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE, grace=5.0)
+        subscriber = _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE, delay=5.0)
         registry.register(KEYBOARD_WPID, _make_keyboard())
         registry.register(MOUSE_WPID, _make_mouse())
         _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
@@ -354,7 +355,7 @@ class TestAnnouncedSwitchSuppression:
         topics.hid_event.publish.assert_not_called()
 
     def test_peer_leaving_during_the_grace_period_cancels_the_relay(self, registry, topics):
-        subscriber = _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE, grace=0.2)
+        subscriber = _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE, delay=0.2)
         mouse = _make_mouse()
         registry.register(KEYBOARD_WPID, _make_keyboard())
         registry.register(MOUSE_WPID, mouse)
@@ -365,3 +366,86 @@ class TestAnnouncedSwitchSuppression:
         mouse.connected = False
 
         _assert_never_publishes(topics, grace=0.4)
+
+
+class TestReconnectDebounce:
+    """An RF micro-dropout is reported as the same bare 0x41 disconnect as a genuine departure,
+    but the dropped device reconnects within ~2s while a genuinely-departed one never does.
+    A reconnect observed inside the relay delay must cancel the pending relay — otherwise every
+    dropout yanks the peer (and then the departed device itself) to the other machine."""
+
+    def test_reconnect_within_the_debounce_window_cancels_the_relay(self, registry, topics):
+        subscriber = _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE, delay=0.2)
+        registry.register(KEYBOARD_WPID, _make_keyboard())
+        registry.register(MOUSE_WPID, _make_mouse())
+        _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
+        topics.hid_event.publish.reset_mock()
+
+        subscriber.notify(_make_event())
+        _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
+
+        _assert_never_publishes(topics, grace=0.4)
+
+    def test_dropout_followed_by_genuine_departure_still_relays(self, registry, topics):
+        """The cancel must consume only the dropout's own pending relay — a later real departure
+        (no reconnect inside its window) gets a fresh generation snapshot and must still fire."""
+        subscriber = _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE, delay=0.05)
+        registry.register(KEYBOARD_WPID, _make_keyboard())
+        registry.register(MOUSE_WPID, _make_mouse())
+        _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
+        topics.hid_event.publish.reset_mock()
+
+        subscriber.notify(_make_event())
+        _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
+        subscriber.notify(_make_event())
+
+        _wait_for_publish(topics)
+        topics.hid_event.publish.assert_called_once()
+        assert topics.hid_event.publish.call_args[0][0].target_host == MOUSE_PEER_INDEX
+
+    def test_peer_reconnect_does_not_cancel_the_departed_devices_relay(self, registry, topics):
+        """The generation counter is per-wpid — only a reconnect of the departed device itself
+        proves the disconnect was a dropout."""
+        subscriber = _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE, delay=0.05)
+        registry.register(KEYBOARD_WPID, _make_keyboard())
+        registry.register(MOUSE_WPID, _make_mouse())
+        _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
+        topics.hid_event.publish.reset_mock()
+
+        subscriber.notify(_make_event())
+        _connect(subscriber, slot=MOUSE_SLOT, wpid=MOUSE_WPID)
+
+        _wait_for_publish(topics)
+        topics.hid_event.publish.assert_called_once()
+
+    def test_announcement_arriving_during_the_debounce_window_suppresses_the_relay(self, registry, topics):
+        """With the relay deferred well past ANNOUNCED_SWITCH_WINDOW_S, the suppression check is
+        anchored to the disconnect timestamp — a late x1814 announcement landing after the
+        disconnect but before the timer fires must still win."""
+        subscriber = _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE, delay=0.2)
+        registry.register(KEYBOARD_WPID, _make_keyboard())
+        registry.register(MOUSE_WPID, _make_mouse())
+        _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
+        topics.hid_event.publish.reset_mock()
+
+        subscriber.notify(_make_event())
+        subscriber.notify(HostChangeEvent(slot=KEYBOARD_SLOT, pid=PID, target_host=0))
+
+        _assert_never_publishes(topics, grace=0.4)
+
+    def test_stale_announcement_long_before_the_disconnect_does_not_suppress(self, registry, topics, mocker):
+        """Anchoring to the disconnect timestamp must not widen suppression backwards: an
+        announcement older than ANNOUNCED_SWITCH_WINDOW_S at disconnect time is unrelated."""
+        mocker.patch("cleverswitch.subscriber.peer_host_follow_subscriber.ANNOUNCED_SWITCH_WINDOW_S", 0.05)
+        subscriber = _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE, delay=0.05)
+        registry.register(KEYBOARD_WPID, _make_keyboard())
+        registry.register(MOUSE_WPID, _make_mouse())
+        _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
+        subscriber.notify(HostChangeEvent(slot=KEYBOARD_SLOT, pid=PID, target_host=0))
+        topics.hid_event.publish.reset_mock()
+        time.sleep(0.06)
+
+        subscriber.notify(_make_event())
+
+        _wait_for_publish(topics)
+        topics.hid_event.publish.assert_called_once()

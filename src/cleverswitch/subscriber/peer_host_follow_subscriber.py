@@ -23,9 +23,21 @@ log = logging.getLogger(__name__)
 # the announcement path, where the device only reports a switch it has already decided to make.
 ANNOUNCED_SWITCH_WINDOW_S = 1.0
 
-# How long the relay waits before publishing, to let a slightly-late announcement land first.
-# See the class docstring for why this delay exists and why it cannot be a plain sleep.
-ANNOUNCEMENT_GRACE_S = 0.25
+# How long the relay waits before publishing. Serves two purposes:
+#
+# 1. Debounce against RF micro-dropouts. A brief link loss during active use is reported as the
+#    same bare 0x41 disconnect as a genuine Easy-Switch departure, and misfires the relay —
+#    observed heavily on MX Keys S + MX Ergo S through a Bolt receiver while one device streams
+#    continuously (e.g. selecting text with a key held down). Journal data over 3.5 days of real
+#    use: the dropped device reconnects within p50 1.03s / p90 1.68s / max <2s (n=70). A device
+#    that genuinely switched away never reconnects on its own, so waiting out the window costs
+#    only latency on the follow, never correctness. If the device reconnects inside the window,
+#    the pending relay is cancelled (generation check in _relay).
+#
+# 2. Letting a slightly-late x1814 announcement land first — the original reason the publish is
+#    deferred at all (0.25s was enough for that alone). See the class docstring for why this
+#    cannot be a plain sleep.
+RECONNECT_DEBOUNCE_S = 2.0
 
 
 class PeerHostFollowSubscriber(Subscriber):
@@ -68,15 +80,25 @@ class PeerHostFollowSubscriber(Subscriber):
     departing device announces the switch, HostChangeSubscriber commands its counterpart to
     follow, and then the counterpart's own disconnect must not trigger a second relay.
 
-    The publish is deferred by ANNOUNCEMENT_GRACE_S on a timer thread rather than sent inline.
-    The CID path emits HostChangeEvent straight from the parser, so FIFO ordering on the shared
-    hid_event queue guarantees it is seen before the disconnect. The x1814 path does not: the
-    parser emits a generic HidppNotificationEvent, and ChangeHostNotificationSubscriber
-    translates it on *its own* thread, so its HostChangeEvent can lose the race to the
-    disconnect. Losing that race is not self-correcting — the relay would command the peer to the
-    wrong host, the peer would tear down its link, and the correct command arriving afterwards
-    would never reach it. The delay cannot be a plain sleep in notify(): the announcement arrives
-    on this subscriber's own queue, which its drain thread would then not be draining.
+    The publish is deferred by RECONNECT_DEBOUNCE_S on a timer thread rather than sent inline,
+    for two reasons. First, debounce: an RF micro-dropout is indistinguishable on the wire from a
+    genuine departure, but the dropped device reconnects within ~2s (measured; see the constant),
+    while a genuinely-departed device never does — so a reconnect observed inside the window
+    cancels the pending relay (via a per-wpid generation counter bumped on every reconnect).
+    Second, ordering: the CID path emits HostChangeEvent straight from the parser, so FIFO
+    ordering on the shared hid_event queue guarantees it is seen before the disconnect. The x1814
+    path does not: the parser emits a generic HidppNotificationEvent, and
+    ChangeHostNotificationSubscriber translates it on *its own* thread, so its HostChangeEvent
+    can lose the race to the disconnect. Losing that race is not self-correcting — the relay
+    would command the peer to the wrong host, the peer would tear down its link, and the correct
+    command arriving afterwards would never reach it. The delay cannot be a plain sleep in
+    notify(): the announcement arrives on this subscriber's own queue, which its drain thread
+    would then not be draining.
+
+    Because the relay fires long after the disconnect, the suppression check is anchored to the
+    disconnect timestamp, not to the moment the timer fires: an announcement suppresses the relay
+    if it landed no earlier than ANNOUNCED_SWITCH_WINDOW_S before the disconnect (any
+    announcement arriving later, during the debounce window itself, suppresses too).
 
     A receiver unplug also fires this relay. TransportDisconnectionSubscriber fans out one
     disconnect per registered device, and because that fan-out runs on its own thread, the peer's
@@ -91,16 +113,19 @@ class PeerHostFollowSubscriber(Subscriber):
         device_registry: LogiDeviceRegistry,
         topics: Topics,
         easy_switch_config: EasySwitchConfig,
-        announcement_grace_s: float = ANNOUNCEMENT_GRACE_S,
+        relay_delay_s: float = RECONNECT_DEBOUNCE_S,
     ):
         self._device_registry = device_registry
         self._topics = topics
         self._peer_host_index_by_role = easy_switch_config.peer_host_index
-        self._announcement_grace_s = announcement_grace_s
+        self._relay_delay_s = relay_delay_s
         self._seen_connected: dict[int, bool] = {}
         self._lock = threading.Lock()
         self._announced_at: float | None = None
         self._relayed_event: HostChangeEvent | None = None
+        # Bumped on every reconnect; a pending relay snapshots the value at disconnect time and
+        # aborts if it changed — that reconnect proves the disconnect was a dropout, not a switch.
+        self._reconnect_generation: dict[int, int] = {}
         topics.hid_event.subscribe(self)
 
     def notify(self, event) -> None:
@@ -115,6 +140,8 @@ class PeerHostFollowSubscriber(Subscriber):
         self._seen_connected[event.wpid] = event.link_established
 
         if event.link_established:
+            with self._lock:
+                self._reconnect_generation[event.wpid] = self._reconnect_generation.get(event.wpid, 0) + 1
             return
 
         if not was_connected:
@@ -132,7 +159,13 @@ class PeerHostFollowSubscriber(Subscriber):
         if peer_host_index is None:
             return
 
-        timer = threading.Timer(self._announcement_grace_s, self._relay, args=(departed, peer, peer_host_index))
+        with self._lock:
+            generation = self._reconnect_generation.get(event.wpid, 0)
+        timer = threading.Timer(
+            self._relay_delay_s,
+            self._relay,
+            args=(departed, peer, peer_host_index, time.monotonic(), generation),
+        )
         timer.daemon = True
         timer.start()
 
@@ -142,9 +175,22 @@ class PeerHostFollowSubscriber(Subscriber):
                 return
             self._announced_at = time.monotonic()
 
-    def _relay(self, departed: LogiDevice, peer: LogiDevice, peer_host_index: int) -> None:
+    def _relay(
+        self,
+        departed: LogiDevice,
+        peer: LogiDevice,
+        peer_host_index: int,
+        disconnected_at: float,
+        generation: int,
+    ) -> None:
         with self._lock:
-            if self._announced_at is not None and time.monotonic() - self._announced_at <= ANNOUNCED_SWITCH_WINDOW_S:
+            if self._reconnect_generation.get(departed.wpid, 0) != generation:
+                log.debug(
+                    f"'{departed.display_name}' reconnected within the debounce window — "
+                    f"treating the disconnect as an RF dropout, not following"
+                )
+                return
+            if self._announced_at is not None and self._announced_at >= disconnected_at - ANNOUNCED_SWITCH_WINDOW_S:
                 log.debug(
                     f"'{departed.display_name}' left this host, but a host switch was already "
                     f"announced — not following '{peer.display_name}'"
