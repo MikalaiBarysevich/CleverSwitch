@@ -18,6 +18,10 @@ import logging
 import os
 import platform
 import sys
+import threading
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from ..errors.errors import TransportError
 from .constants import (
@@ -29,6 +33,36 @@ from .constants import (
 log = logging.getLogger(__name__)
 
 _SYSTEM = platform.system()
+
+# HIDAPI lifecycle calls share process-global state and are not thread-safe.
+# Serialize them across the discovery loop and per-device gateway threads.
+_HID_LIFECYCLE_LOCK = threading.RLock()
+_HID_LIFECYCLE_WAIT_WARNING_SECONDS = 0.25
+
+
+@contextmanager
+def _serialized_hid_lifecycle(operation: str) -> Iterator[None]:
+    wait_started = time.monotonic()
+    _HID_LIFECYCLE_LOCK.acquire()
+    acquired = time.monotonic()
+    try:
+        yield
+    finally:
+        finished = time.monotonic()
+        _HID_LIFECYCLE_LOCK.release()
+
+        waited = acquired - wait_started
+        elapsed = finished - acquired
+        thread = threading.current_thread()
+        message = (
+            f"hidapi lifecycle operation={operation} thread={thread.name}/{thread.ident} "
+            f"waited={waited:.3f}s elapsed={elapsed:.3f}s"
+        )
+        if waited >= _HID_LIFECYCLE_WAIT_WARNING_SECONDS:
+            log.warning(message)
+        else:
+            log.debug(message)
+
 
 # ── Platform-specific library candidates ──────────────────────────────────────
 
@@ -196,49 +230,52 @@ def enumerate_hid_devices(
     vendor_id: int = LOGITECH_VENDOR_ID, product_id: int = 0, verbose_extra: bool = False
 ) -> dict[int, list[HidDeviceInfo]]:
     """Call hid_enumerate and return HID++ capable devices (receivers + BT), freeing the linked list."""
-    head = _lib.hid_enumerate(vendor_id, product_id)
-    result: dict[int, list[HidDeviceInfo]] = {}
-    seen_paths: set[bytes] = set()
-    node = head
-    while node:
-        hid_device_content = node.contents
-        node = hid_device_content.next
-        pid = hid_device_content.product_id
-        bus_type = hid_device_content.bus_type
-        path = hid_device_content.path
+    with _serialized_hid_lifecycle("enumerate"):
+        head = _lib.hid_enumerate(vendor_id, product_id)
+        result: dict[int, list[HidDeviceInfo]] = {}
+        seen_paths: set[bytes] = set()
+        try:
+            node = head
+            while node:
+                hid_device_content = node.contents
+                node = hid_device_content.next
+                pid = hid_device_content.product_id
+                bus_type = hid_device_content.bus_type
+                path = hid_device_content.path
 
-        if hid_device_content.usage_page not in HIDPP_USAGE_PAGES:
-            continue
+                if hid_device_content.usage_page not in HIDPP_USAGE_PAGES:
+                    continue
 
-        # in linux all connected receiver devices are opened as separate hid device.
-        # We want to skip them to make the rest
-        # code multiplatform
-        if (
-            _IS_LINUX
-            and bus_type == 0x01
-            and hid_device_content.serial_number is not None
-            and len(hid_device_content.serial_number) > 0
-        ):
-            continue
+                # in linux all connected receiver devices are opened as separate hid device.
+                # We want to skip them to make the rest
+                # code multiplatform
+                if (
+                    _IS_LINUX
+                    and bus_type == 0x01
+                    and hid_device_content.serial_number is not None
+                    and len(hid_device_content.serial_number) > 0
+                ):
+                    continue
 
-        if path in seen_paths:
-            continue
-        seen_paths.add(path)
+                if path in seen_paths:
+                    continue
+                seen_paths.add(path)
 
-        hid_device_info = HidDeviceInfo(
-            hid_device_content.path,
-            hid_device_content.vendor_id,
-            hid_device_content.product_id,
-            hid_device_content.usage_page,
-            hid_device_content.usage,
-            "receiver" if bus_type == 0x01 else "bluetooth",
-        )
+                hid_device_info = HidDeviceInfo(
+                    hid_device_content.path,
+                    hid_device_content.vendor_id,
+                    hid_device_content.product_id,
+                    hid_device_content.usage_page,
+                    hid_device_content.usage,
+                    "receiver" if bus_type == 0x01 else "bluetooth",
+                )
 
-        pid_collections = result.get(pid, list[HidDeviceInfo]())
-        pid_collections.append(hid_device_info)
-        result[pid] = pid_collections
+                pid_collections = result.get(pid, list[HidDeviceInfo]())
+                pid_collections.append(hid_device_info)
+                result[pid] = pid_collections
+        finally:
+            _lib.hid_free_enumeration(head)
 
-    _lib.hid_free_enumeration(head)
     _log(f"All suitable hid devices={result}", verbose_extra)
     return dict(result)
 
@@ -279,9 +316,10 @@ class HIDTransport:
     # ── sync I/O (used by discovery / protocol layer) ─────────────────────────
 
     def try_open(self) -> None:
-        self._dev: int | None = _lib.hid_open_path(self._path)
-        if not self._dev:
-            raise OSError(_hid_err())
+        with _serialized_hid_lifecycle("open_path"):
+            self._dev: int | None = _lib.hid_open_path(self._path)
+            if not self._dev:
+                raise OSError(_hid_err())
 
     def try_reopen(self) -> None:
         self.close()
@@ -331,9 +369,12 @@ class HIDTransport:
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
     def close(self) -> None:
-        if self._dev is not None:
-            _lib.hid_close(self._dev)
+        with _serialized_hid_lifecycle("close"):
+            if self._dev is None:
+                return
+            dev = self._dev
             self._dev = None
+            _lib.hid_close(dev)
 
     def __repr__(self) -> str:
         return f"HIDTransport(kind={self.kind!r}, pid=0x{self.pid:04X})"
