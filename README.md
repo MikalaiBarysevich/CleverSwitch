@@ -89,6 +89,53 @@ hooks:
     timeout: 10
 ```
 
+## Two-Host Fallback (`peer_host_index`)
+
+CleverSwitch's normal relay listens for the keyboard's own "I just switched host" announcement and forwards it to the mouse. **On some device/receiver combinations - notably MX Keys S paired through a Logitech Bolt receiver - that announcement never arrives at all.** Confirmed via raw HID capture on both Linux and macOS: the departing host receives nothing but a bare disconnect, no target-host information whatsoever, on every Easy-Switch press. Without that information there's nothing for the normal relay to forward, and the mouse (or keyboard, if the mouse switched first) never follows - no amount of listening differently or waiting longer fixes this, because the departing host is the only place such an announcement could ever arrive in the first place.
+
+`easy_switch.peer_host_index` is an **opt-in fallback for the common two-machine setup**. Instead of waiting for a switch announcement, it reacts to a plain disconnect: whenever either device disconnects here while its paired counterpart is still connected here, the counterpart is commanded to follow to a fixed, pre-configured host number. Unlike Logitech's own keyboard-only Enhanced Easy-Switch, this is symmetric - pressing the mouse's Easy-Switch key also brings the keyboard along.
+
+This is an **alternative path, not a replacement** for the normal relay: both mechanisms are always active. When a device does emit the switch announcement, that announcement wins and the fallback stays out of the way - it suppresses itself for about a second after seeing any announced switch, so the two never issue conflicting commands. Only configure this if the normal relay doesn't work for you.
+
+**Trade-off:** there is no way to tell an intentional Easy-Switch press apart from an ordinary RF dropout on the wire, so CleverSwitch filters disconnects heuristically instead. Brief dropouts are absorbed by deferring the follow ~2 seconds and cancelling it if the device reconnects within that window - at the cost of the same ~2-second delay on a genuine switch. Idle power-save link drops (a device that has been silent for tens of seconds quietly dropping its link, common on MX Keys S) are filtered by watching *when* each device last produced input: a disconnect after prolonged silence on a long-lived link is not treated as a departure. For this, CleverSwitch reads the receiver's standard keyboard/mouse input collections - timestamps only, report contents are never inspected or stored, and the collections are only opened at all when `peer_host_index` is configured. A device that departs *during* active use for reasons other than a switch - carried out of range, battery pulled - still (incorrectly) sends its counterpart away. Unplugging the receiver looks the same, and will log a relay and fire `SWITCH` hooks even though the `CHANGE_HOST` command itself goes nowhere. Only enable this if you have exactly two machines and are comfortable with that trade-off.
+
+Configuration is keyed **by device role**, not a single shared number - each device keeps its own independent host pairing table, so the keyboard's and the mouse's index for "the same other machine" aren't guaranteed to match:
+
+```yaml
+easy_switch:
+  peer_host_index:
+    keyboard: 2
+    mouse: 2
+```
+
+Each value is the number on that device's **own** Easy-Switch key for the other machine - press the keys once to see which key leads where. Host numbers are 1-based, like `CLEVERSWITCH_TARGET_HOST` above, so Easy-Switch key 1 is `1`. An unknown role or an out-of-range number is reported at startup and that entry is skipped.
+
+### Known limitation: a second, redundant relay
+
+The `CHANGE_HOST` command CleverSwitch sends to the counterpart makes that device drop its own link - and on the wire, a device dropping its link is exactly what a departure looks like. So the counterpart's disconnect can trigger the fallback a second time:
+
+```
+  you press Easy-Switch on the mouse
+        │
+        ▼
+  mouse leaves ──► relay #1: "keyboard, go to peer_host_index"
+                        │
+                        │  ~0.7s, the keyboard tears down its link
+                        ▼
+                  keyboard leaves ──► looks like a departure too
+                        │
+                        ▼
+                  relay #2: "mouse, go to peer_host_index"
+```
+
+Relay #2 is redundant. The `peer.connected` guard is meant to stop it, but the counterpart's own disconnect is still in flight on another thread at that moment, so the peer can still read as connected.
+
+**On a two-machine setup this is harmless** - both relays name the same target, so the second command is a no-op repeat of the first, and the effect is what you wanted.
+
+**With three or more hosts it can send a device to the wrong machine.** If your device *does* emit the switch announcement, relay #1 correctly follows the announced target - say host 3 - but relay #2 then overrides it with the configured `peer_host_index`, which by definition names only one fixed "other machine". Whichever command lands last wins, and the counterpart ends up on host 2 instead of host 3.
+
+If you have more than two machines, leave `peer_host_index` unset. The fallback is designed for the two-machine case and its whole premise - "the other machine" as a single fixed number - stops holding beyond that.
+
 ## Found a Bug?
 
 Please open a [new issue](https://github.com/MikalaiBarysevich/CleverSwitch/issues/new?template=BUG.yml).

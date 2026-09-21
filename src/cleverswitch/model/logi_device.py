@@ -2,13 +2,18 @@ import dataclasses
 
 from ..subscriber.task.constants import Task
 
+# The complete domain of LogiDevice.role. Assigned from the x0005 device type by
+# GetDeviceTypeTask (and provisionally by DeviceConnectedSubscriber from the receiver's
+# enumeration byte); config loading validates role-keyed settings against it.
+VALID_ROLES = frozenset({"keyboard", "mouse"})
+
 
 @dataclasses.dataclass
 class LogiDevice:
     wpid: int
     pid: int
     slot: int  # 1-6 for receiver-paired, 0xFF for Bluetooth direct
-    role: str | None  # "keyboard" or "mouse"
+    role: str | None  # one of VALID_ROLES
     available_features: dict[int, int]  # feature_code → feature_index
     name: str | None = None
     friendly_name: str | None = None

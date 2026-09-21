@@ -18,10 +18,13 @@ import logging
 import os
 import platform
 import sys
+import threading
 
 from ..errors.errors import TransportError
 from .constants import (
+    GENERIC_DESKTOP_USAGE_PAGE,
     HIDPP_USAGE_PAGES,
+    INPUT_USAGE_TO_ROLE,
     LOGITECH_VENDOR_ID,
     MAX_READ_SIZE,
 )
@@ -192,53 +195,60 @@ def _is_hidpp_interface(info: dict) -> bool:
     return info["usage_page"] in HIDPP_USAGE_PAGES
 
 
+# hid_enumerate walks libudev state that is not safe to touch from two threads at once —
+# observed as a hard abort() in libudev when the discovery loop and InputActivityMonitor's
+# manager sweep enumerate concurrently. All enumeration goes through this lock.
+_enumerate_lock = threading.Lock()
+
+
 def enumerate_hid_devices(
     vendor_id: int = LOGITECH_VENDOR_ID, product_id: int = 0, verbose_extra: bool = False
 ) -> dict[int, list[HidDeviceInfo]]:
     """Call hid_enumerate and return HID++ capable devices (receivers + BT), freeing the linked list."""
-    head = _lib.hid_enumerate(vendor_id, product_id)
     result: dict[int, list[HidDeviceInfo]] = {}
     seen_paths: set[bytes] = set()
-    node = head
-    while node:
-        hid_device_content = node.contents
-        node = hid_device_content.next
-        pid = hid_device_content.product_id
-        bus_type = hid_device_content.bus_type
-        path = hid_device_content.path
+    with _enumerate_lock:
+        head = _lib.hid_enumerate(vendor_id, product_id)
+        node = head
+        while node:
+            hid_device_content = node.contents
+            node = hid_device_content.next
+            pid = hid_device_content.product_id
+            bus_type = hid_device_content.bus_type
+            path = hid_device_content.path
 
-        if hid_device_content.usage_page not in HIDPP_USAGE_PAGES:
-            continue
+            if hid_device_content.usage_page not in HIDPP_USAGE_PAGES:
+                continue
 
-        # in linux all connected receiver devices are opened as separate hid device.
-        # We want to skip them to make the rest
-        # code multiplatform
-        if (
-            _IS_LINUX
-            and bus_type == 0x01
-            and hid_device_content.serial_number is not None
-            and len(hid_device_content.serial_number) > 0
-        ):
-            continue
+            # in linux all connected receiver devices are opened as separate hid device.
+            # We want to skip them to make the rest
+            # code multiplatform
+            if (
+                _IS_LINUX
+                and bus_type == 0x01
+                and hid_device_content.serial_number is not None
+                and len(hid_device_content.serial_number) > 0
+            ):
+                continue
 
-        if path in seen_paths:
-            continue
-        seen_paths.add(path)
+            if path in seen_paths:
+                continue
+            seen_paths.add(path)
 
-        hid_device_info = HidDeviceInfo(
-            hid_device_content.path,
-            hid_device_content.vendor_id,
-            hid_device_content.product_id,
-            hid_device_content.usage_page,
-            hid_device_content.usage,
-            "receiver" if bus_type == 0x01 else "bluetooth",
-        )
+            hid_device_info = HidDeviceInfo(
+                hid_device_content.path,
+                hid_device_content.vendor_id,
+                hid_device_content.product_id,
+                hid_device_content.usage_page,
+                hid_device_content.usage,
+                "receiver" if bus_type == 0x01 else "bluetooth",
+            )
 
-        pid_collections = result.get(pid, list[HidDeviceInfo]())
-        pid_collections.append(hid_device_info)
-        result[pid] = pid_collections
+            pid_collections = result.get(pid, list[HidDeviceInfo]())
+            pid_collections.append(hid_device_info)
+            result[pid] = pid_collections
 
-    _lib.hid_free_enumeration(head)
+        _lib.hid_free_enumeration(head)
     _log(f"All suitable hid devices={result}", verbose_extra)
     return dict(result)
 
@@ -246,6 +256,52 @@ def enumerate_hid_devices(
 def _log(msg: str, verbose_extra: bool = False) -> None:
     if verbose_extra:
         log.debug(msg)
+
+
+def enumerate_input_collections(vendor_id: int = LOGITECH_VENDOR_ID) -> list[InputCollectionInfo]:
+    """Enumerate standard keyboard/mouse input collections on Logitech devices.
+
+    Used by InputActivityMonitor to timestamp user activity. Returns one entry per
+    Generic Desktop keyboard (usage 0x06) or mouse (usage 0x02) collection, with the
+    usage already mapped to a LogiDevice role. Applies the same Linux child-device skip
+    as enumerate_hid_devices, so a receiver contributes only its own interfaces.
+    """
+    result: list[InputCollectionInfo] = []
+    seen_paths: set[bytes] = set()
+    with _enumerate_lock:
+        head = _lib.hid_enumerate(vendor_id, 0)
+        node = head
+        while node:
+            content = node.contents
+            node = content.next
+
+            if content.usage_page != GENERIC_DESKTOP_USAGE_PAGE:
+                continue
+            role = INPUT_USAGE_TO_ROLE.get(content.usage)
+            if role is None:
+                continue
+            if (
+                _IS_LINUX
+                and content.bus_type == 0x01
+                and content.serial_number is not None
+                and len(content.serial_number) > 0
+            ):
+                continue
+            if content.path in seen_paths:
+                continue
+            seen_paths.add(content.path)
+
+            result.append(InputCollectionInfo(content.path, content.product_id, role))
+
+        _lib.hid_free_enumeration(head)
+    return result
+
+
+@dataclasses.dataclass(frozen=True)
+class InputCollectionInfo:
+    path: bytes
+    pid: int
+    role: str  # one of VALID_ROLES, mapped from the collection usage
 
 
 @dataclasses.dataclass

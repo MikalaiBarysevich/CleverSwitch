@@ -11,11 +11,14 @@ from typing import Any
 import yaml
 
 from ..errors.errors import ConfigError
+from ..hidpp.constants import VALID_HOSTS
 from ..model.config.args_settings import ArgsSettings
 from ..model.config.config import Config
+from ..model.config.easy_switch_config import EasySwitchConfig
 from ..model.config.hook_entry import HookEntry
 from ..model.config.hook_type import HookType
 from ..model.config.hooks_config import HooksConfig
+from ..model.logi_device import VALID_ROLES
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +33,7 @@ def default_config() -> Config:
         hooks=HooksConfig(),
         arguments_settings=ArgsSettings(),
         cache_path=_DEFAULT_CACHE_PATH,
+        easy_switch=EasySwitchConfig(),
     )
 
 
@@ -71,7 +75,10 @@ def _parse(raw: dict[str, Any], cli_args: argparse.Namespace) -> Config:
     c = raw.get("cache", {})
     cache_path = Path(os.path.expanduser(str(c["path"]))) if c.get("path") else _DEFAULT_CACHE_PATH
 
-    config = Config(hooks=hooks, arguments_settings=arguments_settings, cache_path=cache_path)
+    es = raw.get("easy_switch", {})
+    easy_switch = EasySwitchConfig(peer_host_index=_parse_peer_host_index(es.get("peer_host_index")))
+
+    config = Config(hooks=hooks, arguments_settings=arguments_settings, cache_path=cache_path, easy_switch=easy_switch)
     _validate(config)
     return config
 
@@ -124,6 +131,45 @@ def _parse_hook_types(name: str, raw_type: Any) -> frozenset[HookType]:
         except KeyError:
             log.error(f"Hook '{name}' has invalid type '{value}'; ignoring")
     return frozenset(result)
+
+
+def _parse_peer_host_index(raw_value: Any) -> dict[str, int]:
+    """Parse the role → 1-based host number mapping, converting to 0-based internally.
+    Malformed entries are logged and skipped, same policy as _parse_hooks — one bad role
+    disables the relay for that role only, not the whole daemon.
+
+    Both the key and the value are validated: an unrecognised role would never match any
+    LogiDevice.role and a host number outside VALID_HOSTS would be rejected downstream, so
+    either mistake leaves the relay silently doing nothing. Rejecting them at load time is the
+    only place a typo is diagnosable."""
+    if not raw_value:
+        return {}
+    if not isinstance(raw_value, dict):
+        log.error("easy_switch.peer_host_index must be a mapping of role to host number; ignoring")
+        return {}
+
+    valid_numbers = sorted(host + 1 for host in VALID_HOSTS)
+    result: dict[str, int] = {}
+    for role, value in raw_value.items():
+        if str(role) not in VALID_ROLES:
+            log.error(
+                f"easy_switch.peer_host_index has unknown role '{role}'; "
+                f"expected one of {sorted(VALID_ROLES)}; skipping"
+            )
+            continue
+        try:
+            index_1based = int(value)
+        except (TypeError, ValueError):
+            log.error(f"easy_switch.peer_host_index for '{role}' must be a number; skipping")
+            continue
+        if index_1based - 1 not in VALID_HOSTS:
+            log.error(
+                f"easy_switch.peer_host_index for '{role}' must be a 1-based Easy-Switch host "
+                f"number in {valid_numbers}; got {index_1based}; skipping"
+            )
+            continue
+        result[str(role)] = index_1based - 1
+    return result
 
 
 def _validate(config: Config) -> None:

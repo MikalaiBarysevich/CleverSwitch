@@ -2,15 +2,13 @@ import logging
 
 from ..event.hidpp_notification_event import HidppNotificationEvent
 from ..event.host_change_event import HostChangeEvent
-from ..hidpp.constants import FEATURE_CHANGE_HOST, HOST_SWITCH_CIDS
+from ..hidpp.constants import FEATURE_CHANGE_HOST, VALID_HOSTS
 from ..model.logi_device import LogiDevice
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
 from ..topic.topics import Topics
 
 log = logging.getLogger(__name__)
-
-VALID_HOSTS = frozenset(HOST_SWITCH_CIDS.values())
 
 
 class ChangeHostNotificationSubscriber(Subscriber):

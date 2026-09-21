@@ -10,6 +10,7 @@ from ..config import config as cfg_module
 from ..config.config import Config
 from ..errors.errors import ConfigError
 from ..model.context.app_context import AppContext
+from ..monitor.input_activity_monitor import InputActivityMonitor
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.analytics_rejection_subscriber import AnalyticsRejectionSubscriber
 from ..subscriber.change_host_notification_subscriber import ChangeHostNotificationSubscriber
@@ -19,6 +20,7 @@ from ..subscriber.event_hook_subscriber import EventHookSubscriber
 from ..subscriber.external_unset_flag_subscriber import ExternalUnsetFlagSubscriber
 from ..subscriber.host_change_subscriber import HostChangeSubscriber
 from ..subscriber.info_task_orchestrator import InfoTaskOrchestrator
+from ..subscriber.peer_host_follow_subscriber import PeerHostFollowSubscriber
 from ..subscriber.set_report_flag_subscriber import SetReportFlagSubscriber
 from ..subscriber.transport_disconnection_subscriber import TransportDisconnectionSubscriber
 from ..subscriber.wireless_status_subscriber import WirelessStatusSubscriber
@@ -37,7 +39,8 @@ def setup_context(args: argparse.Namespace) -> AppContext:
     topics = _setup_topics()
     registry = _setup_logi_device_registry()
     cache = _setup_device_cache(config)
-    _init_subscribers(topics, registry, config, cache)
+    activity_monitor = _setup_activity_monitor(config, shutdown)
+    _init_subscribers(topics, registry, config, cache, activity_monitor)
     return AppContext(registry, topics, config, shutdown)
 
 
@@ -79,7 +82,26 @@ def _setup_device_cache(config: Config) -> DeviceCache:
     return cache
 
 
-def _init_subscribers(topics: Topics, device_registry: LogiDeviceRegistry, config: Config, cache: DeviceCache) -> None:
+def _setup_activity_monitor(config: Config, shutdown: threading.Event) -> InputActivityMonitor | None:
+    """Only started when the peer-host fallback is configured — the monitor's sole consumer.
+
+    Keeps the daemon away from the standard keyboard/mouse input collections entirely
+    unless the user opted into the disconnect-driven relay that needs activity gating.
+    """
+    if not config.easy_switch.peer_host_index:
+        return None
+    monitor = InputActivityMonitor(shutdown)
+    monitor.start()
+    return monitor
+
+
+def _init_subscribers(
+    topics: Topics,
+    device_registry: LogiDeviceRegistry,
+    config: Config,
+    cache: DeviceCache,
+    activity_monitor: InputActivityMonitor | None,
+) -> None:
     DeviceConnectionSubscriber(device_registry, topics, cache)
     DeviceInfoSubscriber(device_registry, topics)
     InfoTaskOrchestrator(device_registry, topics, cache)
@@ -88,6 +110,7 @@ def _init_subscribers(topics: Topics, device_registry: LogiDeviceRegistry, confi
     AnalyticsRejectionSubscriber(device_registry, topics, cache)
     HostChangeSubscriber(device_registry, topics)
     ChangeHostNotificationSubscriber(device_registry, topics)
+    PeerHostFollowSubscriber(device_registry, topics, config.easy_switch, activity_monitor=activity_monitor)
     WirelessStatusSubscriber(device_registry, topics)
     TransportDisconnectionSubscriber(device_registry, topics)
     EventHookSubscriber(config.hooks, device_registry, topics)

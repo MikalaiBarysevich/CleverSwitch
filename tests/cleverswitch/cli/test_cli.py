@@ -77,9 +77,14 @@ def test_setup_logging_overrides_to_debug_when_verbose_is_true(mocker):
 def test_main_starts_discovery_thread_in_normal_mode(mocker, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["cleverswitch"])
     mock_context = mocker.MagicMock()
-    mocker.patch("cleverswitch.cli.cli_module.setup_context", return_value=mock_context)
-    mocker.patch("cleverswitch.cli.cli_module._setup_logging")
-    mock_thread_cls = mocker.patch("cleverswitch.cli.cli_module.threading.Thread")
+    # Patch targets must use the same `src.`-prefixed module path as the import at the top of
+    # this file — `cleverswitch.cli.cli_module` is a *second* instance of the module (double
+    # import via src/__init__.py + pythonpath), and patching it leaves the real functions
+    # running here: this test used to silently execute the real setup_context with the
+    # developer's actual config file.
+    mocker.patch("src.cleverswitch.cli.cli_module.setup_context", return_value=mock_context)
+    mocker.patch("src.cleverswitch.cli.cli_module._setup_logging")
+    mock_thread_cls = mocker.patch("src.cleverswitch.cli.cli_module.threading.Thread")
     mock_thread = mock_thread_cls.return_value
 
     main()

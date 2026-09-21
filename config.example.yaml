@@ -32,3 +32,45 @@ hooks:
     fire_for_all_devices: true   # this hook also fires for the mouse
     timeout: 10
 
+# Two-host Easy-Switch fallback (optional)
+#
+# On some device/receiver combinations (e.g. MX Keys S + Bolt), the keyboard never emits the
+# feature 0x1814 "I just switched host" notification at all — the departing host sees nothing
+# but a bare disconnect, with no target-host information. When that happens, the normal
+# notification-based relay has nothing to react to and neither device follows the other.
+#
+# peer_host_index is a fixed workaround for the common two-machine setup: it tells CleverSwitch
+# which Easy-Switch host slot represents "the other machine", per device role, so that whenever
+# either device disconnects here while its paired counterpart is still connected here, that
+# counterpart gets sent to its own configured host too. Unlike Logitech's own Enhanced
+# Easy-Switch (keyboard-only), this fallback is symmetric — pressing the mouse's Easy-Switch key
+# also brings the keyboard along.
+#
+# It's keyed by role, not a single shared number, because each device keeps its own independent
+# host pairing table — the keyboard's and the mouse's index for "the same other machine" are not
+# guaranteed to match (e.g. paired in a different order). Only list the roles you actually have;
+# a role with no entry is left alone (never commanded to follow).
+#
+# There is no way to distinguish an intentional Easy-Switch press from an ordinary RF dropout on
+# the wire, so disconnects are filtered heuristically. Brief dropouts are absorbed by deferring
+# the follow ~2 seconds and cancelling it if the device reconnects within that window — at the
+# cost of the same ~2-second delay on a genuine switch. Idle power-save link drops are filtered
+# by watching when each device last produced input (timestamps only — report contents are never
+# inspected or stored; the input collections are only opened when peer_host_index is set): a
+# disconnect after prolonged silence on a long-lived link is not treated as a departure. A device
+# departing during active use for other reasons (out of range, dead battery) will still
+# (incorrectly) send its counterpart away. Only enable this if you have exactly two machines and
+# are comfortable with that trade-off.
+#
+# A receiver unplug looks the same as a departure to this fallback, so it also logs the relay and
+# fires SWITCH hooks. The CHANGE_HOST write itself goes nowhere (the transport is gone), but keep
+# it in mind if a SWITCH hook does real work.
+#
+# Each value is just the number on that device's own Easy-Switch key for the other machine: press
+# the keys once to see which is which. Host numbers are 1-based here, like
+# CLEVERSWITCH_TARGET_HOST, so key 1 is 1.
+#
+# easy_switch:
+#   peer_host_index:
+#     keyboard: 2
+#     mouse: 2
