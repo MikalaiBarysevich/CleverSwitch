@@ -52,7 +52,9 @@ hooks:
 # a role with no entry is left alone (never commanded to follow).
 #
 # There is no way to distinguish an intentional Easy-Switch press from an ordinary RF dropout on
-# the wire, so a device that merely goes out of range or loses power will also (incorrectly)
+# the wire. Brief dropouts are absorbed by deferring the follow ~2 seconds and cancelling it if
+# the device reconnects within that window — at the cost of the same ~2-second delay on a genuine
+# switch. A device that stays away longer (out of range, dead battery) will still (incorrectly)
 # send its counterpart away. Only enable this if you have exactly two machines and are
 # comfortable with that trade-off.
 #
