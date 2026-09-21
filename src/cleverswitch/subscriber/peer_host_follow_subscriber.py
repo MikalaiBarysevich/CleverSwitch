@@ -6,6 +6,7 @@ from ..event.device_connected_event import DeviceConnectedEvent
 from ..event.host_change_event import HostChangeEvent
 from ..model.config.easy_switch_config import EasySwitchConfig
 from ..model.logi_device import LogiDevice
+from ..monitor.input_activity_monitor import InputActivityMonitor
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
 from ..topic.topics import Topics
@@ -38,6 +39,25 @@ ANNOUNCED_SWITCH_WINDOW_S = 1.0
 #    deferred at all (0.25s was enough for that alone). See the class docstring for why this
 #    cannot be a plain sleep.
 RECONNECT_DEBOUNCE_S = 2.0
+
+# Activity gating, applied only when an InputActivityMonitor is injected. A genuine
+# Easy-Switch departure happens in one of exactly two shapes: the user was just working at
+# this machine (input on the departing device moments before the press — the ES key itself is
+# consumed by firmware and never reported), or the user walked up after a break, woke the
+# already-slept device and pressed ES immediately (link comes up, then drops right away). An
+# idle power-save link drop matches neither: the link had been up for a long time and the
+# device had been silent — observed on MX Keys S as 0x41 link-down after inactivity with no
+# reconnect for 13-41s, far beyond any debounce that wouldn't also swallow real switches.
+#
+# ACTIVITY_WINDOW_S bounds "moments before": how far back input on the departing device still
+# counts as the user being at this machine. Sized generously — reading a page before
+# switching is normal; the cost of too-large is only that a power-save drop within the window
+# still relays (today's behaviour), while too-small suppresses genuine switches.
+ACTIVITY_WINDOW_S = 30.0
+
+# FRESH_LINK_S bounds the wake→switch shape: how long after a reconnect a drop still looks
+# like "woke it just to switch away" rather than an established session going idle.
+FRESH_LINK_S = 5.0
 
 
 class PeerHostFollowSubscriber(Subscriber):
@@ -100,6 +120,14 @@ class PeerHostFollowSubscriber(Subscriber):
     if it landed no earlier than ANNOUNCED_SWITCH_WINDOW_S before the disconnect (any
     announcement arriving later, during the debounce window itself, suppresses too).
 
+    When an InputActivityMonitor is injected, disconnects are additionally activity-gated (see
+    _looks_like_genuine_departure and the constants above): an idle power-save link drop — the
+    departing device silent for longer than ACTIVITY_WINDOW_S on a link older than FRESH_LINK_S —
+    is not treated as a departure at all. This covers the dropout class the reconnect debounce
+    cannot: a slept device reconnects only when the user touches it again, which after a genuine
+    misfire is tens of seconds to minutes away. The gate fails open whenever activity data is
+    missing.
+
     A receiver unplug also fires this relay. TransportDisconnectionSubscriber fans out one
     disconnect per registered device, and because that fan-out runs on its own thread, the peer's
     `connected` flag may still be True when the first device's disconnect is handled. The
@@ -114,11 +142,13 @@ class PeerHostFollowSubscriber(Subscriber):
         topics: Topics,
         easy_switch_config: EasySwitchConfig,
         relay_delay_s: float = RECONNECT_DEBOUNCE_S,
+        activity_monitor: InputActivityMonitor | None = None,
     ):
         self._device_registry = device_registry
         self._topics = topics
         self._peer_host_index_by_role = easy_switch_config.peer_host_index
         self._relay_delay_s = relay_delay_s
+        self._activity_monitor = activity_monitor
         self._seen_connected: dict[int, bool] = {}
         self._lock = threading.Lock()
         self._announced_at: float | None = None
@@ -126,6 +156,9 @@ class PeerHostFollowSubscriber(Subscriber):
         # Bumped on every reconnect; a pending relay snapshots the value at disconnect time and
         # aborts if it changed — that reconnect proves the disconnect was a dropout, not a switch.
         self._reconnect_generation: dict[int, int] = {}
+        # Monotonic timestamp of the last locally-observed connect per wpid, for the
+        # fresh-link (wake→switch) branch of the activity gate.
+        self._connected_at: dict[int, float] = {}
         topics.hid_event.subscribe(self)
 
     def notify(self, event) -> None:
@@ -142,6 +175,7 @@ class PeerHostFollowSubscriber(Subscriber):
         if event.link_established:
             with self._lock:
                 self._reconnect_generation[event.wpid] = self._reconnect_generation.get(event.wpid, 0) + 1
+            self._connected_at[event.wpid] = time.monotonic()
             return
 
         if not was_connected:
@@ -159,6 +193,9 @@ class PeerHostFollowSubscriber(Subscriber):
         if peer_host_index is None:
             return
 
+        if not self._looks_like_genuine_departure(departed, departed.role):
+            return
+
         with self._lock:
             generation = self._reconnect_generation.get(event.wpid, 0)
         timer = threading.Timer(
@@ -168,6 +205,36 @@ class PeerHostFollowSubscriber(Subscriber):
         )
         timer.daemon = True
         timer.start()
+
+    def _looks_like_genuine_departure(self, departed: LogiDevice, role: str) -> bool:
+        """Activity gate: distinguish a user-driven switch from an idle power-save link drop.
+
+        Fail-open by design: without a monitor, or without any data for this role yet (fresh
+        daemon start, or a platform where the input collection cannot be opened — Windows
+        denies keyboard/mouse top-level collections), behave exactly as before gating existed.
+        A wrong suppression silently breaks real switches; a wrong relay is today's status quo.
+        """
+        if self._activity_monitor is None:
+            return True
+
+        now = time.monotonic()
+
+        connected_at = self._connected_at.get(departed.wpid)
+        if connected_at is not None and now - connected_at <= FRESH_LINK_S:
+            return True
+
+        last_input = self._activity_monitor.last_activity(departed.pid, role)
+        if last_input is None:
+            return True
+        idle_s = now - last_input
+        if idle_s <= ACTIVITY_WINDOW_S:
+            return True
+
+        log.info(
+            f"'{departed.display_name}' link dropped after {idle_s:.0f}s without input — "
+            f"treating as idle power-save, not following"
+        )
+        return False
 
     def _note_announced_switch(self, event: HostChangeEvent) -> None:
         with self._lock:

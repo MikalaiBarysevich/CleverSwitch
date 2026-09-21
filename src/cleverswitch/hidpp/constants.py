@@ -20,6 +20,11 @@ HIDPP_USAGE_LONG = 0x0002  # Long HID++ (report 0x11, 20 bytes) — Windows long
 HIDPP_BT_USAGE_LONG = 0x0202  # Long HID++ over Bluetooth
 HIDPP_USAGES_LONG = [HIDPP_USAGE_LONG, HIDPP_BT_USAGE_LONG]
 
+# Standard input collections (Generic Desktop page) — read by InputActivityMonitor to
+# timestamp user activity per device role. Values map onto LogiDevice roles (VALID_ROLES).
+GENERIC_DESKTOP_USAGE_PAGE = 0x0001
+INPUT_USAGE_TO_ROLE = {0x0002: "mouse", 0x0006: "keyboard"}
+
 # ── HID++ report IDs and message sizes ───────────────────────────────────────
 
 REPORT_SHORT = 0x10  # 7 bytes total

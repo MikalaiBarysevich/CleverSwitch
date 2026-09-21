@@ -73,13 +73,18 @@ def subscriber(registry, topics) -> PeerHostFollowSubscriber:
     return _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE)
 
 
-def _make_subscriber(registry, topics, peer_host_index: dict[str, int], *, delay: float = 0.0):
+def _make_subscriber(registry, topics, peer_host_index: dict[str, int], *, delay: float = 0.0, monitor=None):
     """Delay defaults to 0 so the deferred relay lands as soon as the timer thread is scheduled.
     The delay exists to debounce RF micro-dropouts (a reconnect inside the window cancels the
     relay) and to let a slightly-late x1814 announcement overtake the disconnect (see the class
-    docstring); tests that care about either behaviour set it explicitly."""
+    docstring); tests that care about either behaviour set it explicitly. Activity gating only
+    engages when a monitor is passed."""
     return PeerHostFollowSubscriber(
-        registry, topics, EasySwitchConfig(peer_host_index=peer_host_index), relay_delay_s=delay
+        registry,
+        topics,
+        EasySwitchConfig(peer_host_index=peer_host_index),
+        relay_delay_s=delay,
+        activity_monitor=monitor,
     )
 
 
@@ -449,3 +454,111 @@ class TestReconnectDebounce:
 
         _wait_for_publish(topics)
         topics.hid_event.publish.assert_called_once()
+
+
+class FakeActivityMonitor:
+    """Stand-in for InputActivityMonitor: last_activity per (pid, role), settable by tests."""
+
+    def __init__(self):
+        self._last: dict[tuple[int, str], float] = {}
+
+    def touch(self, pid: int, role: str, at: float | None = None) -> None:
+        self._last[(pid, role)] = time.monotonic() if at is None else at
+
+    def last_activity(self, pid: int, role: str) -> float | None:
+        return self._last.get((pid, role))
+
+
+class TestActivityGating:
+    """An idle power-save link drop (device silent for tens of seconds, then 0x41 link-down,
+    no reconnect until the user touches it) is indistinguishable from a departure on the wire
+    and outlasts any reconnect debounce. With an activity monitor injected, such a drop must
+    not be relayed at all; genuine departures — recent input, or a freshly-woken link — must."""
+
+    def _register_pair(self, registry):
+        registry.register(KEYBOARD_WPID, _make_keyboard())
+        registry.register(MOUSE_WPID, _make_mouse())
+
+    def test_idle_drop_without_recent_activity_is_not_relayed(self, registry, topics, mocker):
+        mocker.patch("cleverswitch.subscriber.peer_host_follow_subscriber.FRESH_LINK_S", 0.0)
+        monitor = FakeActivityMonitor()
+        monitor.touch(PID, "keyboard", at=time.monotonic() - 60.0)
+        subscriber = _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE, monitor=monitor)
+        self._register_pair(registry)
+        _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
+        topics.hid_event.publish.reset_mock()
+
+        subscriber.notify(_make_event())
+
+        _assert_never_publishes(topics)
+
+    def test_recent_activity_relays(self, registry, topics, mocker):
+        mocker.patch("cleverswitch.subscriber.peer_host_follow_subscriber.FRESH_LINK_S", 0.0)
+        monitor = FakeActivityMonitor()
+        monitor.touch(PID, "keyboard")
+        subscriber = _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE, monitor=monitor)
+        self._register_pair(registry)
+        _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
+        topics.hid_event.publish.reset_mock()
+
+        subscriber.notify(_make_event())
+
+        _wait_for_publish(topics)
+        topics.hid_event.publish.assert_called_once()
+
+    def test_fresh_link_relays_despite_no_activity(self, registry, topics):
+        """The wake→switch shape: user returns after a break, the slept device reconnects and
+        immediately switches away — no input in between (the ES key is consumed by firmware)."""
+        monitor = FakeActivityMonitor()
+        subscriber = _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE, monitor=monitor)
+        self._register_pair(registry)
+        _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
+        topics.hid_event.publish.reset_mock()
+
+        subscriber.notify(_make_event())
+
+        _wait_for_publish(topics)
+        topics.hid_event.publish.assert_called_once()
+
+    def test_no_activity_data_fails_open(self, registry, topics, mocker):
+        """No data for this role (fresh daemon start, or a platform that denies opening the
+        input collection) must behave exactly as before gating existed — a wrong suppression
+        silently breaks real switches."""
+        mocker.patch("cleverswitch.subscriber.peer_host_follow_subscriber.FRESH_LINK_S", 0.0)
+        monitor = FakeActivityMonitor()
+        subscriber = _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE, monitor=monitor)
+        self._register_pair(registry)
+        _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
+        topics.hid_event.publish.reset_mock()
+
+        subscriber.notify(_make_event())
+
+        _wait_for_publish(topics)
+        topics.hid_event.publish.assert_called_once()
+
+    def test_no_monitor_relays_as_before(self, registry, topics, mocker):
+        mocker.patch("cleverswitch.subscriber.peer_host_follow_subscriber.FRESH_LINK_S", 0.0)
+        subscriber = _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE, monitor=None)
+        self._register_pair(registry)
+        _connect(subscriber, slot=KEYBOARD_SLOT, wpid=KEYBOARD_WPID)
+        topics.hid_event.publish.reset_mock()
+
+        subscriber.notify(_make_event())
+
+        _wait_for_publish(topics)
+        topics.hid_event.publish.assert_called_once()
+
+    def test_gating_uses_the_departed_devices_role_not_the_peers(self, registry, topics, mocker):
+        """Keyboard activity must not vouch for a silent mouse's departure."""
+        mocker.patch("cleverswitch.subscriber.peer_host_follow_subscriber.FRESH_LINK_S", 0.0)
+        monitor = FakeActivityMonitor()
+        monitor.touch(PID, "keyboard")
+        monitor.touch(PID, "mouse", at=time.monotonic() - 60.0)
+        subscriber = _make_subscriber(registry, topics, PEER_HOST_INDEX_BY_ROLE, monitor=monitor)
+        self._register_pair(registry)
+        _connect(subscriber, slot=MOUSE_SLOT, wpid=MOUSE_WPID)
+        topics.hid_event.publish.reset_mock()
+
+        subscriber.notify(_make_event(slot=MOUSE_SLOT, wpid=MOUSE_WPID))
+
+        _assert_never_publishes(topics)

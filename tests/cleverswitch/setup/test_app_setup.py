@@ -19,6 +19,7 @@ def test_setup_context_returns_app_context(mocker):
     mocker.patch("cleverswitch.setup.app_setup.check")
     mocker.patch("cleverswitch.setup.app_setup.cfg_module.load")
     mocker.patch("cleverswitch.setup.app_setup.signal.signal")
+    mocker.patch("cleverswitch.setup.app_setup.InputActivityMonitor")
 
     from cleverswitch.setup.app_setup import setup_context
 
@@ -49,6 +50,7 @@ def test_setup_context_initializes_subscribers(mocker):
     mocker.patch("cleverswitch.setup.app_setup.check")
     mocker.patch("cleverswitch.setup.app_setup.cfg_module.load")
     mocker.patch("cleverswitch.setup.app_setup.signal.signal")
+    mocker.patch("cleverswitch.setup.app_setup.InputActivityMonitor")
 
     mock_init = mocker.patch("cleverswitch.setup.app_setup._init_subscribers")
 
@@ -56,3 +58,23 @@ def test_setup_context_initializes_subscribers(mocker):
 
     setup_context(_cli_args())
     mock_init.assert_called_once()
+
+
+def test_activity_monitor_started_only_when_peer_host_index_configured(mocker):
+    """The monitor opens the standard keyboard/mouse input collections — the daemon must stay
+    away from them entirely unless the user opted into the disconnect-driven relay."""
+    mocker.patch("cleverswitch.setup.app_setup.check")
+    load = mocker.patch("cleverswitch.setup.app_setup.cfg_module.load")
+    mocker.patch("cleverswitch.setup.app_setup.signal.signal")
+    monitor_cls = mocker.patch("cleverswitch.setup.app_setup.InputActivityMonitor")
+
+    from cleverswitch.setup.app_setup import setup_context
+
+    load.return_value.easy_switch.peer_host_index = {}
+    setup_context(_cli_args())
+    monitor_cls.assert_not_called()
+
+    load.return_value.easy_switch.peer_host_index = {"keyboard": 1}
+    setup_context(_cli_args())
+    monitor_cls.assert_called_once()
+    monitor_cls.return_value.start.assert_called_once()
