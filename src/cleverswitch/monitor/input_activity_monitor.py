@@ -50,6 +50,10 @@ class InputActivityMonitor:
         # Paths with a live reader thread; readers discard their entry on exit so the
         # manager reopens the collection on its next sweep.
         self._active_paths: set[bytes] = set()
+        # Paths whose open failure was already logged — the manager retries every sweep
+        # (a permission can be granted at any time), but a persistent denial must not
+        # produce one log line per sweep for the life of the process.
+        self._reported_failures: set[bytes] = set()
         self._lock = threading.Lock()
 
     def start(self) -> None:
@@ -85,12 +89,17 @@ class InputActivityMonitor:
         try:
             transport = self._transport_factory(collection.path)
         except OSError as error:
-            log.debug(f"Cannot open input collection {collection.role} pid=0x{collection.pid:04X}: {error}")
             with self._lock:
+                already_reported = collection.path in self._reported_failures
+                self._reported_failures.add(collection.path)
                 self._active_paths.discard(collection.path)
+            if not already_reported:
+                log.debug(f"Cannot open input collection {collection.role} pid=0x{collection.pid:04X}: {error}")
             return
         log.debug(f"Monitoring input activity: {collection.role} pid=0x{collection.pid:04X}")
         key = (collection.pid, collection.role)
+        with self._lock:
+            self._reported_failures.discard(collection.path)
         try:
             while not self._shutdown.is_set():
                 data = transport.read(timeout=_READ_TIMEOUT_MS)

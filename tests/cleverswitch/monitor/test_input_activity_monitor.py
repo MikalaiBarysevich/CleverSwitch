@@ -69,6 +69,10 @@ def _make_monitor(shutdown, collections, transports):
     return InputActivityMonitor(shutdown, enumerate_fn=lambda: list(collections), transport_factory=factory)
 
 
+def _always_denied(path: bytes):
+    raise OSError("open denied")
+
+
 class TestInputActivityMonitor:
     def test_reports_refresh_last_activity_for_the_right_role(self, shutdown):
         keyboard = FakeInputTransport()
@@ -143,3 +147,19 @@ class TestInputActivityMonitor:
 
         assert monitor.last_activity(PID, "keyboard") is None
         shutdown.set()
+
+    def test_persistent_open_failure_is_logged_once(self, shutdown, caplog):
+        """The manager retries a denied collection every sweep (permission can be granted at
+        any time), but a persistent denial must not log once per sweep for the process life."""
+        import logging
+
+        collections = [InputCollectionInfo(KEYBOARD_PATH, PID, "keyboard")]
+        monitor = InputActivityMonitor(
+            shutdown, enumerate_fn=lambda: list(collections), transport_factory=_always_denied
+        )
+        with caplog.at_level(logging.DEBUG):
+            for _ in range(3):
+                monitor._read_loop(collections[0])
+
+        denials = [r for r in caplog.records if "Cannot open input collection" in r.message]
+        assert len(denials) == 1
