@@ -56,7 +56,7 @@ class HidGatewayBLE(HidGatewayBT):
         if not _BLE_OK:
             self._event_listener.listen(self._create_connection_event())
             return
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             if self._ble_subscribed.wait(timeout=1.0):
                 self._event_listener.listen(self._create_connection_event())
                 return
@@ -70,7 +70,7 @@ class HidGatewayBLE(HidGatewayBT):
         # Same ownership rule as the base run(): _try_connect opens the inherited HID transport
         # (and _do_write falls back to it), so this thread must be the one that closes it.
         try:
-            while not self._stop.is_set():
+            while not self._stop_event.is_set():
                 if not self._connected:
                     self._try_connect()
                 else:
@@ -89,7 +89,7 @@ class HidGatewayBLE(HidGatewayBT):
             loop.close()
 
     async def _ble_main(self) -> None:
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             if not self._connected:
                 await asyncio.sleep(0.5)
                 continue
@@ -118,7 +118,7 @@ class HidGatewayBLE(HidGatewayBT):
             self._ble_subscribed.set()
             log.debug(f"BLE notify subscribed pid=0x{self._device_info.pid:04X}")
             try:
-                while self._connected and not self._stop.is_set():
+                while self._connected and not self._stop_event.is_set():
                     await asyncio.sleep(0.5)
             finally:
                 self._ble_client = None

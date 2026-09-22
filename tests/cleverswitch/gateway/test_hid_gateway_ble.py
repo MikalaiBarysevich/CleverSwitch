@@ -151,7 +151,7 @@ def test_on_notify_result_is_bytes():
 
 
 def test_ble_main_sleeps_when_not_connected():
-    """_ble_main exits its poll loop on _stop without calling _find_peripheral_by_wpid."""
+    """_ble_main exits its poll loop on _stop_event without calling _find_peripheral_by_wpid."""
     gw, _ = _make_gw()
     gw._connected = False
 
@@ -557,7 +557,7 @@ def test_run_closes_its_own_transport_on_exit(mocker):
     gw, _ = _make_gw()
     transport = MagicMock()
     gw._transport = transport
-    gw._stop.set()
+    gw._stop_event.set()
 
     gw.run()
 

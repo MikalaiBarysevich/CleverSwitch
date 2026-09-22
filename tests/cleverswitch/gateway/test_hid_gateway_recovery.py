@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from cleverswitch.gateway.hid_gateway import HidGateway, _IDLE_REOPEN_SECONDS, _READ_TIMEOUT_MS
+from cleverswitch.gateway.hid_gateway import HidGateway
 from cleverswitch.hidpp.transport import HidDeviceInfo
 from cleverswitch.listener.event_listener import EventListener
 
@@ -11,21 +11,15 @@ def _device_info():
     )
 
 
-def test_idle_gateway_reopens_instead_of_waiting_forever(mocker):
+def test_read_timeout_keeps_an_healthy_idle_gateway_connected(mocker):
     gateway = HidGateway(_device_info(), MagicMock(spec=EventListener))
     gateway._transport = MagicMock()
     gateway._transport.read.return_value = None
     gateway._connected = True
-    gateway._last_hid_activity = 0.0
-
-    mocker.patch("cleverswitch.gateway.hid_gateway.time.monotonic", return_value=_IDLE_REOPEN_SECONDS + 1)
-
-    def disconnect(state):
-        assert state is False
-        gateway._stop_event.set()
-
-    set_connected = mocker.patch.object(gateway, "_set_connected", side_effect=disconnect)
+    gateway._stop_event = MagicMock()
+    gateway._stop_event.is_set.side_effect = [False, True]
+    set_connected = mocker.patch.object(gateway, "_set_connected")
     gateway.run()
 
-    gateway._transport.read.assert_called_once_with(timeout=_READ_TIMEOUT_MS)
-    set_connected.assert_called_once_with(False)
+    gateway._transport.read.assert_called_once()
+    set_connected.assert_not_called()

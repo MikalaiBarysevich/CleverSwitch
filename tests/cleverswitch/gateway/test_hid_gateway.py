@@ -317,7 +317,7 @@ def test_run_continues_after_none_read():
         yield None
         yield None
         yield event
-        gw._stop.set()
+        gw._stop_event.set()
         yield None
 
     gen = reads()
@@ -376,7 +376,7 @@ def test_backoff_grows_while_device_absent(mocker):
     gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
     mocker.patch("cleverswitch.gateway.hid_gateway.enumerate_hid_devices", return_value={})
     waits: list[float] = []
-    mocker.patch.object(gw._stop, "wait", side_effect=lambda t: waits.append(t))
+    mocker.patch.object(gw._stop_event, "wait", side_effect=lambda t: waits.append(t))
 
     for _ in range(3):
         gw._try_connect()
@@ -388,7 +388,7 @@ def test_backoff_is_capped(mocker):
     gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
     mocker.patch("cleverswitch.gateway.hid_gateway.enumerate_hid_devices", return_value={})
     waits: list[float] = []
-    mocker.patch.object(gw._stop, "wait", side_effect=lambda t: waits.append(t))
+    mocker.patch.object(gw._stop_event, "wait", side_effect=lambda t: waits.append(t))
 
     for _ in range(20):
         gw._try_connect()
