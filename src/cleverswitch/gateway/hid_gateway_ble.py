@@ -67,11 +67,16 @@ class HidGatewayBLE(HidGatewayBT):
         else:
             Thread(target=self._run_ble_loop, daemon=True).start()
 
-        while not self._stop.is_set():
-            if not self._connected:
-                self._try_connect()
-            else:
-                time.sleep(0.5)
+        # Same ownership rule as the base run(): _try_connect opens the inherited HID transport
+        # (and _do_write falls back to it), so this thread must be the one that closes it.
+        try:
+            while not self._stop.is_set():
+                if not self._connected:
+                    self._try_connect()
+                else:
+                    time.sleep(0.5)
+        finally:
+            self._close_transport()
 
     def _run_ble_loop(self) -> None:
         loop = asyncio.new_event_loop()
@@ -121,7 +126,7 @@ class HidGatewayBLE(HidGatewayBT):
     def _on_notify(self, _sender, data: bytearray) -> None:
         self._event_listener.listen(BLE_PREPEND + bytes(data))
 
-    def _do_write(self, msg: bytes) -> None:
+    def _do_write(self, transport, msg: bytes) -> None:
         # Per the HID++ BLE transport, function-call responses come back on the
         # same channel as the request. Send via GATT so responses arrive on our
         # notify subscription instead of the LO+-starved HID input report.
@@ -137,7 +142,7 @@ class HidGatewayBLE(HidGatewayBT):
                 return
             except Exception as e:
                 log.debug(f"BLE write failed pid=0x{self._device_info.pid:04X}, falling back to HID: {e}")
-        super()._do_write(msg)
+        super()._do_write(transport, msg)
 
     async def _find_peripheral_by_wpid(self, target_wpid: int):
         delegate = CentralManagerDelegate()
