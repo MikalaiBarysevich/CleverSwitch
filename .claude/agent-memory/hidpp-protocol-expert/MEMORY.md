@@ -5,8 +5,9 @@
 - [Windows collections](windows-collections.md) — which HID collection (0x10/0x11/0x20) to open for each op
 - [x0000 IRoot](x0000-iroot.md) — getFeature() lookup semantics, feature-index stability
 - [x1814 CHANGE_HOST](x1814-change-host.md) — undocumented notification behavior, filter logic, 1814-vs-1D4B diagnostic heuristic
-- [x1B04 setCidReporting](x1b04-setCidReporting.md) — byte layout, bfield decode, divert persistence/buffering
+- [x1B04 setCidReporting](x1b04-setCidReporting.md) — byte layout, bfield decode, divert persistence/buffering, getCidReporting (fn2) response format, byte9 bit-order conflict (flagged, unresolved)
 - [x1D4B WIRELESS_DEVICE_STATUS](x1d4b-wireless-status.md) — event payload layout, reset-trigger semantics
+- [HID++2.0 error format](hidpp20-error-format.md) — general error packet layout (0xFF marker) + error code table, applies to every feature
 
 ## Critical: HID++ 2.0 response format
 **ALL HID++ 2.0 responses are LONG (report 0x11, 20 bytes), even when the request was SHORT (0x10).**

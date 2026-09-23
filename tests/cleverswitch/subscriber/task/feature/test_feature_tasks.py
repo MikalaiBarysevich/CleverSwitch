@@ -27,6 +27,7 @@ from src.cleverswitch.subscriber.task.feature.friendly_name_feature_task import 
 from src.cleverswitch.subscriber.task.feature.name_and_type_feature_task import NameAndTypeFeatureTask
 from src.cleverswitch.topic.topic import Topic
 from src.cleverswitch.topic.topics import Topics
+from tests.task_helpers import deliver_on_request
 
 PID = BOLT_PID
 SLOT = 1
@@ -64,7 +65,7 @@ def test_change_host_resolves_feature_index():
     task = ChangeHostFeatureTask(device, topics)
 
     # Inject a successful response before doTask blocks
-    task._response_queue.put(_response(FEATURE_CHANGE_HOST_SW_ID, 9))
+    deliver_on_request(task, topics, [_response(FEATURE_CHANGE_HOST_SW_ID, 9)])
     task.doTask()
 
     assert device.available_features.get(FEATURE_CHANGE_HOST) == 9
@@ -89,7 +90,13 @@ def test_change_host_noop_on_error_response():
     topics = _make_topics()
     task = ChangeHostFeatureTask(device, topics)
 
-    task._response_queue.put(HidppErrorEvent(slot=SLOT, pid=PID, sw_id=FEATURE_CHANGE_HOST_SW_ID, error_code=5))
+    deliver_on_request(
+        task,
+        topics,
+        [
+            HidppErrorEvent(slot=SLOT, pid=PID, sw_id=FEATURE_CHANGE_HOST_SW_ID, error_code=5),
+        ],
+    )
     task.doTask()
 
     assert FEATURE_CHANGE_HOST not in device.available_features
@@ -100,7 +107,7 @@ def test_change_host_noop_when_feat_idx_is_zero():
     topics = _make_topics()
     task = ChangeHostFeatureTask(device, topics)
 
-    task._response_queue.put(_response(FEATURE_CHANGE_HOST_SW_ID, 0))
+    deliver_on_request(task, topics, [_response(FEATURE_CHANGE_HOST_SW_ID, 0)])
     task.doTask()
 
     assert FEATURE_CHANGE_HOST not in device.available_features
@@ -134,7 +141,7 @@ def test_reprog_resolves_feature_index():
     topics = _make_topics()
     task = CidReportingFeatureTask(device, topics)
 
-    task._response_queue.put(_response(FEATURE_REPROG_CONTROLS_V4_SW_ID, 8))
+    deliver_on_request(task, topics, [_response(FEATURE_REPROG_CONTROLS_V4_SW_ID, 8)])
     task.doTask()
 
     assert device.available_features.get(FEATURE_REPROG_CONTROLS_V4) == 8
@@ -161,7 +168,7 @@ def test_name_and_type_resolves_feature_index():
     topics = _make_topics()
     task = NameAndTypeFeatureTask(device, topics)
 
-    task._response_queue.put(_response(FEATURE_DEVICE_TYPE_AND_NAME_SW_ID, 5))
+    deliver_on_request(task, topics, [_response(FEATURE_DEVICE_TYPE_AND_NAME_SW_ID, 5)])
     task.doTask()
 
     assert device.available_features.get(FEATURE_DEVICE_TYPE_AND_NAME) == 5
@@ -191,7 +198,7 @@ def test_friendly_name_resolves_feature_index():
     topics = _make_topics()
     task = FriendlyNameFeatureTask(device, topics)
 
-    task._response_queue.put(_response(FEATURE_DEVICE_FRIENDLY_NAME_SW_ID, 3))
+    deliver_on_request(task, topics, [_response(FEATURE_DEVICE_FRIENDLY_NAME_SW_ID, 3)])
     task.doTask()
 
     assert device.available_features.get(FEATURE_DEVICE_FRIENDLY_NAME) == 3

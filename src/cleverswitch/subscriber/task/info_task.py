@@ -77,6 +77,11 @@ class InfoTask(ABC, Subscriber, Thread):
     def doTask(self) -> None: ...
 
     def _send_request(self, *params, request_id: int | None = None) -> None:
+        # Anything still queued predates this request, so _wait_response would hand it back as if
+        # it were the answer. Tasks that issue sequential request/wait pairs (chunked name reads,
+        # getCidInfo sweeps) would then splice a late reply in at the wrong offset and silently
+        # record the wrong data, where a clean timeout is the honest outcome.
+        self._drain_responses()
         params_bytes = pack_params(params)
         rid = ((request_id & 0xFFF0) | self._sw_id) if request_id is not None else self._request_id
         msg = build_msg(self._device.slot, rid, params_bytes)
@@ -87,6 +92,14 @@ class InfoTask(ABC, Subscriber, Thread):
             return self._response_queue.get(timeout=timeout)
         except queue.Empty:
             return None
+
+    def _drain_responses(self) -> None:
+        while True:
+            try:
+                stale = self._response_queue.get_nowait()
+            except queue.Empty:
+                return
+            log.debug(f"Discarding stale {type(stale).__name__} for {self._step_name} sw_id={self._sw_id}")
 
     def _fire_dependent_steps(self):
         log.debug(f"No dependent steps for {self._step_name}")

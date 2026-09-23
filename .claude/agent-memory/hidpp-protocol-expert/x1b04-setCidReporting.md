@@ -55,6 +55,67 @@ If either divert=1 or persist=1 (with valid bit set), control is diverted via HI
 | 1 | analyticsKeyEvt | action: enable analytics key events |
 | 0 | --- | reserved |
 
+**CONFLICT FLAGGED (2026-09, unresolved)** — this table was transcribed from the local PDF in an
+earlier session that is not available to re-check in-sandbox (`hidpp20 public/` is gitignored,
+absent this session — see [[doc-sources]]). Live-fetched Solaar `hidpp20.py`
+(`ReprogrammableKeyV4.MappingFlag`, checked 2026-09) implies a DIFFERENT bit packing for this same
+byte (Solaar's byte, "byte 5" of its `get/setCidReporting` payload slice, is the same wire byte as
+"byte 9" here — see `getCidReporting` section below): action bits are at even positions
+(analyticsKeyEvt=bit0/0x01, rawWheel=bit2/0x04) with their valid/mask bits immediately above
+(bit1/0x02, bit3/0x08) — i.e. avalid=0x02 not 0x04, analyticsKeyEvt=0x01 not 0x02. This
+Solaar-derived packing is also the ONLY one that makes CleverSwitch's own
+`ANALYTICS_BYTE9 = 0x03` (`hidpp/constants.py`) arithmetically equal "avalid|analyticsKeyEvt": under
+Solaar's bit order, 0x02|0x01=0x03 ✓; under this file's older table, 0x04|0x02=0x06 ≠ 0x03 ✗.
+**`ANALYTICS_BYTE9 = 0x03` itself is marked "hardware-confirmed" in the source comment, so the
+literal wire value to WRITE is trustworthy either way** — only the *named* bit constants
+`ANALYTICS_AVALID = 0x04` and `ANALYTICS_KEY_EVT = 0x02` in `hidpp/constants.py` are suspect: they
+don't sum to 0x03 under either bit-order hypothesis being internally self-consistent, and are most
+likely mislabeled (off-by-one-bit) relative to whichever encoding is actually on the wire. They
+are currently only consumed by `parser.py`'s external-unset detection
+(`byte9 & ANALYTICS_AVALID and not (byte9 & ANALYTICS_KEY_EVT)`), not by the write path — so the
+bug (if real) affects detecting a 3rd-party disabling analytics, not CleverSwitch's own writes.
+Needs real-hardware capture (log a raw getCidReporting/setCidReporting response byte9 after
+toggling analytics via Solaar) to settle definitively — do not trust either table blindly until
+then; prefer the Solaar-derived order (bit0=action, bit1=valid) as higher-confidence since it's
+cross-validated against this project's own hardware-confirmed write constant.
+
+## getCidReporting (feature 0x1B04, function index [2], byte3 = 0x20 | sw_id)
+Source: Solaar `hidpp20.py` `ReprogrammableKeyV4._getCidReporting` (live-fetched 2026-09,
+`raw.githubusercontent.com/pwr-Solaar/Solaar/master/lib/logitech_receiver/hidpp20.py`) — no local
+PDF available this session to cross-check the official spec text, so this is Solaar-sourced only.
+
+**Request**: `feature_request(REPROG_CONTROLS_V4, 0x20, *struct.pack("!H", cid))` — i.e. params are
+just the 2-byte BE CID; no other request parameters, rest of the 16-byte param field is
+zero-padded (`hidpp/protocol.py`'s `build_msg`/`struct.pack("!BB18s", ...)` auto-pads short params
+with nulls, so a CleverSwitch caller doesn't need to hand-pad).
+
+**Response** — read as `payload = raw_event[4:]` (this codebase's slicing convention), same offsets
+Solaar calls `mapped_data`:
+| payload index | field | notes |
+|---|---|---|
+| 0-1 | cid | 2 bytes BE, echoes the requested CID |
+| 2 | bfield (mapping_flags low byte) | **same byte position as setCidReporting's byte 6** |
+| 3-4 | remap | 2 bytes BE — current remap target CID (0 = own CID / no remap) |
+| 5 | extra flags (mapping_flags high byte) | **same byte position as setCidReporting's byte 9**; OPTIONAL — Solaar defensively checks `len(mapped_data) > 5` and treats it as 0 if absent (older/shorter 0x1B04 firmware may omit it) |
+
+**Valid/mask bits are NOT present in the response — only action bits.** Solaar wraps the raw
+combined 16-bit value (`mapping_flags_1 | (mapping_flags_2 << 8)`) directly into a Python `Flag`
+enum (`MappingFlag`) whose members are ONLY the action-bit values (`DIVERTED=0x01,
+PERSISTENTLY_DIVERTED=0x04, RAW_XY_DIVERTED=0x10, FORCE_RAW_XY_DIVERTED=0x40,
+ANALYTICS_KEY_EVENTS_REPORTING=0x100, RAW_WHEEL=0x400`) — none of the `*valid` mask bit
+positions (0x02, 0x08, 0x20, 0x80, and whatever the byte-9-equivalent mask bits are) appear as
+named members at all. A strict `Flag(value)` construction in Python raises if unlisted bits are
+set, so the fact Solaar does this unconditionally (no masking beforehand) is strong indirect
+evidence the device echoes back **only action/state bits in getCidReporting responses — the mask
+bits are always 0 on read-back**, unlike the mandatory valid+action pairing required when WRITING
+via setCidReporting. **Practical consequence for a read-back confirmation**: after writing
+`bfield = MAP_FLAG_DIVERTED<<1 | MAP_FLAG_DIVERTED` (0x03) via setCidReporting, expect
+`getCidReporting` to echo back `payload[2] == 0x01` (action bit only), NOT `0x03`. Same for the
+analytics case — expect `payload[5]` to report only the action bit (whichever bit position that
+turns out to be per the still-open conflict above), not the avalid mask bit.
+This is inferred from Solaar's implementation behavior, not a literal spec sentence — flag as
+inference-not-verified-spec-text if the local PDF becomes available and should be checked.
+
 ## Common bfield values
 
 | bfield | Binary | Meaning |

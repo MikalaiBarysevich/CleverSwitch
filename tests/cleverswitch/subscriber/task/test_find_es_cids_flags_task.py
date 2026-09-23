@@ -19,6 +19,7 @@ from src.cleverswitch.subscriber.task.constants import FIND_ES_CIDS_FLAGS_SW_ID,
 from src.cleverswitch.subscriber.task.find_es_cids_flags_task import FindESCidsFlagsTask
 from src.cleverswitch.topic.topic import Topic
 from src.cleverswitch.topic.topics import Topics
+from tests.task_helpers import deliver_on_request
 
 PID = BOLT_PID
 SLOT = 1
@@ -68,8 +69,14 @@ def test_both_analytics_and_divertable_flags_publish_set_report_flag_event():
     topics = _make_topics()
     task = FindESCidsFlagsTask(device, topics)
 
-    task._response_queue.put(_count_response(1))
-    task._response_queue.put(_cid_info_response(0x00D2, KEY_FLAG_ANALYTICS | KEY_FLAG_DIVERTABLE))
+    deliver_on_request(
+        task,
+        topics,
+        [
+            _count_response(1),
+            _cid_info_response(0x00D2, KEY_FLAG_ANALYTICS | KEY_FLAG_DIVERTABLE),
+        ],
+    )
     task.doTask()
 
     assert KEY_FLAG_ANALYTICS in device.supported_flags
@@ -88,8 +95,7 @@ def test_analytics_flag_only_publishes():
     topics = _make_topics()
     task = FindESCidsFlagsTask(device, topics)
 
-    task._response_queue.put(_count_response(1))
-    task._response_queue.put(_cid_info_response(0x00D2, KEY_FLAG_ANALYTICS))
+    deliver_on_request(task, topics, [_count_response(1), _cid_info_response(0x00D2, KEY_FLAG_ANALYTICS)])
     task.doTask()
 
     assert KEY_FLAG_ANALYTICS in device.supported_flags
@@ -106,8 +112,7 @@ def test_divertable_flag_only_publishes():
     topics = _make_topics()
     task = FindESCidsFlagsTask(device, topics)
 
-    task._response_queue.put(_count_response(1))
-    task._response_queue.put(_cid_info_response(0x00D1, KEY_FLAG_DIVERTABLE))
+    deliver_on_request(task, topics, [_count_response(1), _cid_info_response(0x00D1, KEY_FLAG_DIVERTABLE)])
     task.doTask()
 
     assert KEY_FLAG_DIVERTABLE in device.supported_flags
@@ -123,8 +128,14 @@ def test_persistently_divertable_flag_added_to_supported_flags():
     topics = _make_topics()
     task = FindESCidsFlagsTask(device, topics)
 
-    task._response_queue.put(_count_response(1))
-    task._response_queue.put(_cid_info_response(0x00D1, KEY_FLAG_DIVERTABLE | KEY_FLAG_PERSISTENTLY_DIVERTABLE))
+    deliver_on_request(
+        task,
+        topics,
+        [
+            _count_response(1),
+            _cid_info_response(0x00D1, KEY_FLAG_DIVERTABLE | KEY_FLAG_PERSISTENTLY_DIVERTABLE),
+        ],
+    )
     task.doTask()
 
     assert KEY_FLAG_PERSISTENTLY_DIVERTABLE in device.supported_flags
@@ -138,8 +149,7 @@ def test_es_cid_with_no_flags_no_publish():
     topics = _make_topics()
     task = FindESCidsFlagsTask(device, topics)
 
-    task._response_queue.put(_count_response(1))
-    task._response_queue.put(_cid_info_response(0x00D2, 0))
+    deliver_on_request(task, topics, [_count_response(1), _cid_info_response(0x00D2, 0)])
     task.doTask()
 
     topics.flags.publish.assert_not_called()

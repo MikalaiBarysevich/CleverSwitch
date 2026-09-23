@@ -14,6 +14,10 @@ LOGI_HIDPP_CHAR = "00010001-0000-1000-8000-011f2000046d"
 PNP_ID_CHAR = "00002a50-0000-1000-8000-00805f9b34fb"
 BLE_PREPEND = bytes([0x11, 0xFF])
 
+# How long _set_connected(True) waits for the GATT subscription before firing the connect event
+# anyway. Without a bound, a device whose notify path never comes up is never set up at all.
+_BLE_SUBSCRIBE_GRACE = 5.0
+
 try:
     from bleak import BleakClient
     from bleak.backends.corebluetooth.CentralManagerDelegate import CentralManagerDelegate
@@ -32,11 +36,16 @@ except ImportError:
 
 
 class HidGatewayBLE(HidGatewayBT):
-    """macOS-only subclass of HidGatewayBT that replaces the HID read loop with BLE GATT notifications.
+    """macOS-only subclass of HidGatewayBT that reads HID++ notifications from both transports.
 
-    HID writes still go through the inherited transport (confirmed to work under Logi Options+).
-    Inbound HID++ notifications arrive via a Logitech proprietary GATT characteristic, which is
-    unaffected by LO+'s 33 writes/sec BLE saturation that starves the HID read path.
+    HID++ reporting is bound to the transport channel that armed it. CleverSwitch and peer apps
+    (OpenLogi; reportedly Logi Options+) arm the same Easy-Switch CIDs via 0x1B04 setCidReporting,
+    and the device reports a press only on the channel whose request landed last. CleverSwitch arms
+    over the Logitech GATT characteristic, OpenLogi arms over HID, so reading either channel alone
+    goes deaf whenever a peer armed more recently. run() therefore reads both.
+
+    No deduplication is applied: channel affinity means a message is delivered on exactly one
+    channel, so a press cannot arrive twice.
     """
 
     def __init__(self, device_info, event_listener) -> None:
@@ -56,8 +65,16 @@ class HidGatewayBLE(HidGatewayBT):
         if not _BLE_OK:
             self._event_listener.listen(self._create_connection_event())
             return
+        deadline = time.monotonic() + _BLE_SUBSCRIBE_GRACE
         while not self._stop.is_set():
             if self._ble_subscribed.wait(timeout=1.0):
+                self._event_listener.listen(self._create_connection_event())
+                return
+            if time.monotonic() >= deadline:
+                log.debug(
+                    f"BLE notify not up for pid=0x{self._device_info.pid:04X} after "
+                    f"{_BLE_SUBSCRIBE_GRACE:.0f}s — continuing on the HID read path"
+                )
                 self._event_listener.listen(self._create_connection_event())
                 return
 
@@ -67,16 +84,10 @@ class HidGatewayBLE(HidGatewayBT):
         else:
             Thread(target=self._run_ble_loop, daemon=True).start()
 
-        # Same ownership rule as the base run(): _try_connect opens the inherited HID transport
-        # (and _do_write falls back to it), so this thread must be the one that closes it.
-        try:
-            while not self._stop.is_set():
-                if not self._connected:
-                    self._try_connect()
-                else:
-                    time.sleep(0.5)
-        finally:
-            self._close_transport()
+        # Read the HID input reports as well as the GATT notify subscription — see the class
+        # docstring for why neither channel alone is reliable. The inherited loop also owns the
+        # transport handle and closes it on exit, as before.
+        super().run()
 
     def _run_ble_loop(self) -> None:
         loop = asyncio.new_event_loop()
@@ -121,24 +132,35 @@ class HidGatewayBLE(HidGatewayBT):
                 while self._connected and not self._stop.is_set():
                     await asyncio.sleep(0.5)
             finally:
+                # No explicit stop_notify: leaving the `async with` disconnects the client, which
+                # tears the subscription down anyway. Calling it here throws on a remote drop.
                 self._ble_client = None
 
     def _on_notify(self, _sender, data: bytearray) -> None:
-        self._event_listener.listen(BLE_PREPEND + bytes(data))
+        raw = BLE_PREPEND + bytes(data)
+        log.debug(f"Received BLE event from pid=0x{self._device_info.pid:04X}: {raw.hex()}")
+        self._event_listener.listen(raw)
 
     def _do_write(self, transport, msg: bytes) -> None:
-        # Per the HID++ BLE transport, function-call responses come back on the
-        # same channel as the request. Send via GATT so responses arrive on our
-        # notify subscription instead of the LO+-starved HID input report.
+        # Per the HID++ BLE transport, function-call responses come back on the same channel as
+        # the request, so writing via GATT keeps our own responses on the notify subscription.
+        #
+        # response=True (ATT Write Request) is required, not an optimisation. bleak never checks
+        # canSendWriteWithoutResponse, so a write-*without*-response is silently discarded whenever
+        # the OS has no credit — only 1 of 3 setCidReporting requests was landing. The with-response
+        # path awaits the ATT confirmation, which acknowledges every write and serialises the burst.
         client = self._ble_client
         loop = self._ble_loop
-        if client is not None and loop is not None:
+        if client is None or loop is None:
+            log.debug(f"BLE client not ready for pid=0x{self._device_info.pid:04X}, writing via HID instead")
+        else:
             try:
                 future = asyncio.run_coroutine_threadsafe(
-                    client.write_gatt_char(LOGI_HIDPP_CHAR, msg[2:], response=False),
+                    client.write_gatt_char(LOGI_HIDPP_CHAR, msg[2:], response=True),
                     loop,
                 )
                 future.result(timeout=2.0)
+                log.debug(f"Wrote via GATT to pid=0x{self._device_info.pid:04X}")
                 return
             except Exception as e:
                 log.debug(f"BLE write failed pid=0x{self._device_info.pid:04X}, falling back to HID: {e}")
