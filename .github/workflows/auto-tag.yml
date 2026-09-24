@@ -1,0 +1,74 @@
+name: Auto-tag version
+
+# Tags every commit landing on main with the next vX.Y.Z. The bump level comes from the
+# merged PR's labels: `semver:major`, `semver:minor`, otherwise patch. Untagged first-parent
+# commits since the latest reachable tag are tagged in order, so a run superseded by the
+# concurrency group is caught up by the next one. Commits that already carry a vX.Y.Z tag
+# are skipped. Tags pushed with GITHUB_TOKEN do not trigger other workflows; releases are
+# published manually from a chosen tag.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: auto-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Tag next version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create and push tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          semver='^v[0-9]+\.[0-9]+\.[0-9]+$'
+
+          if git tag --points-at "$SHA" | grep -Eq "$semver"; then
+            echo "$SHA is already tagged: $(git tag --points-at "$SHA" | grep -E "$semver" | paste -sd ' ')"
+            exit 0
+          fi
+
+          latest=$(git tag --merged "$SHA" | grep -E "$semver" | sort -V | tail -n1 || true)
+          if [ -z "$latest" ]; then
+            echo "::error::No vX.Y.Z tag reachable from $SHA; create the first tag manually."
+            exit 1
+          fi
+          IFS=. read -r major minor patch <<< "${latest#v}"
+          echo "Latest reachable tag: $latest"
+
+          for commit in $(git rev-list --reverse --first-parent "$latest..$SHA"); do
+            if git tag --points-at "$commit" | grep -Eq "$semver"; then
+              echo "$commit is already tagged, skipping"
+              continue
+            fi
+
+            labels=$(gh api "repos/$REPO/commits/$commit/pulls" \
+              | jq -r --arg sha "$commit" \
+                  '[.[] | select(.merged_at != null and .merge_commit_sha == $sha)][0].labels // [] | .[].name')
+
+            if grep -qx 'semver:major' <<< "$labels"; then
+              major=$((major + 1)); minor=0; patch=0; bump=major
+            elif grep -qx 'semver:minor' <<< "$labels"; then
+              minor=$((minor + 1)); patch=0; bump=minor
+            else
+              patch=$((patch + 1)); bump=patch
+            fi
+
+            tag="v$major.$minor.$patch"
+            echo "Tagging $commit as $tag ($bump bump; labels: $(paste -sd ',' <<< "$labels"))"
+            git tag "$tag" "$commit"
+            git push origin "refs/tags/$tag"
+          done

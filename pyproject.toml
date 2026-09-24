@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=77"]
+requires = ["setuptools>=77", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "cleverswitch"
-version = "1.5.2"
+dynamic = ["version"]
 description = "Synchronize host switching between Logitech MX Keys and MX Master 3"
 requires-python = ">=3.10"
 license = "GPL-3.0-or-later"
@@ -28,6 +28,8 @@ cleverswitch = "cleverswitch.cli.cli_module:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools_scm]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
