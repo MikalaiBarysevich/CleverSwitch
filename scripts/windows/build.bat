@@ -43,7 +43,7 @@ python -c "import yaml; print('pyyaml ok')" || (echo [ERROR] pyyaml not importab
 :: --hidden-import yaml is a safety net against a missed auto-detect.
 
 echo [INFO] Building binary with PyInstaller...
-pyinstaller --onefile --name %APP_NAME% --paths src --hidden-import yaml --add-binary "hidapi.dll;." src\cleverswitch\__main__.py || (echo [ERROR] PyInstaller build failed. & popd & exit /b 1)
+pyinstaller --onefile --name %APP_NAME% --paths src --hidden-import yaml --copy-metadata cleverswitch --add-binary "hidapi.dll;." src\cleverswitch\__main__.py || (echo [ERROR] PyInstaller build failed. & popd & exit /b 1)
 
 :: ── Step 3: Smoke-test ────────────────────────────────────────────────
 :: Catch a dropped dependency here instead of on a user's machine.

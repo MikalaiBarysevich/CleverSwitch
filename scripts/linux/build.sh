@@ -37,7 +37,7 @@ python -c "import yaml; print('pyyaml ok')" || error "pyyaml not importable — 
 # --hidden-import yaml is a safety net against a missed auto-detect.
 
 info "Building binary with PyInstaller..."
-pyinstaller --onefile --name "$APP_NAME" --paths src --hidden-import yaml \
+pyinstaller --onefile --name "$APP_NAME" --paths src --hidden-import yaml --copy-metadata cleverswitch \
     src/cleverswitch/__main__.py
 
 # ── Step 3: Smoke-test ───────────────────────────────────────────────
