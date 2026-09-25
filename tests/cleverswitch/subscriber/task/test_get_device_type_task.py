@@ -12,6 +12,7 @@ from src.cleverswitch.subscriber.task.constants import GET_DEVICE_TYPE_SW_ID, Ta
 from src.cleverswitch.subscriber.task.get_device_type_task import GetDeviceTypeTask
 from src.cleverswitch.topic.topic import Topic
 from src.cleverswitch.topic.topics import Topics
+from tests.task_helpers import deliver_on_request
 
 PID = BOLT_PID
 SLOT = 1
@@ -53,7 +54,7 @@ def test_sets_role_keyboard_for_type_0():
     topics = _make_topics()
     task = GetDeviceTypeTask(device, topics)
 
-    task._response_queue.put(_type_response(0))
+    deliver_on_request(task, topics, [_type_response(0)])
     task.doTask()
 
     assert device.role == "keyboard"
@@ -65,7 +66,7 @@ def test_sets_role_mouse_for_non_zero_type():
     topics = _make_topics()
     task = GetDeviceTypeTask(device, topics)
 
-    task._response_queue.put(_type_response(3))
+    deliver_on_request(task, topics, [_type_response(3)])
     task.doTask()
 
     assert device.role == "mouse"
@@ -100,7 +101,7 @@ def test_discards_step_on_error_response():
     topics = _make_topics()
     task = GetDeviceTypeTask(device, topics)
 
-    task._response_queue.put(HidppErrorEvent(slot=SLOT, pid=PID, sw_id=GET_DEVICE_TYPE_SW_ID, error_code=5))
+    deliver_on_request(task, topics, [HidppErrorEvent(slot=SLOT, pid=PID, sw_id=GET_DEVICE_TYPE_SW_ID, error_code=5)])
     task.doTask()
 
     assert device.role is None
@@ -114,7 +115,7 @@ def test_discards_keyboard_only_steps_when_role_is_mouse():
     topics = _make_topics()
     task = GetDeviceTypeTask(device, topics)
 
-    task._response_queue.put(_type_response(3))
+    deliver_on_request(task, topics, [_type_response(3)])
     task.run()
 
     assert device.role == "mouse"

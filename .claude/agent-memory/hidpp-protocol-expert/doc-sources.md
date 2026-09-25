@@ -15,6 +15,16 @@ metadata:
   `features/0x0000-IRoot.rst` as a worked example — not a full feature-by-feature doc set. Not
   useful for looking up individual feature byte layouts beyond IRoot.
 
+## Additional fallback sources beyond Solaar's hidpp20.py/notifications.py (used 2026-09)
+- `raw.githubusercontent.com/pwr-Solaar/Solaar/master/lib/logitech_receiver/hidpp20_constants.py`
+  — `ErrorCode` IntEnum for HID++ 2.0 error codes (see [[hidpp20-error-format]])
+- `raw.githubusercontent.com/torvalds/linux/master/drivers/hid/hid-logitech-hidpp.c` — kernel
+  driver's `struct fap` / `__do_hidpp_send_message_sync` gives the authoritative byte-offset
+  layout of the HID++2.0 error packet (0xFF marker position, echoed feature index, error code
+  byte) — useful when Solaar's Python abstracts the raw bytes away
+- `hidpp20 public/` confirmed absent again 2026-09 (still gitignored, sandbox-dependent per
+  entry below) — always Glob-check before assuming presence
+
 ## Known doc/behavior gaps confirmed against Solaar (checked 2026-08)
 - 0x1814 (CHANGE_HOST): zero notification handling in Solaar — see [[x1814-change-host]]
 - 0x1815 (HOSTS_INFO): zero notification handling in Solaar either (not spec-verified this pass)

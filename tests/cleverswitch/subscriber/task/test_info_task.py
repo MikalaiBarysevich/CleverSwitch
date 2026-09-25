@@ -277,3 +277,46 @@ def test_run_unsubscribes_when_fire_dependent_steps_raises():
         task.run()
 
     topics.hid_event.unsubscribe.assert_called_once_with(topics.hid_event.subscribe.return_value)
+
+
+# ── _send_request drains stale responses ──────────────────────────────────────
+
+
+def test_send_request_discards_a_response_queued_before_it():
+    """A late reply must not be handed to the next request as if it were its answer."""
+    device = _make_device()
+    topics = _make_topics()
+    task = _ConcreteTask(device, topics)
+
+    stale = HidppResponseEvent(slot=SLOT, pid=PID, feature_index=3, function=1, sw_id=SW_ID, payload=b"stale")
+    task._response_queue.put(stale)
+
+    task._send_request()
+
+    assert task._wait_response(timeout=0.01) is None
+
+
+def test_send_request_discards_a_stale_error_event_too():
+    device = _make_device()
+    topics = _make_topics()
+    task = _ConcreteTask(device, topics)
+
+    task._response_queue.put(HidppErrorEvent(slot=SLOT, pid=PID, sw_id=SW_ID, error_code=0x09))
+
+    task._send_request()
+
+    assert task._wait_response(timeout=0.01) is None
+
+
+def test_send_request_delivers_the_response_that_arrives_after_it():
+    """The reply to *this* request still gets through."""
+    device = _make_device()
+    topics = _make_topics()
+    task = _ConcreteTask(device, topics)
+
+    fresh = HidppResponseEvent(slot=SLOT, pid=PID, feature_index=3, function=1, sw_id=SW_ID, payload=b"fresh")
+    topics.write.publish.side_effect = lambda *_a, **_k: task._response_queue.put(fresh)
+
+    task._send_request()
+
+    assert task._wait_response(timeout=0.01) is fresh

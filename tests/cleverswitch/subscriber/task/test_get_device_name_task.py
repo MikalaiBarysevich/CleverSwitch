@@ -12,6 +12,7 @@ from src.cleverswitch.subscriber.task.constants import GET_DEVICE_NAME_SW_ID, Ta
 from src.cleverswitch.subscriber.task.get_device_name_task import GetDeviceNameTask
 from src.cleverswitch.topic.topic import Topic
 from src.cleverswitch.topic.topics import Topics
+from tests.task_helpers import deliver_on_request
 
 PID = BOLT_PID
 SLOT = 1
@@ -59,8 +60,8 @@ def test_reads_device_name():
     task = GetDeviceNameTask(device, topics)
 
     name = b"MX Keys"
-    task._response_queue.put(_response(bytes([len(name)])))  # count response
-    task._response_queue.put(_response(name))  # name chunk
+    # count response, then the name chunk
+    deliver_on_request(task, topics, [_response(bytes([len(name)])), _response(name)])
     task.doTask()
 
     assert device.name == "MX Keys"
@@ -76,9 +77,8 @@ def test_assembles_name_from_multiple_chunks():
     name = b"MX Master 3S Key"  # 16 chars in first chunk
     last = b"s"  # 1 char in second chunk (total 17)
     full = name + last
-    task._response_queue.put(_response(bytes([len(full)])))
-    task._response_queue.put(_response(name))  # charIndex=0, fills all 16 payload bytes
-    task._response_queue.put(_response(last))  # charIndex=16, 1 remaining char
+    # count, then charIndex=0 filling all 16 payload bytes, then charIndex=16 with the last char
+    deliver_on_request(task, topics, [_response(bytes([len(full)])), _response(name), _response(last)])
     task.doTask()
 
     assert device.name == "MX Master 3S Keys"
@@ -90,8 +90,8 @@ def test_strips_nul_padding_from_name():
     task = GetDeviceNameTask(device, topics)
 
     # firmware reports a count of 10 but pads the tail with NULs (_response zero-fills)
-    task._response_queue.put(_response(bytes([10])))
-    task._response_queue.put(_response(b"MX Keys"))  # 7 real chars + 3 NUL pad bytes read
+    # count=10, then a chunk of 7 real chars + 3 NUL pad bytes
+    deliver_on_request(task, topics, [_response(bytes([10])), _response(b"MX Keys")])
     task.doTask()
 
     assert device.name == "MX Keys"
@@ -125,7 +125,7 @@ def test_sets_name_none_on_count_error():
     topics = _make_topics()
     task = GetDeviceNameTask(device, topics)
 
-    task._response_queue.put(HidppErrorEvent(slot=SLOT, pid=PID, sw_id=GET_DEVICE_NAME_SW_ID, error_code=5))
+    deliver_on_request(task, topics, [HidppErrorEvent(slot=SLOT, pid=PID, sw_id=GET_DEVICE_NAME_SW_ID, error_code=5)])
     task.doTask()
 
     assert device.name is None
@@ -147,7 +147,7 @@ def test_discards_step_when_count_is_zero():
     topics = _make_topics()
     task = GetDeviceNameTask(device, topics)
 
-    task._response_queue.put(_response(bytes([0])))
+    deliver_on_request(task, topics, [_response(bytes([0]))])
     task.doTask()
 
     assert Task.Name.GET_DEVICE_NAME not in device.pending_steps
@@ -158,8 +158,12 @@ def test_sets_name_none_on_chunk_error():
     topics = _make_topics()
     task = GetDeviceNameTask(device, topics)
 
-    task._response_queue.put(_response(bytes([7])))  # name len=7
-    task._response_queue.put(HidppErrorEvent(slot=SLOT, pid=PID, sw_id=GET_DEVICE_NAME_SW_ID, error_code=5))
+    # name len=7, then the chunk request errors out
+    deliver_on_request(
+        task,
+        topics,
+        [_response(bytes([7])), HidppErrorEvent(slot=SLOT, pid=PID, sw_id=GET_DEVICE_NAME_SW_ID, error_code=5)],
+    )
     task.doTask()
 
     assert device.name is None

@@ -108,7 +108,7 @@ InfoTaskOrchestrator.notify(InfoTaskProgressEvent)
 
 `InfoTask` (`subscriber/task/info_task.py`) is abstract, `Thread`, and `Subscriber`:
 - Subscribes to `hid_event`; `notify()` filters on `slot + pid + sw_id` and enqueues matching `HidppResponseEvent` / `HidppErrorEvent`
-- `_send_request(*params)` builds a long-format HID++ message and publishes a `WriteEvent`
+- `_send_request(*params)` drains the response queue, then builds a long-format HID++ message and publishes a `WriteEvent`. The drain matters: anything already queued predates the request, so without it a late reply would be handed to the *next* `_wait_response`, and the chunked name reads and the `getCidInfo` sweep would splice it in at the wrong offset and silently record wrong data. A clean timeout is the honest outcome. Tests must therefore deliver responses **on publish** (`tests/task_helpers.py:deliver_on_request`), not by pre-loading `_response_queue`
 - `_wait_response(timeout=2.0)` blocks on the private queue; returns `None` on timeout
 - `run()` checks `step_name in device.pending_steps`; skips `doTask()` if already complete; always publishes `InfoTaskProgressEvent`; releases the `hid_event` subscription in a `finally` — a subclass overriding `run()` must preserve that
 
@@ -118,7 +118,7 @@ Task dependency chain:
 - `FriendlyNameFeatureTask` → fires `GetDeviceFriendlyNameTask`
 - `ChangeHostFeatureTask` has no dependents
 
-Each task type has a unique `sw_id` constant in `subscriber/task/constants.py` (values 8–15). SW_IDs must stay distinct from each other and from `SW_ID = 0x08` in `hidpp/constants.py` (same value as `FEATURE_REPROG_CONTROLS_V4_SW_ID`).
+Each task type has an `sw_id` constant in `subscriber/task/constants.py`. The sw_id is a 4-bit nibble whose bit 3 must be set (`SW_ID_MASK`), so **8–15 is the entire space and every value is already allocated** — including `SW_ID = 0x08`, `SW_ID_DIVERT = 0x0E` and `SW_ID_HOST_CHANGE = 0x0F` in `hidpp/constants.py`. Two are already double-booked: `SW_ID_DIVERT` equals `FEATURE_DEVICE_FRIENDLY_NAME_SW_ID`, and `SW_ID_HOST_CHANGE` equals `GET_DEVICE_FRIENDLY_NAME_SW_ID`. A shared sw_id is survivable because `Topic.publish` copies each event into *every* subscriber's own queue: a collision can only put noise in the wrong task's queue, never steal a response from the right one. Filter precisely (by function code where needed), and rely on `_send_request`'s drain for the rest.
 
 ### Receiver enable-notifications message
 
@@ -126,12 +126,16 @@ Each task type has a unique `sw_id` constant in `subscriber/task/constants.py` (
 
 ### macOS BLE hybrid transport
 
-`HidGatewayBLE` (`gateway/hid_gateway_ble.py`) is a macOS-only subclass of `HidGatewayBT`. It exists because Logi Options+ saturates the BLE link (~33 writes/sec) and starves the OS HID input report path, causing CleverSwitch to miss inbound HID++ notifications. `discovery.py` selects it when `device.connection_type == "bluetooth"` and `get_system() == "Darwin"`; all other platforms (and macOS receivers) keep using `HidGatewayBT` / `HidGatewayReceiver`.
+`HidGatewayBLE` (`gateway/hid_gateway_ble.py`) is a macOS-only subclass of `HidGatewayBT`. `discovery.py` selects it when `device.connection_type == "bluetooth"` and `get_system() == "Darwin"`; all other platforms (and macOS receivers) keep using `HidGatewayBT` / `HidGatewayReceiver`.
+
+It exists because **HID++ reporting is bound to the transport channel that armed it**. CleverSwitch and peer apps (OpenLogi; reportedly Logi Options+) arm the same three Easy-Switch CIDs via 0x1B04 `setCidReporting`, and the device reports a key press only on the channel whose request landed last. CleverSwitch arms over the Logitech GATT characteristic; OpenLogi arms over HID (IOHIDManager). So with a peer app running the press can arrive on either channel depending on who armed last, and reading only one goes deaf. `HidGatewayBLE` therefore reads **both**: `run()` starts the BLE asyncio thread and then calls `super().run()` for the inherited HID read loop.
+
+No deduplication is applied, and none is wanted: channel affinity means a given message is delivered on exactly one channel, so a press cannot arrive twice.
 
 Design:
 - **Inbound**: subscribes to the Logitech proprietary GATT characteristic `00010001-0000-1000-8000-011f2000046d` and prepends `[0x11, 0xFF]` to each 18-byte BLE payload, producing a 20-byte HID++ long report identical to what the parser already handles. Peripheral selection probes the standard PnP ID characteristic (`0x2A50`, bytes [3:5] little-endian = WPID) to match the right paired device by `_device_info.pid`.
-- **Outbound**: `_do_write` sends via `client.write_gatt_char(LOGI_HIDPP_CHAR, msg[2:], response=False)` so function-call responses come back on the BLE notify channel (Logitech replies on the request's transport). Falls back to `super()._do_write` (HID transport) if BLE is unavailable.
-- **Connect-event ordering**: `_set_connected(True)` is overridden to bypass `HidGatewayBT`'s auto-fire of the synthetic 0x41 connect event. It sets `_connected = True` first to unblock the BLE asyncio thread, then blocks on a `threading.Event` (`_ble_subscribed`) until `_connect_and_listen` has called `start_notify`, then publishes the 0x41. This prevents `InfoTask` requests racing the BLE channel coming up. Disconnect fires immediately. If `_BLE_OK` is False (bleak not importable), it fires immediately too.
+- **Outbound**: `_do_write` sends via `client.write_gatt_char(LOGI_HIDPP_CHAR, msg[2:], response=True)` so function-call responses come back on the BLE notify channel (Logitech replies on the request's transport). Falls back to `super()._do_write` (HID transport) if BLE is unavailable. `response=True` is required, not an optimisation: bleak never checks `canSendWriteWithoutResponse`, so a write-*without*-response is silently discarded when the OS has no credit — only 1 of 3 `setCidReporting` requests was landing. The with-response path is ATT-acknowledged and serialises the burst.
+- **Connect-event ordering**: `_set_connected(True)` is overridden to bypass `HidGatewayBT`'s auto-fire of the synthetic 0x41 connect event. It sets `_connected = True` first to unblock the BLE asyncio thread, then waits on a `threading.Event` (`_ble_subscribed`) until `_connect_and_listen` has called `start_notify`, then publishes the 0x41. This prevents `InfoTask` requests racing the BLE channel coming up. The wait is bounded by `_BLE_SUBSCRIBE_GRACE` (5s): HID is a real read channel now, so a device whose notify path never comes up must still be set up rather than stalling forever. Disconnect fires immediately. If `_BLE_OK` is False (bleak not importable), it fires immediately too.
 - **Drop detection**: `BleakClient.disconnected_callback` calls `self._set_connected(False)`, which clears `_ble_subscribed` and fires the 0x41 disconnect via the inherited path so HID's main loop notices and re-enters `_try_connect`.
 
 ### LogiDevice state
@@ -167,7 +171,7 @@ The parser detects ES CID presses (fn=0 diverted, fn=2 analytics press-only) and
 
 `TransportDisconnectionSubscriber` listens on `hid_event` for `TransportDisconnectedEvent`; for each registered device whose pid matches the dropped transport, it publishes `DeviceConnectedEvent(link_established=False)` so per-device subscribers react as if each device sent a normal disconnect.
 
-`ExternalUnsetFlagSubscriber` detects when an external app (Solaar, logiops) clears the ES key reporting flag via `setCidReporting` (fn=3, sw_id in 1–7). The parser emits `ExternalUnsetFlagEvent`; the subscriber re-publishes `SetReportFlagEvent` to restore the flag.
+`ExternalUnsetFlagSubscriber` detects when an external app (Solaar, logiops) clears the ES key reporting flag via `setCidReporting` (fn=3, sw_id in 1–7). The parser emits `ExternalUnsetFlagEvent`; the subscriber re-publishes `SetReportFlagEvent` to restore the flag. **Known limitation**: it only sees a peer's `setCidReporting` if that peer shares our transport, and `parser.py` only classifies one as external for sw_id 1–7. On BLE a peer typically arms over HID, so this subscriber has never been observed firing there.
 
 `AnalyticsRejectionSubscriber` detects keyboards that advertise `KEY_FLAG_ANALYTICS` in getCidInfo but silently reject the analytics enable: the device echoes our `setCidReporting` request (sw_id=`SW_ID_DIVERT`, fn=3) with byte 9 cleared to 0x00 instead of the requested 0x03 (observed on the K850). Per the HID++ 2.0 0x1B04 spec, the response is a verbatim echo, so byte 9 = 0x00 is a definitive rejection signal. The subscriber discards `KEY_FLAG_ANALYTICS` from `device.supported_flags`, persists the change via `DeviceCache.save`, and re-publishes `SetReportFlagEvent`; `SetReportFlagSubscriber` then naturally takes the divert branch on the retry.
 
@@ -176,5 +180,6 @@ The parser detects ES CID presses (fn=0 diverted, fn=2 analytics press-only) and
 - All HID I/O is mocked — tests never open real devices.
 - `conftest.py` in the root `tests/` directory provides `FakeTransport`, `fake_transport`, and `make_fake_transport` fixtures.
 - Subscriber tests construct `Topics` with `MagicMock(spec=Topic)` for all channels and assert `publish.assert_called_once()` / `assert_not_called()`. See skill: `@write-subscriber-test`.
+- `InfoTask` tests must feed responses with `tests/task_helpers.py:deliver_on_request(task, topics, [...])`, which delivers one response per published request. Pre-loading `task._response_queue` no longer works — `_send_request` drains it, because that ordering cannot happen on real hardware.
 - `transport.py` and `__main__.py` are excluded from coverage (hardware I/O and entry point).
 - Coverage threshold: **90%** (enforced in `pyproject.toml`).

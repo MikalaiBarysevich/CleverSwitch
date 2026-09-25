@@ -578,3 +578,81 @@ def test_close_from_foreign_thread_lets_ble_reader_close_its_handle(mocker, make
     assert not gw.is_alive()
     assert transport.close_count == 1
     assert transport.closed_by == gw.name
+
+
+# ── _do_write: ATT write mode (issue #109) ───────────────────────────────────
+
+
+def _ble_write_gateway():
+    gw, _ = _make_gw()
+    client = MagicMock()
+    client.write_gatt_char = MagicMock()
+    gw._ble_client = client
+    gw._ble_loop = MagicMock()
+    return gw, client
+
+
+def test_do_write_uses_write_with_response():
+    """Write-without-response is silently dropped when macOS has no credit; bleak never checks."""
+    gw, client = _ble_write_gateway()
+
+    with patch("cleverswitch.gateway.hid_gateway_ble.asyncio.run_coroutine_threadsafe") as run_threadsafe:
+        run_threadsafe.return_value.result.return_value = None
+        gw._do_write(MagicMock(), bytes.fromhex("11ff083e00d10000000300000000000000000000"))
+
+    client.write_gatt_char.assert_called_once()
+    assert client.write_gatt_char.call_args.kwargs["response"] is True
+
+
+def test_do_write_strips_the_two_byte_hidpp_prefix():
+    gw, client = _ble_write_gateway()
+    msg = bytes.fromhex("11ff083e00d10000000300000000000000000000")
+
+    with patch("cleverswitch.gateway.hid_gateway_ble.asyncio.run_coroutine_threadsafe") as run_threadsafe:
+        run_threadsafe.return_value.result.return_value = None
+        gw._do_write(MagicMock(), msg)
+
+    assert client.write_gatt_char.call_args[0][1] == msg[2:]
+
+
+def test_do_write_falls_back_to_hid_when_gatt_write_fails():
+    """A characteristic without the write property must not silently lose the message."""
+    gw, _ = _ble_write_gateway()
+    transport = MagicMock()
+
+    with patch(
+        "cleverswitch.gateway.hid_gateway_ble.asyncio.run_coroutine_threadsafe",
+        side_effect=Exception("write not permitted"),
+    ):
+        gw._do_write(transport, b"\x11\xff\x08\x3e")
+
+    transport.write_output_report.assert_called_once_with(b"\x11\xff\x08\x3e")
+
+
+def test_do_write_without_ble_client_logs_and_uses_hid(caplog):
+    """The silent HID fallback hid reconnect races — every write must name its transport."""
+    import logging
+
+    gw, _ = _make_gw()
+    gw._ble_client = None
+    transport = MagicMock()
+
+    with caplog.at_level(logging.DEBUG):
+        gw._do_write(transport, b"\x11\xff\x08\x3e")
+
+    transport.write_output_report.assert_called_once_with(b"\x11\xff\x08\x3e")
+    assert any("BLE client not ready" in r.message for r in caplog.records)
+
+
+def test_do_write_logs_gatt_transport_on_success(caplog):
+    import logging
+
+    gw, client = _ble_write_gateway()
+
+    with caplog.at_level(logging.DEBUG):
+        with patch("cleverswitch.gateway.hid_gateway_ble.asyncio.run_coroutine_threadsafe") as run_threadsafe:
+            run_threadsafe.return_value.result.return_value = None
+            gw._do_write(MagicMock(), b"\x11\xff\x08\x3e")
+
+    assert any("Wrote via GATT" in r.message for r in caplog.records)
+    client.write_gatt_char.assert_called_once()

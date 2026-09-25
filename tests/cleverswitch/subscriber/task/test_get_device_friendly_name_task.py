@@ -12,6 +12,7 @@ from src.cleverswitch.subscriber.task.constants import GET_DEVICE_FRIENDLY_NAME_
 from src.cleverswitch.subscriber.task.get_device_friendly_name_task import GetDeviceFriendlyNameTask
 from src.cleverswitch.topic.topic import Topic
 from src.cleverswitch.topic.topics import Topics
+from tests.task_helpers import deliver_on_request
 
 PID = BOLT_PID
 SLOT = 1
@@ -59,9 +60,9 @@ def test_reads_friendly_name_single_chunk():
     task = GetDeviceFriendlyNameTask(device, topics)
 
     name = b"MX Keys"
-    task._response_queue.put(_response(bytes([len(name), 15, len(name)])))  # nameLen, nameMaxLen, defaultNameLen
-    # fn=1 response: byte 0 echoes byteIndex (0), bytes 1..15 carry the name chunk
-    task._response_queue.put(_response(bytes([0]) + name))
+    # fn=0 gives nameLen, nameMaxLen, defaultNameLen; the fn=1 response echoes byteIndex (0) in
+    # byte 0 and carries the name chunk in bytes 1..15
+    deliver_on_request(task, topics, [_response(bytes([len(name), 15, len(name)])), _response(bytes([0]) + name)])
     task.doTask()
 
     assert device.friendly_name == "MX Keys"
@@ -79,10 +80,16 @@ def test_assembles_friendly_name_from_multiple_chunks():
     first_chunk = full_name[:15]  # "MX Master 3S Ke"
     second_chunk = full_name[15:]  # "ys   "
 
-    task._response_queue.put(_response(bytes([name_len, 30, name_len])))
     # Each fn=1 response: byte 0 = echoed byteIndex, bytes 1..15 = chunk
-    task._response_queue.put(_response(bytes([0]) + first_chunk))
-    task._response_queue.put(_response(bytes([15]) + second_chunk))
+    deliver_on_request(
+        task,
+        topics,
+        [
+            _response(bytes([name_len, 30, name_len])),
+            _response(bytes([0]) + first_chunk),
+            _response(bytes([15]) + second_chunk),
+        ],
+    )
     task.doTask()
 
     assert device.friendly_name == full_name.decode().strip()
@@ -102,8 +109,8 @@ def test_strips_nul_padding_from_friendly_name():
     task = GetDeviceFriendlyNameTask(device, topics)
 
     # firmware reports len 10 but pads the tail with NULs (_response zero-fills after the chunk)
-    task._response_queue.put(_response(bytes([10, 15, 10])))
-    task._response_queue.put(_response(bytes([0]) + b"MX Keys"))  # 7 real chars + 3 NUL pad bytes read
+    # len 10, then a chunk of 7 real chars + 3 NUL pad bytes
+    deliver_on_request(task, topics, [_response(bytes([10, 15, 10])), _response(bytes([0]) + b"MX Keys")])
     task.doTask()
 
     assert device.friendly_name == "MX Keys"
@@ -152,7 +159,13 @@ def test_error_on_get_len_leaves_step_pending():
     topics = _make_topics()
     task = GetDeviceFriendlyNameTask(device, topics)
 
-    task._response_queue.put(HidppErrorEvent(slot=SLOT, pid=PID, sw_id=GET_DEVICE_FRIENDLY_NAME_SW_ID, error_code=5))
+    deliver_on_request(
+        task,
+        topics,
+        [
+            HidppErrorEvent(slot=SLOT, pid=PID, sw_id=GET_DEVICE_FRIENDLY_NAME_SW_ID, error_code=5),
+        ],
+    )
     task.doTask()
 
     assert device.friendly_name is None
@@ -176,7 +189,7 @@ def test_discards_step_when_name_len_is_zero():
     topics = _make_topics()
     task = GetDeviceFriendlyNameTask(device, topics)
 
-    task._response_queue.put(_response(bytes([0, 15, 0])))
+    deliver_on_request(task, topics, [_response(bytes([0, 15, 0]))])
     task.doTask()
 
     assert Task.Name.GET_DEVICE_FRIENDLY_NAME not in device.pending_steps
@@ -188,8 +201,14 @@ def test_chunk_error_leaves_friendly_name_none():
     topics = _make_topics()
     task = GetDeviceFriendlyNameTask(device, topics)
 
-    task._response_queue.put(_response(bytes([7, 15, 7])))
-    task._response_queue.put(HidppErrorEvent(slot=SLOT, pid=PID, sw_id=GET_DEVICE_FRIENDLY_NAME_SW_ID, error_code=5))
+    deliver_on_request(
+        task,
+        topics,
+        [
+            _response(bytes([7, 15, 7])),
+            HidppErrorEvent(slot=SLOT, pid=PID, sw_id=GET_DEVICE_FRIENDLY_NAME_SW_ID, error_code=5),
+        ],
+    )
     task.doTask()
 
     assert device.friendly_name is None
