@@ -39,13 +39,20 @@ pip install pyinstaller || (echo [ERROR] pip install pyinstaller failed. & popd 
 echo [INFO] Sanity-checking imports...
 python -c "import yaml; print('pyyaml ok')" || (echo [ERROR] pyyaml not importable - aborting before a broken build. & popd & exit /b 1)
 
-:: ── Step 2: PyInstaller ───────────────────────────────────────────────
+:: ── Step 2: Version resource ──────────────────────────────────────────
+:: Without it the exe reports 0.0.0.0 in Properties and the crash event log (issue #115).
+:: Generated from the installed package metadata, the same source as --version.
+
+echo [INFO] Generating version resource...
+python scripts\windows\gen_version_info.py build\version_info.txt || (echo [ERROR] Version resource generation failed. & popd & exit /b 1)
+
+:: ── Step 3: PyInstaller ───────────────────────────────────────────────
 :: --hidden-import yaml is a safety net against a missed auto-detect.
 
 echo [INFO] Building binary with PyInstaller...
-pyinstaller --onefile --name %APP_NAME% --paths src --hidden-import yaml --copy-metadata cleverswitch --add-binary "hidapi.dll;." src\cleverswitch\__main__.py || (echo [ERROR] PyInstaller build failed. & popd & exit /b 1)
+pyinstaller --onefile --name %APP_NAME% --paths src --hidden-import yaml --copy-metadata cleverswitch --version-file build\version_info.txt --add-binary "hidapi.dll;." src\cleverswitch\__main__.py || (echo [ERROR] PyInstaller build failed. & popd & exit /b 1)
 
-:: ── Step 3: Smoke-test ────────────────────────────────────────────────
+:: ── Step 4: Smoke-test ────────────────────────────────────────────────
 :: Catch a dropped dependency here instead of on a user's machine.
 
 echo [INFO] Smoke-testing the binary...
@@ -61,7 +68,17 @@ echo !VERSION_LINE! | findstr /c:"hidapi unknown" >nul && (
     exit /b 1
 )
 
-:: ── Step 4: Assemble archive ──────────────────────────────────────────
+:: Confirm the version resource was stamped.
+set "FILE_VERSION="
+for /f "delims=" %%v in ('powershell -NoProfile -Command "(Get-Item 'dist\%EXE_NAME%').VersionInfo.ProductVersion"') do set "FILE_VERSION=%%v"
+echo [INFO] Version resource: !FILE_VERSION!
+if "!FILE_VERSION!"=="" (
+    echo [ERROR] Binary has no version resource - see the version resource step.
+    popd
+    exit /b 1
+)
+
+:: ── Step 5: Assemble archive ──────────────────────────────────────────
 
 echo [INFO] Assembling %ARCHIVE%.zip...
 set "STAGE=dist\%ARCHIVE%"
