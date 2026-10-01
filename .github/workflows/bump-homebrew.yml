@@ -17,6 +17,7 @@ jobs:
           formula-path: Formula/cleverswitch.rb
           homebrew-tap: MikalaiBarysevich/homebrew-cleverswitch
           tag-name: ${{ github.event.release.tag_name }}
+          create-pullrequest: false
           # download-url defaults to
           #   https://github.com/<owner>/<repo>/archive/refs/tags/<tag>.tar.gz
           # which is exactly what the formula uses, so it is left unset.
