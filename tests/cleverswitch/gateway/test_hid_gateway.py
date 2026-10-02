@@ -9,7 +9,12 @@ from unittest.mock import MagicMock
 from cleverswitch.errors.errors import TransportError
 from cleverswitch.event.transport_disconnected_event import TransportDisconnectedEvent
 from cleverswitch.event.write_event import WriteEvent
-from cleverswitch.gateway.hid_gateway import _RECONNECT_BACKOFF_MAX, _RECONNECT_BACKOFF_MIN, HidGateway
+from cleverswitch.gateway.hid_gateway import (
+    _RECONNECT_BACKOFF_MAX,
+    _RECONNECT_BACKOFF_MIN,
+    _RECONNECT_INTERVAL,
+    HidGateway,
+)
 from cleverswitch.gateway.hid_gateway_bt import HidGatewayBT
 from cleverswitch.hidpp.constants import BOLT_PID, REPORT_LONG
 from cleverswitch.hidpp.transport import HidDeviceInfo
@@ -372,9 +377,50 @@ def test_write_uses_snapshot_when_transport_is_nulled_concurrently(mocker):
 # ── Reconnect backoff ───────────────────────────────────────────────────────
 
 
-def test_backoff_grows_while_device_absent(mocker):
+def _present(info):
+    return {
+        info.pid: [
+            HidDeviceInfo(
+                path=info.path,
+                vid=0x046D,
+                pid=info.pid,
+                usage_page=info.usage_page,
+                usage=info.usage,
+                connection_type="receiver",
+            )
+        ]
+    }
+
+
+def test_absent_device_is_polled_at_a_flat_interval(mocker):
+    """A device away on another host must be noticed promptly when it returns (issue #121)."""
     gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
     mocker.patch("cleverswitch.gateway.hid_gateway.enumerate_hid_devices", return_value={})
+    waits: list[float] = []
+    mocker.patch.object(gw._stop, "wait", side_effect=lambda t: waits.append(t))
+
+    for _ in range(20):
+        gw._try_connect()
+
+    assert waits == [_RECONNECT_INTERVAL] * 20
+
+
+def test_absence_resets_open_failure_backoff(mocker):
+    gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
+    gw._backoff = 16.0
+    mocker.patch("cleverswitch.gateway.hid_gateway.enumerate_hid_devices", return_value={})
+    mocker.patch.object(gw._stop, "wait")
+
+    gw._try_connect()
+
+    assert gw._backoff == _RECONNECT_BACKOFF_MIN
+
+
+def test_backoff_grows_while_device_fails_to_open(mocker):
+    info = _device_info()
+    gw = HidGateway(info, MagicMock(spec=EventListener))
+    mocker.patch("cleverswitch.gateway.hid_gateway.enumerate_hid_devices", return_value=_present(info))
+    mocker.patch("cleverswitch.gateway.hid_gateway.HIDTransport", side_effect=OSError("open failed"))
     waits: list[float] = []
     mocker.patch.object(gw._stop, "wait", side_effect=lambda t: waits.append(t))
 
@@ -384,9 +430,11 @@ def test_backoff_grows_while_device_absent(mocker):
     assert waits == [1.0, 2.0, 4.0]
 
 
-def test_backoff_is_capped(mocker):
-    gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
-    mocker.patch("cleverswitch.gateway.hid_gateway.enumerate_hid_devices", return_value={})
+def test_open_failure_backoff_is_capped(mocker):
+    info = _device_info()
+    gw = HidGateway(info, MagicMock(spec=EventListener))
+    mocker.patch("cleverswitch.gateway.hid_gateway.enumerate_hid_devices", return_value=_present(info))
+    mocker.patch("cleverswitch.gateway.hid_gateway.HIDTransport", side_effect=OSError("open failed"))
     waits: list[float] = []
     mocker.patch.object(gw._stop, "wait", side_effect=lambda t: waits.append(t))
 
