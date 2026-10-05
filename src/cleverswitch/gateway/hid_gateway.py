@@ -20,8 +20,14 @@ _IS_WINDOWS = platform.system() == "Windows"
 # thread for this window. Aligned with RESPONSE_TIMEOUT in subscriber/task/info_task.py.
 _FIRST_CONNECT_GRACE = 2.0
 
-# Reconnect backoff. A device parked on another host used to make every disconnected gateway
-# re-enumerate once per second forever (issue #108 logged ~894 sweeps over 94 minutes).
+# How often a disconnected gateway checks whether its device is back. A device leaving for another
+# host is the normal case for this tool, so absence must not slow detection down: a backoff that
+# grew while the device was away left a returning keyboard unnoticed for many seconds (issue #121).
+# Enumerating once a second is safe now that hidapi calls are serialised by the transport lock.
+_RECONNECT_INTERVAL = 1.0
+
+# Backoff for a device that is present but cannot be opened (e.g. a missing Input Monitoring grant),
+# so a persistent failure doesn't retry and log once a second forever.
 _RECONNECT_BACKOFF_MIN = 1.0
 _RECONNECT_BACKOFF_MAX = 30.0
 
@@ -87,7 +93,8 @@ class HidGateway(Thread, Subscriber):
     def _try_connect(self):
         this_device_collection = enumerate_hid_devices(product_id=self._device_info.pid)
         if len(this_device_collection) == 0:
-            self._backoff_wait()
+            self._backoff = _RECONNECT_BACKOFF_MIN
+            self._stop.wait(_RECONNECT_INTERVAL)
             return
 
         for device in this_device_collection[self._device_info.pid]:
