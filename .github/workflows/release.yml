@@ -1,0 +1,149 @@
+name: Release
+
+# Manually triggered by the repo owner: builds the Linux, macOS and Windows archives from a chosen
+# vX.Y.Z tag and attaches them to a new draft release titled X.Y.Z. Publishing the draft is done
+# by hand and fires the `released` event that bump-homebrew.yml and bump-aur.yml listen for.
+# Linux builds on ubuntu-22.04 so the bundled Python runtime needs glibc <= 2.35 (issue #124).
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release (e.g. v1.5.8)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ inputs.tag }}
+
+jobs:
+  validate:
+    name: Validate tag
+    if: github.triggering_actor == github.repository_owner
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check tag format, existence and release absence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::'$TAG' is not a vX.Y.Z tag."; exit 1; }
+          git ls-remote --exit-code --tags "https://github.com/$REPO.git" "refs/tags/$TAG" >/dev/null \
+            || { echo "::error::Tag $TAG does not exist."; exit 1; }
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "::error::A release for $TAG already exists."
+            exit 1
+          fi
+
+  build:
+    name: Build (${{ matrix.name }})
+    needs: validate
+    if: github.triggering_actor == github.repository_owner
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-22.04
+            archive: cleverswitch_linux.tar.gz
+            binary: cleverswitch
+          - name: macos
+            os: macos-14
+            archive: cleverswitch_macOS.tar.gz
+            binary: cleverswitch
+          - name: windows
+            os: windows-latest
+            archive: cleverswitch_windows_x64.zip
+            binary: cleverswitch.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      # Full history so setuptools-scm resolves the version from the tag.
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      # No hidapi package on purpose: build.sh then builds the pinned 0.15.0 from source.
+      - name: Install Linux build tools
+        if: matrix.name == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake libudev-dev
+
+      - name: Build (Linux)
+        if: matrix.name == 'linux'
+        run: bash scripts/linux/build.sh
+
+      - name: Build (macOS)
+        if: matrix.name == 'macos'
+        run: bash scripts/mac/build.sh
+
+      - name: Build (Windows)
+        if: matrix.name == 'windows'
+        shell: cmd
+        run: scripts\windows\build.bat
+
+      - name: Check glibc requirement
+        if: matrix.name == 'linux'
+        run: |
+          set -euo pipefail
+          max_glibc="2.35"
+          read -r libdir stdlib purelib <<< "$(python -c "import sysconfig as s; print(s.get_config_var('LIBDIR'), s.get_path('platstdlib'), s.get_path('platlib'))")"
+          required=$(
+            { ls "$libdir"/libpython3*.so* "$stdlib"/lib-dynload/*.so build/hidapi/install/lib/libhidapi-hidraw.so.0
+              find "$purelib" -name '*.so*' -type f; } 2>/dev/null \
+            | xargs -r objdump -T 2>/dev/null | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -n1
+          ) || true
+          echo "Highest glibc required by bundled libraries: $required (limit $max_glibc)"
+          [ -n "$required" ] || { echo "::error::Could not determine the glibc requirement."; exit 1; }
+          if [ "$(printf '%s\n%s\n' "$required" "$max_glibc" | sort -V | tail -n1)" != "$max_glibc" ]; then
+            echo "::error::Bundled libraries require glibc $required, above $max_glibc."
+            exit 1
+          fi
+
+      - name: Check binary version
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$("dist/${{ matrix.binary }}" --version)"
+          echo "$output"
+          grep -q " ${TAG#v} " <<< "$output" || { echo "::error::Binary does not report version ${TAG#v}."; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/${{ matrix.archive }}
+          if-no-files-found: error
+
+  release:
+    name: Create draft release
+    needs: build
+    if: github.triggering_actor == github.repository_owner
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" --repo "$REPO" --draft --verify-tag --title "${TAG#v}" --notes "" \
+            assets/cleverswitch_linux.tar.gz \
+            assets/cleverswitch_macOS.tar.gz \
+            assets/cleverswitch_windows_x64.zip
