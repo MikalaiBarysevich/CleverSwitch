@@ -14,17 +14,38 @@ pushd "%SCRIPT_DIR%..\.." || (echo [ERROR] Could not locate project root. & exit
 set "ROOT_DIR=%CD%"
 
 :: ── Preflight ─────────────────────────────────────────────────────────
-:: hidapi.dll must sit at the project root; the ";." packs it beside the exe.
+:: A hidapi.dll at the project root is used as-is; otherwise the pinned release below is
+:: downloaded, checksum-verified, and its x64 DLL used. The ";." packs it beside the exe.
 :: Use 0.15.0 or newer: hid_send_output_report (the Bluetooth write path) needs 0.15, and
 :: 0.14 made hidapi's error strings thread-local. The exact version shipped is recorded by the
 :: smoke test below -- issue #108 cost a round trip because the bundled DLL was not identified.
 
-if not exist "!ROOT_DIR!\hidapi.dll" (
-    echo [ERROR] hidapi.dll not found at "!ROOT_DIR!".
-    echo Download 0.15.0 or newer from https://github.com/libusb/hidapi/releases and place it at the project root.
+set "HIDAPI_VERSION=0.15.0"
+set "HIDAPI_SHA256=d18c43ec9506a2f6d7faa9c7e0a342c4b64fbae521b71b5d4ac0777fd24dda93"
+set "HIDAPI_URL=https://github.com/libusb/hidapi/releases/download/hidapi-!HIDAPI_VERSION!/hidapi-win.zip"
+set "HIDAPI_DIR=!ROOT_DIR!\build\hidapi"
+set "HIDAPI_DLL=!ROOT_DIR!\hidapi.dll"
+
+if not exist "!HIDAPI_DLL!" (
+    echo [INFO] hidapi.dll not found at "!ROOT_DIR!" - downloading hidapi !HIDAPI_VERSION!...
+    if not exist "!HIDAPI_DIR!" mkdir "!HIDAPI_DIR!"
+    curl -fsSL -o "!HIDAPI_DIR!\hidapi-win.zip" "!HIDAPI_URL!" || (echo [ERROR] Download failed: !HIDAPI_URL! & popd & exit /b 1)
+    set "ACTUAL_SHA256="
+    for /f "delims=" %%h in ('powershell -NoProfile -Command "(Get-FileHash '!HIDAPI_DIR!\hidapi-win.zip' -Algorithm SHA256).Hash.ToLower()"') do set "ACTUAL_SHA256=%%h"
+    if /i not "!ACTUAL_SHA256!"=="!HIDAPI_SHA256!" (
+        echo [ERROR] hidapi checksum mismatch: expected !HIDAPI_SHA256!, got !ACTUAL_SHA256!
+        popd
+        exit /b 1
+    )
+    powershell -NoProfile -Command "Expand-Archive -Path '!HIDAPI_DIR!\hidapi-win.zip' -DestinationPath '!HIDAPI_DIR!' -Force" || (echo [ERROR] Extracting hidapi-win.zip failed. & popd & exit /b 1)
+    set "HIDAPI_DLL=!HIDAPI_DIR!\x64\hidapi.dll"
+)
+if not exist "!HIDAPI_DLL!" (
+    echo [ERROR] hidapi.dll not found at "!HIDAPI_DLL!".
     popd
     exit /b 1
 )
+echo [INFO] Bundling !HIDAPI_DLL!
 
 :: ── Step 1: Runtime dependencies ──────────────────────────────────────
 :: PyInstaller only bundles what is importable at build time — it does NOT
@@ -50,7 +71,7 @@ python scripts\windows\gen_version_info.py build\version_info.txt || (echo [ERRO
 :: --hidden-import yaml is a safety net against a missed auto-detect.
 
 echo [INFO] Building binary with PyInstaller...
-pyinstaller --onefile --name %APP_NAME% --paths src --hidden-import yaml --copy-metadata cleverswitch --version-file build\version_info.txt --add-binary "hidapi.dll;." src\cleverswitch\__main__.py || (echo [ERROR] PyInstaller build failed. & popd & exit /b 1)
+pyinstaller --onefile --name %APP_NAME% --paths src --hidden-import yaml --copy-metadata cleverswitch --version-file build\version_info.txt --add-binary "!HIDAPI_DLL!;." src\cleverswitch\__main__.py || (echo [ERROR] PyInstaller build failed. & popd & exit /b 1)
 
 :: ── Step 4: Smoke-test ────────────────────────────────────────────────
 :: Catch a dropped dependency here instead of on a user's machine.
@@ -63,7 +84,7 @@ for /f "delims=" %%v in ('"dist\%EXE_NAME%" --version') do set "VERSION_LINE=%%v
 echo [INFO] Built: !VERSION_LINE!
 echo !VERSION_LINE! | findstr /c:"hidapi unknown" >nul && (
     echo [ERROR] Bundled hidapi.dll did not report a version - it is older than 0.14 or failed to load.
-    echo Replace "!ROOT_DIR!\hidapi.dll" with 0.15.0 or newer.
+    echo Replace "!HIDAPI_DLL!" with 0.15.0 or newer.
     popd
     exit /b 1
 )

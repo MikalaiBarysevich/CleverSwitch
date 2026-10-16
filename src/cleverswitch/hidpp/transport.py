@@ -62,6 +62,13 @@ if _SYSTEM == "Windows":
     if _meipass and os.path.isdir(_meipass):
         os.add_dll_directory(_meipass)
 
+# The macOS and Linux release binaries bundle libhidapi into _MEIPASS (see scripts/*/build.sh).
+# ctypes.CDLL does not search there, so try the bundled copy before any system install.
+_BUNDLED_LIB = {"Darwin": "libhidapi.dylib", "Linux": "libhidapi-hidraw.so.0"}.get(_SYSTEM)
+_meipass = getattr(sys, "_MEIPASS", None)
+if _BUNDLED_LIB and _meipass:
+    _LIB_NAMES.insert(0, os.path.join(_meipass, _BUNDLED_LIB))
+
 _lib: ctypes.CDLL | None = None
 for _name in _LIB_NAMES:
     try:

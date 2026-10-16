@@ -34,11 +34,23 @@ info "Sanity-checking imports..."
 python -c "import yaml; print('pyyaml ok')" || error "pyyaml not importable — aborting before a broken build."
 
 # ── Step 2: PyInstaller ──────────────────────────────────────────────
-# PyInstaller follows dylib dependencies via otool -L automatically — no
-# --add-binary needed. --hidden-import yaml is a safety net.
+# libhidapi is loaded at runtime via ctypes.CDLL, which PyInstaller cannot
+# detect — it must be bundled explicitly or the binary only works on machines
+# that already have `brew install hidapi`. transport.py looks for it in _MEIPASS.
+# --hidden-import yaml is a safety net.
+
+HIDAPI_DYLIB="$(brew --prefix hidapi 2>/dev/null || true)/lib/libhidapi.dylib"
+if [ ! -f "$HIDAPI_DYLIB" ]; then
+    info "Homebrew hidapi not found — building it from source."
+    "$ROOT_DIR/scripts/build_hidapi.sh"
+    HIDAPI_DYLIB="$ROOT_DIR/build/hidapi/install/lib/libhidapi.dylib"
+    [ -f "$HIDAPI_DYLIB" ] || error "hidapi source build did not produce $HIDAPI_DYLIB."
+fi
+info "Bundling $HIDAPI_DYLIB"
 
 info "Building binary with PyInstaller..."
 pyinstaller --onefile --name "$APP_NAME" --paths src --hidden-import yaml --copy-metadata cleverswitch \
+    --add-binary "$HIDAPI_DYLIB:." \
     src/cleverswitch/__main__.py
 
 # ── Step 3: Smoke-test ───────────────────────────────────────────────
@@ -46,6 +58,9 @@ pyinstaller --onefile --name "$APP_NAME" --paths src --hidden-import yaml --copy
 
 info "Smoke-testing the binary..."
 "dist/$APP_NAME" --version || error "Binary failed to start — a build dependency was likely dropped (see step 1)."
+# --version succeeds here even without the bundle (Homebrew hidapi is on this machine), so check the archive.
+pyi-archive_viewer --list "dist/$APP_NAME" | grep -q "libhidapi.dylib" \
+    || error "libhidapi.dylib is missing from the binary — it would fail on Macs without Homebrew hidapi."
 
 # ── Step 4: Assemble archive ─────────────────────────────────────────
 # .tar.gz preserves the executable bit; zip does not reliably.

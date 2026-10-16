@@ -33,11 +33,24 @@ info "Sanity-checking imports..."
 python -c "import yaml; print('pyyaml ok')" || error "pyyaml not importable — aborting before a broken build."
 
 # ── Step 2: PyInstaller ──────────────────────────────────────────────
-# libhidapi is a system library on Linux; no bundling needed.
+# libhidapi is loaded at runtime via ctypes.CDLL, which PyInstaller cannot
+# detect — it must be bundled explicitly or the binary only works on distros
+# that already have libhidapi-hidraw installed. transport.py looks for it in _MEIPASS.
+# Its only deps are libudev and libc; build on the oldest distro you support.
 # --hidden-import yaml is a safety net against a missed auto-detect.
+
+HIDAPI_SO="$(ldconfig -p | awk '/libhidapi-hidraw\.so\.0 / && !found {print $NF; found = 1}')"
+if [ -z "$HIDAPI_SO" ] || [ ! -f "$HIDAPI_SO" ]; then
+    info "libhidapi-hidraw.so.0 not found on this system — building it from source."
+    "$ROOT_DIR/scripts/build_hidapi.sh"
+    HIDAPI_SO="$ROOT_DIR/build/hidapi/install/lib/libhidapi-hidraw.so.0"
+    [ -f "$HIDAPI_SO" ] || error "hidapi source build did not produce $HIDAPI_SO."
+fi
+info "Bundling $HIDAPI_SO"
 
 info "Building binary with PyInstaller..."
 pyinstaller --onefile --name "$APP_NAME" --paths src --hidden-import yaml --copy-metadata cleverswitch \
+    --add-binary "$HIDAPI_SO:." \
     src/cleverswitch/__main__.py
 
 # ── Step 3: Smoke-test ───────────────────────────────────────────────
@@ -45,6 +58,9 @@ pyinstaller --onefile --name "$APP_NAME" --paths src --hidden-import yaml --copy
 
 info "Smoke-testing the binary..."
 "dist/$APP_NAME" --version || error "Binary failed to start — a build dependency was likely dropped (see step 1)."
+# --version succeeds here even without the bundle (system hidapi is on this machine), so check the archive.
+pyi-archive_viewer --list "dist/$APP_NAME" | grep -q "libhidapi-hidraw.so.0" \
+    || error "libhidapi-hidraw.so.0 is missing from the binary — it would fail on distros without it."
 
 # ── Step 4: Assemble archive ─────────────────────────────────────────
 # .tar.gz preserves the executable bit; zip does not reliably.
