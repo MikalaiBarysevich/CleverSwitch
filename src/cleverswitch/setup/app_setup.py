@@ -52,10 +52,18 @@ def _load_config(args: argparse.Namespace) -> Config:
 def _setup_shutdown() -> threading.Event:
     # Graceful shutdown on Ctrl-C / SIGTERM, plus SIGHUP/SIGQUIT where the platform provides them
     shutdown = threading.Event()
+
+    # A PyInstaller onefile build gets each signal twice (directly via the process group, and
+    # forwarded by the bootloader). Event.set() holds a non-reentrant lock, so a second handler
+    # running inside the first one's set() would deadlock the main thread.
+    def _on_signal(*_) -> None:
+        if not shutdown.is_set():
+            shutdown.set()
+
     for sig_name in ("SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"):
         sig = getattr(signal, sig_name, None)
         if sig is not None:
-            signal.signal(sig, lambda *_: shutdown.set())
+            signal.signal(sig, _on_signal)
     return shutdown
 
 

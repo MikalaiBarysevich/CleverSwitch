@@ -56,3 +56,31 @@ def test_setup_context_initializes_subscribers(mocker):
 
     setup_context(_cli_args())
     mock_init.assert_called_once()
+
+
+def test_shutdown_signal_handler_sets_event(mocker):
+    mock_signal = mocker.patch("cleverswitch.setup.app_setup.signal.signal")
+
+    from cleverswitch.setup.app_setup import _setup_shutdown
+
+    shutdown = _setup_shutdown()
+    handler = mock_signal.call_args.args[1]
+
+    handler(15, None)
+
+    assert shutdown.is_set()
+
+
+def test_shutdown_signal_handler_skips_set_when_already_shutting_down(mocker):
+    mock_signal = mocker.patch("cleverswitch.setup.app_setup.signal.signal")
+
+    from cleverswitch.setup.app_setup import _setup_shutdown
+
+    shutdown = _setup_shutdown()
+    handler = mock_signal.call_args.args[1]
+    shutdown.set()
+    spy = mocker.spy(shutdown, "set")
+
+    handler(15, None)
+
+    spy.assert_not_called()
