@@ -1,6 +1,7 @@
 import logging
 import threading
 import time
+from collections.abc import Callable
 from threading import Thread
 
 from ..errors.errors import TransportError
@@ -31,9 +32,20 @@ _CLOSE_JOIN_TIMEOUT = 2.0
 
 
 class HidGateway(Thread):
-    def __init__(self, device_info: HidDeviceInfo, event_listener: EventListener) -> None:
+    """Reader thread for one HID collection. It reports every connection change through
+    `on_state_changed`; the owning DeviceLink decides what that means for the device."""
+
+    def __init__(
+        self,
+        device_info: HidDeviceInfo,
+        event_listener: EventListener,
+        on_state_changed: Callable[[], None],
+        use_output_report: bool = False,
+    ) -> None:
         super().__init__(daemon=True)
         self._device_info = device_info
+        self._on_state_changed = on_state_changed
+        self._use_output_report = use_output_report
         self._connected_signal = threading.Event()
         self._ever_connected: bool = False
         self._grace_deadline = time.monotonic() + _FIRST_CONNECT_GRACE
@@ -48,6 +60,10 @@ class HidGateway(Thread):
     @property
     def device_info(self) -> HidDeviceInfo:
         return self._device_info
+
+    @property
+    def connected(self) -> bool:
+        return self._connected_signal.is_set()
 
     @property
     def _connected(self) -> bool:
@@ -129,6 +145,7 @@ class HidGateway(Thread):
         self._connected = state
         if not self._ever_connected:
             self._ever_connected = state
+        self._on_state_changed()
 
     # Runs on the owning DeviceLink's write-topic drain thread.
     def submit(self, msg: bytes) -> None:
@@ -149,13 +166,13 @@ class HidGateway(Thread):
             return
         log.debug(f"Writing to pid=0x{self._device_info.pid:04X}: {msg.hex()}")
         try:
-            self._do_write(transport, msg)
+            if self._use_output_report:
+                transport.write_output_report(msg)
+            else:
+                transport.write(msg)
         except TransportError:
             log.debug(f"Write failed for pid=0x{self._device_info.pid:04X}, requesting reconnect")
             self._reopen_requested.set()
-
-    def _do_write(self, transport: HIDTransport, msg: bytes) -> None:
-        transport.write(msg)
 
     def close(self):
         self._stop.set()

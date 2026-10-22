@@ -1,4 +1,4 @@
-"""Unit tests for gateway/hid_gateway.py and gateway/hid_gateway_bt.py."""
+"""Unit tests for gateway/hid_gateway.py."""
 
 from __future__ import annotations
 
@@ -7,15 +7,12 @@ import time
 from unittest.mock import MagicMock
 
 from cleverswitch.errors.errors import TransportError
-from cleverswitch.event.transport_connected_event import TransportConnectedEvent
-from cleverswitch.event.transport_disconnected_event import TransportDisconnectedEvent
 from cleverswitch.gateway.hid_gateway import (
     _RECONNECT_BACKOFF_MAX,
     _RECONNECT_BACKOFF_MIN,
     _RECONNECT_INTERVAL,
     HidGateway,
 )
-from cleverswitch.gateway.hid_gateway_bt import HidGatewayBT
 from cleverswitch.hidpp.constants import BOLT_PID, REPORT_LONG
 from cleverswitch.hidpp.transport import HidDeviceInfo
 from cleverswitch.listener.event_listener import EventListener
@@ -38,7 +35,7 @@ def _bt_device_info(pid=0xB023):
 
 def test_submit_drops_write_when_disconnected_and_was_previously_connected():
     event_listener = MagicMock(spec=EventListener)
-    gw = HidGateway(_device_info(), event_listener)
+    gw = HidGateway(_device_info(), event_listener, MagicMock())
     gw._connected = False
     gw._ever_connected = True
     mock_transport = MagicMock()
@@ -51,7 +48,7 @@ def test_submit_drops_write_when_disconnected_and_was_previously_connected():
 
 def test_submit_writes_when_connected():
     event_listener = MagicMock(spec=EventListener)
-    gw = HidGateway(_device_info(), event_listener)
+    gw = HidGateway(_device_info(), event_listener, MagicMock())
     gw._connected = True
     gw._ever_connected = True
     mock_transport = MagicMock()
@@ -71,7 +68,7 @@ def test_submit_drops_write_when_never_connected_and_grace_expired():
     without bound. The wait is now capped by a one-shot grace window measured from construction.
     """
     event_listener = MagicMock(spec=EventListener)
-    gw = HidGateway(_device_info(), event_listener)
+    gw = HidGateway(_device_info(), event_listener, MagicMock())
     gw._connected = False
     gw._ever_connected = False
     gw._grace_deadline = time.monotonic() - 1.0
@@ -89,7 +86,7 @@ def test_submit_drops_write_when_never_connected_and_grace_expired():
 
 def test_submit_within_grace_writes_once_gateway_connects():
     event_listener = MagicMock(spec=EventListener)
-    gw = HidGateway(_device_info(), event_listener)
+    gw = HidGateway(_device_info(), event_listener, MagicMock())
     gw._connected = False
     gw._ever_connected = False
     gw._grace_deadline = time.monotonic() + 5.0
@@ -109,7 +106,7 @@ def test_submit_within_grace_writes_once_gateway_connects():
 
 def test_device_info_is_exposed():
     info = _device_info()
-    assert HidGateway(info, MagicMock(spec=EventListener)).device_info is info
+    assert HidGateway(info, MagicMock(spec=EventListener), MagicMock()).device_info is info
 
 
 # ── HidGateway.close ─────────────────────────────────────────────────────────
@@ -117,7 +114,7 @@ def test_device_info_is_exposed():
 
 def test_close_closes_transport():
     event_listener = MagicMock(spec=EventListener)
-    gw = HidGateway(_device_info(), event_listener)
+    gw = HidGateway(_device_info(), event_listener, MagicMock())
     mock_transport = MagicMock()
     gw._transport = mock_transport
 
@@ -128,7 +125,7 @@ def test_close_closes_transport():
 
 def test_close_noop_when_no_transport():
     event_listener = MagicMock(spec=EventListener)
-    gw = HidGateway(_device_info(), event_listener)
+    gw = HidGateway(_device_info(), event_listener, MagicMock())
     gw._transport = None
     gw.close()  # must not raise
 
@@ -136,7 +133,7 @@ def test_close_noop_when_no_transport():
 def test_close_sets_stop_even_without_transport():
     """A gateway that never connected still has a running run() loop that must be told to exit."""
     event_listener = MagicMock(spec=EventListener)
-    gw = HidGateway(_device_info(), event_listener)
+    gw = HidGateway(_device_info(), event_listener, MagicMock())
     gw._transport = None
 
     gw.close()
@@ -153,7 +150,7 @@ def _stopping_gateway() -> HidGateway:
     Mirrors the shutdown sequence: the thread is blocked in read() when close() sets _stop and
     closes the transport, so the in-flight read raises with _stop already set.
     """
-    gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
+    gw = HidGateway(_device_info(), MagicMock(spec=EventListener), MagicMock())
     gw._transport = MagicMock()
 
     def read_after_close():
@@ -187,44 +184,53 @@ def test_run_stopped_transport_error_does_not_mark_disconnected(mocker):
     set_connected.assert_not_called()
 
 
-# ── HidGatewayBT._do_write ──────────────────────────────────────────────────
+# ── Write mode ──────────────────────────────────────────────────────────────
 
 
-def test_bt_gateway_uses_write_output_report():
-    event_listener = MagicMock(spec=EventListener)
-    gw = HidGatewayBT(_bt_device_info(), event_listener)
-    mock_transport = MagicMock()
-    gw._transport = mock_transport
-    gw._connected = True
+def test_default_write_uses_write():
+    transport = MagicMock()
+    gw = _connected_gateway(HidGateway(_device_info(), MagicMock(spec=EventListener), MagicMock()), transport)
 
     msg = bytes([REPORT_LONG]) + bytes(19)
-    gw._do_write(mock_transport, msg)
+    gw._write(msg)
 
-    mock_transport.write_output_report.assert_called_once_with(msg)
-
-
-# ── HidGatewayBT._set_connected ─────────────────────────────────────────────
+    transport.write.assert_called_once_with(msg)
+    transport.write_output_report.assert_not_called()
 
 
-def test_bt_gateway_set_connected_emits_transport_connected():
-    event_listener = MagicMock(spec=EventListener)
-    gw = HidGatewayBT(_bt_device_info(pid=0xB023), event_listener)
+def test_output_report_mode_uses_write_output_report():
+    transport = MagicMock()
+    gw = HidGateway(_bt_device_info(), MagicMock(spec=EventListener), MagicMock(), use_output_report=True)
+    _connected_gateway(gw, transport)
+
+    msg = bytes([REPORT_LONG]) + bytes(19)
+    gw._write(msg)
+
+    transport.write_output_report.assert_called_once_with(msg)
+    transport.write.assert_not_called()
+
+
+# ── State reporting ─────────────────────────────────────────────────────────
+
+
+def test_set_connected_reports_change_after_updating_state():
+    seen = []
+    gw = HidGateway(_device_info(), MagicMock(spec=EventListener), lambda: seen.append(gw.connected))
 
     gw._set_connected(True)
-
-    event_listener.emit.assert_called_once_with(
-        TransportConnectedEvent(slot=0, pid=0xB023, connection_type="bluetooth")
-    )
-    event_listener.listen.assert_not_called()
-
-
-def test_bt_gateway_set_connected_false_emits_transport_disconnected():
-    event_listener = MagicMock(spec=EventListener)
-    gw = HidGatewayBT(_bt_device_info(pid=0xB023), event_listener)
-
     gw._set_connected(False)
 
-    event_listener.emit.assert_called_once_with(TransportDisconnectedEvent(slot=0, pid=0xB023))
+    assert seen == [True, False]
+
+
+def test_set_connected_never_emits_events_itself():
+    event_listener = MagicMock(spec=EventListener)
+    gw = HidGateway(_device_info(), event_listener, MagicMock())
+
+    gw._set_connected(True)
+    gw._set_connected(False)
+
+    event_listener.emit.assert_not_called()
     event_listener.listen.assert_not_called()
 
 
@@ -237,7 +243,7 @@ def test_close_from_foreign_thread_lets_reader_close_its_own_handle(make_fake_tr
     close() must therefore stop-and-join rather than close the handle itself.
     """
     transport = make_fake_transport()
-    gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
+    gw = HidGateway(_device_info(), MagicMock(spec=EventListener), MagicMock())
     gw._transport = transport
     gw._set_connected(True)
     gw.start()
@@ -252,7 +258,7 @@ def test_close_from_foreign_thread_lets_reader_close_its_own_handle(make_fake_tr
 
 def test_close_on_own_thread_does_not_deadlock(make_fake_transport, mocker):
     transport = make_fake_transport()
-    gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
+    gw = HidGateway(_device_info(), MagicMock(spec=EventListener), MagicMock())
     gw._transport = transport
     mocker.patch.object(gw, "_try_connect", side_effect=lambda: gw.close())
 
@@ -265,7 +271,7 @@ def test_close_on_own_thread_does_not_deadlock(make_fake_transport, mocker):
 
 def test_close_still_closes_transport_when_thread_never_started(make_fake_transport):
     transport = make_fake_transport()
-    gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
+    gw = HidGateway(_device_info(), MagicMock(spec=EventListener), MagicMock())
     gw._transport = transport
 
     gw.close()
@@ -279,7 +285,7 @@ def test_close_still_closes_transport_when_thread_never_started(make_fake_transp
 def test_run_continues_after_none_read():
     """read() now polls, so None is the idle path — it must not reach hid_event.hex()."""
     event_listener = MagicMock(spec=EventListener)
-    gw = HidGateway(_device_info(), event_listener)
+    gw = HidGateway(_device_info(), event_listener, MagicMock())
     gw._transport = MagicMock()
     event = bytes([REPORT_LONG]) + bytes(19)
 
@@ -301,7 +307,7 @@ def test_run_continues_after_none_read():
 
 def test_try_connect_with_no_transport_and_changed_path_does_not_raise(mocker):
     info = _device_info()
-    gw = HidGateway(info, MagicMock(spec=EventListener))
+    gw = HidGateway(info, MagicMock(spec=EventListener), MagicMock())
     gw._transport = None
     moved = HidDeviceInfo(
         path=b"/dev/hidraw9",
@@ -321,22 +327,21 @@ def test_try_connect_with_no_transport_and_changed_path_does_not_raise(mocker):
     assert gw._connected
 
 
-def test_write_uses_snapshot_when_transport_is_nulled_concurrently(mocker):
+def test_write_uses_snapshot_when_transport_is_nulled_concurrently():
     """_write must not re-read self._transport after its own None check."""
-    gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
+    gw = HidGateway(_device_info(), MagicMock(spec=EventListener), MagicMock())
     transport = MagicMock()
     gw._transport = transport
     gw._connected = True
 
-    def null_it(_transport, _msg):
+    def null_it(_msg):
         gw._transport = None
 
-    mocker.patch.object(gw, "_do_write", side_effect=null_it)
+    transport.write.side_effect = null_it
 
     gw._write(bytes([REPORT_LONG]) + bytes(19))  # must not raise AttributeError
 
-    gw._do_write.assert_called_once()
-    assert gw._do_write.call_args[0][0] is transport
+    transport.write.assert_called_once()
 
 
 # ── Write failure is handed to the reader thread ────────────────────────────
@@ -350,7 +355,7 @@ def _connected_gateway(gw, transport):
 
 
 def test_write_failure_leaves_state_to_the_reader(fake_transport):
-    gw = _connected_gateway(HidGateway(_device_info(), MagicMock(spec=EventListener)), fake_transport)
+    gw = _connected_gateway(HidGateway(_device_info(), MagicMock(spec=EventListener), MagicMock()), fake_transport)
     fake_transport.fail_next = TransportError("write failed")
 
     gw._write(bytes([REPORT_LONG]) + bytes(19))
@@ -360,7 +365,7 @@ def test_write_failure_leaves_state_to_the_reader(fake_transport):
 
 
 def test_writes_dropped_while_reconnect_is_pending(fake_transport):
-    gw = _connected_gateway(HidGateway(_device_info(), MagicMock(spec=EventListener)), fake_transport)
+    gw = _connected_gateway(HidGateway(_device_info(), MagicMock(spec=EventListener), MagicMock()), fake_transport)
     gw._reopen_requested.set()
 
     gw.submit(bytes([REPORT_LONG]) + bytes(19))
@@ -377,7 +382,7 @@ def _run_one_iteration(gw, mocker):
 
 
 def test_reader_marks_disconnected_after_write_failure(fake_transport, mocker):
-    gw = _connected_gateway(HidGateway(_device_info(), MagicMock(spec=EventListener)), fake_transport)
+    gw = _connected_gateway(HidGateway(_device_info(), MagicMock(spec=EventListener), MagicMock()), fake_transport)
     gw._reopen_requested.set()
     set_connected = _run_one_iteration(gw, mocker)
 
@@ -388,21 +393,22 @@ def test_reader_marks_disconnected_after_write_failure(fake_transport, mocker):
     assert not gw._reopen_requested.is_set()
 
 
-def test_bt_write_failure_emits_disconnect_from_reader(fake_transport, mocker):
-    event_listener = MagicMock(spec=EventListener)
-    gw = _connected_gateway(HidGatewayBT(_bt_device_info(), event_listener), fake_transport)
+def test_write_failure_reports_disconnect_from_reader(fake_transport, mocker):
+    on_state_changed = MagicMock()
+    gw = _connected_gateway(HidGateway(_device_info(), MagicMock(spec=EventListener), on_state_changed), fake_transport)
     fake_transport.fail_next = TransportError("write failed")
     gw._write(bytes([REPORT_LONG]) + bytes(19))
-    event_listener.emit.assert_not_called()
+    on_state_changed.assert_not_called()
 
     _run_one_iteration(gw, mocker)
     gw.run()
 
-    event_listener.emit.assert_called_once_with(TransportDisconnectedEvent(slot=0, pid=0xB023))
+    on_state_changed.assert_called_once_with()
+    assert not gw.connected
 
 
 def test_reconnect_clears_pending_reopen():
-    gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
+    gw = HidGateway(_device_info(), MagicMock(spec=EventListener), MagicMock())
     gw._reopen_requested.set()
 
     gw._set_connected(True)
@@ -430,7 +436,7 @@ def _present(info):
 
 def test_absent_device_is_polled_at_a_flat_interval(mocker):
     """A device away on another host must be noticed promptly when it returns (issue #121)."""
-    gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
+    gw = HidGateway(_device_info(), MagicMock(spec=EventListener), MagicMock())
     mocker.patch("cleverswitch.gateway.hid_gateway.enumerate_hid_devices", return_value={})
     waits: list[float] = []
     mocker.patch.object(gw._stop, "wait", side_effect=lambda t: waits.append(t))
@@ -442,7 +448,7 @@ def test_absent_device_is_polled_at_a_flat_interval(mocker):
 
 
 def test_absence_resets_open_failure_backoff(mocker):
-    gw = HidGateway(_device_info(), MagicMock(spec=EventListener))
+    gw = HidGateway(_device_info(), MagicMock(spec=EventListener), MagicMock())
     gw._backoff = 16.0
     mocker.patch("cleverswitch.gateway.hid_gateway.enumerate_hid_devices", return_value={})
     mocker.patch.object(gw._stop, "wait")
@@ -454,7 +460,7 @@ def test_absence_resets_open_failure_backoff(mocker):
 
 def test_backoff_grows_while_device_fails_to_open(mocker):
     info = _device_info()
-    gw = HidGateway(info, MagicMock(spec=EventListener))
+    gw = HidGateway(info, MagicMock(spec=EventListener), MagicMock())
     mocker.patch("cleverswitch.gateway.hid_gateway.enumerate_hid_devices", return_value=_present(info))
     mocker.patch("cleverswitch.gateway.hid_gateway.HIDTransport", side_effect=OSError("open failed"))
     waits: list[float] = []
@@ -468,7 +474,7 @@ def test_backoff_grows_while_device_fails_to_open(mocker):
 
 def test_open_failure_backoff_is_capped(mocker):
     info = _device_info()
-    gw = HidGateway(info, MagicMock(spec=EventListener))
+    gw = HidGateway(info, MagicMock(spec=EventListener), MagicMock())
     mocker.patch("cleverswitch.gateway.hid_gateway.enumerate_hid_devices", return_value=_present(info))
     mocker.patch("cleverswitch.gateway.hid_gateway.HIDTransport", side_effect=OSError("open failed"))
     waits: list[float] = []
@@ -482,7 +488,7 @@ def test_open_failure_backoff_is_capped(mocker):
 
 def test_backoff_resets_after_successful_connect(mocker):
     info = _device_info()
-    gw = HidGateway(info, MagicMock(spec=EventListener))
+    gw = HidGateway(info, MagicMock(spec=EventListener), MagicMock())
     gw._backoff = 16.0
     same_path = HidDeviceInfo(
         path=info.path,

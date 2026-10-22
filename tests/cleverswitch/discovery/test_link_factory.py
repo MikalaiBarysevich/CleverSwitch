@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock
 
 import pytest
 
 from cleverswitch.discovery.link_factory import create_link
-from cleverswitch.gateway.hid_gateway_ble import HidGatewayBLE
-from cleverswitch.gateway.hid_gateway_bt import HidGatewayBT
-from cleverswitch.gateway.hid_gateway_receiver import HidGatewayReceiver
+from cleverswitch.gateway.gatt_channel import GattChannel
 from cleverswitch.gateway.write_router import ReportIdWriteRouter, WriteRouter
 from cleverswitch.hidpp.constants import BOLT_PID
 from cleverswitch.hidpp.transport import HidDeviceInfo
@@ -45,23 +44,51 @@ def _system(mocker, name):
     mocker.patch("cleverswitch.discovery.link_factory.get_system", return_value=name)
 
 
+def _ble_ok(mocker, ok):
+    mocker.patch("cleverswitch.gateway.gatt_channel._BLE_OK", ok)
+
+
 @pytest.mark.parametrize("system", ["Linux", "Darwin", "Windows"])
-def test_receiver_gets_receiver_gateways(mocker, system):
+def test_receiver_gets_one_gateway_per_collection_and_no_gatt(mocker, system):
     _system(mocker, system)
     link = create_link(BOLT_PID, [_receiver(0x0001), _receiver(0x0002)], _make_topics())
-    assert [type(g) for g in link._gateways] == [HidGatewayReceiver, HidGatewayReceiver]
+    assert len(link._gateways) == 2
+    assert not any(g._use_output_report for g in link._gateways)
+    assert link._gatt is None
+    assert link._connection_type == "receiver"
 
 
-def test_bluetooth_on_linux_gets_bt_gateway(mocker):
+def test_bluetooth_on_linux_writes_output_reports_without_gatt(mocker):
     _system(mocker, "Linux")
     link = create_link(BT_PID, [_bluetooth()], _make_topics())
-    assert [type(g) for g in link._gateways] == [HidGatewayBT]
+    assert [g._use_output_report for g in link._gateways] == [True]
+    assert link._gatt is None
+    assert link._connection_type == "bluetooth"
 
 
-def test_bluetooth_on_darwin_gets_ble_gateway(mocker):
+def test_bluetooth_on_darwin_adds_gatt_channel(mocker):
     _system(mocker, "Darwin")
+    _ble_ok(mocker, True)
     link = create_link(BT_PID, [_bluetooth()], _make_topics())
-    assert [type(g) for g in link._gateways] == [HidGatewayBLE]
+    assert isinstance(link._gatt, GattChannel)
+    assert link._gatt._pid == BT_PID
+    assert link._gatt._on_report == link._listener.listen
+    assert link._gatt._on_state == link.on_gatt_state
+
+
+def test_bluetooth_on_darwin_without_bleak_is_hid_only(mocker, caplog):
+    _system(mocker, "Darwin")
+    _ble_ok(mocker, False)
+    with caplog.at_level(logging.WARNING):
+        link = create_link(BT_PID, [_bluetooth()], _make_topics())
+    assert link._gatt is None
+    assert any("BLE notify path disabled" in r.message for r in caplog.records)
+
+
+def test_gateways_report_state_to_the_link(mocker):
+    _system(mocker, "Linux")
+    link = create_link(BOLT_PID, [_receiver()], _make_topics())
+    assert link._gateways[0]._on_state_changed == link.on_hid_state_changed
 
 
 def test_windows_routes_by_report_id(mocker):

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import threading
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -17,7 +16,7 @@ MOUSE_PNP = bytearray([0x02, 0x6D, 0x04, 0x23, 0xB0, 0x13, 0x00])  # wpid 0xB023
 
 def _make_channel(pid=0xB023):
     on_report = MagicMock()
-    channel = GattChannel(pid, on_report, MagicMock(), threading.Event())
+    channel = GattChannel(pid, on_report, MagicMock())
     return channel, on_report
 
 

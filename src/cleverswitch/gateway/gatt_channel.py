@@ -49,12 +49,11 @@ class GattChannel:
         pid: int,
         on_report: Callable[[bytes], None],
         on_state: Callable[[bool], None],
-        stop: threading.Event,
     ) -> None:
         self._pid = pid
         self._on_report = on_report
         self._on_state = on_state
-        self._stop = stop
+        self._stop = threading.Event()
         self._active = threading.Event()
         self._client: BleakClient | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -72,6 +71,9 @@ class GattChannel:
 
     def deactivate(self) -> None:
         self._active.clear()
+
+    def close(self) -> None:
+        self._stop.set()
 
     def write(self, msg: bytes, timeout: float = 2.0) -> bool:
         # Per the HID++ BLE transport, function-call responses come back on the same channel as
