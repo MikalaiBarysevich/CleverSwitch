@@ -9,6 +9,9 @@ from ..listener.event_listener import EventListener
 from ..topic.topics import Topics
 from ..util.util import get_system
 
+# TEMPORARY: macOS HID-only test with GATT disabled. Remove after hardware testing.
+_GATT_ENABLED = False
+
 
 def create_link(pid: int, collections: list[HidDeviceInfo], topics: Topics) -> DeviceLink:
     listener = EventListener(collections[0], topics)
@@ -20,6 +23,6 @@ def create_link(pid: int, collections: list[HidDeviceInfo], topics: Topics) -> D
 def _create_gateway(collection: HidDeviceInfo, listener: EventListener) -> HidGateway:
     if collection.connection_type == "receiver":
         return HidGatewayReceiver(collection, listener)
-    if get_system() == "Darwin":
+    if get_system() == "Darwin" and _GATT_ENABLED:
         return HidGatewayBLE(collection, listener)
     return HidGatewayBT(collection, listener)
