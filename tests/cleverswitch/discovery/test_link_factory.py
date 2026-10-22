@@ -60,16 +60,8 @@ def test_bluetooth_on_linux_gets_bt_gateway(mocker):
 
 def test_bluetooth_on_darwin_gets_ble_gateway(mocker):
     _system(mocker, "Darwin")
-    mocker.patch("cleverswitch.discovery.link_factory._GATT_ENABLED", True)
     link = create_link(BT_PID, [_bluetooth()], _make_topics())
     assert [type(g) for g in link._gateways] == [HidGatewayBLE]
-
-
-def test_bluetooth_on_darwin_without_gatt_gets_bt_gateway(mocker):
-    _system(mocker, "Darwin")
-    mocker.patch("cleverswitch.discovery.link_factory._GATT_ENABLED", False)
-    link = create_link(BT_PID, [_bluetooth()], _make_topics())
-    assert [type(g) for g in link._gateways] == [HidGatewayBT]
 
 
 def test_windows_routes_by_report_id(mocker):
