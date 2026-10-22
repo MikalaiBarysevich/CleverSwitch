@@ -75,6 +75,20 @@ def test_fan_out_sets_correct_slot_and_pid():
     assert published.wpid == WPID_KB
 
 
+def test_fan_out_disconnects_a_bluetooth_device():
+    """A Bluetooth device is registered with its own pid as wpid and no receiver slot."""
+    bt_pid = 0xB023
+    registry = LogiDeviceRegistry()
+    registry.register(bt_pid, _make_device(bt_pid, pid=bt_pid, slot=0xFF))
+
+    topics = _make_topics()
+    TransportDisconnectionSubscriber(registry, topics).notify(_transport_disconnected(bt_pid))
+
+    topics.hid_event.publish.assert_called_once_with(
+        DeviceConnectedEvent(slot=0xFF, pid=bt_pid, wpid=bt_pid, link_established=False, device_type=None)
+    )
+
+
 # ── Ignore other pids ────────────────────────────────────────────────────────
 
 

@@ -14,6 +14,7 @@ import time
 import pytest
 
 from cleverswitch.errors.errors import TransportError
+from cleverswitch.hidpp.constants import CONNECTION_BLUETOOTH, CONNECTION_RECEIVER
 from cleverswitch.hidpp.transport import HIDTransport
 
 
@@ -76,7 +77,7 @@ def _hammer(target, count: int, stop: threading.Event) -> list[threading.Thread]
 
 
 def test_write_never_reaches_hidapi_while_another_thread_reopens(fake_lib):
-    transport = HIDTransport("receiver", b"/dev/hidraw0")
+    transport = HIDTransport(CONNECTION_RECEIVER, b"/dev/hidraw0")
     stop = threading.Event()
     unexpected: list[BaseException] = []
     msg = bytes([0x11]) + bytes(19)
@@ -105,7 +106,7 @@ def test_write_never_reaches_hidapi_while_another_thread_reopens(fake_lib):
 
 
 def test_read_never_reaches_hidapi_while_another_thread_closes(fake_lib):
-    transport = HIDTransport("receiver", b"/dev/hidraw0")
+    transport = HIDTransport(CONNECTION_RECEIVER, b"/dev/hidraw0")
     stop = threading.Event()
 
     def reader() -> None:
@@ -130,7 +131,7 @@ def test_read_never_reaches_hidapi_while_another_thread_closes(fake_lib):
 
 
 def test_write_on_closed_transport_raises_transport_error(fake_lib):
-    transport = HIDTransport("receiver", b"/dev/hidraw0")
+    transport = HIDTransport(CONNECTION_RECEIVER, b"/dev/hidraw0")
     transport.close()
 
     with pytest.raises(TransportError):
@@ -142,7 +143,7 @@ def test_write_on_closed_transport_raises_transport_error(fake_lib):
 def test_write_output_report_falls_back_without_deadlocking(fake_lib, mocker):
     """The hidapi < 0.15 fallback re-enters the write path — it must not re-acquire the lock."""
     mocker.patch("cleverswitch.hidpp.transport._hid_send_output_report", None)
-    transport = HIDTransport("bluetooth", b"/dev/hidraw1")
+    transport = HIDTransport(CONNECTION_BLUETOOTH, b"/dev/hidraw1")
 
     done = threading.Event()
 

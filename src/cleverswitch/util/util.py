@@ -1,5 +1,9 @@
 import platform
 
+SYSTEM_LINUX = "Linux"
+SYSTEM_MACOS = "Darwin"
+SYSTEM_WINDOWS = "Windows"
+
 
 def get_system() -> str:
     return platform.system()

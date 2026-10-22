@@ -51,16 +51,17 @@ def _make_device(*, with_analytics: bool = True) -> LogiDevice:
     )
 
 
-def _make_payload(cid: int, byte9: int) -> bytes:
+def _make_payload(cid: int, byte9: int, bfield: int = 0x00) -> bytes:
     buf = bytearray(16)
     buf[0] = (cid >> 8) & 0xFF
     buf[1] = cid & 0xFF
+    buf[2] = bfield
     buf[5] = byte9
     return bytes(buf)
 
 
 def _make_response(
-    *, cid: int = 0x00D1, byte9: int = 0x00, sw_id: int = SW_ID_DIVERT, function: int = 3
+    *, cid: int = 0x00D1, byte9: int = 0x00, sw_id: int = SW_ID_DIVERT, function: int = 3, bfield: int = 0x00
 ) -> HidppResponseEvent:
     return HidppResponseEvent(
         slot=SLOT,
@@ -68,7 +69,7 @@ def _make_response(
         feature_index=REPROG_IDX,
         function=function,
         sw_id=sw_id,
-        payload=_make_payload(cid, byte9),
+        payload=_make_payload(cid, byte9, bfield),
     )
 
 
@@ -191,4 +192,14 @@ def test_non_response_event_is_noop():
 
     sub.notify("not an event")  # must not raise
 
+    topics.flags.publish.assert_not_called()
+
+
+def test_divert_echo_from_peer_app_is_not_a_rejection():
+    """A peer's divert request with our sw_id echoes byte 9 = 0 too, but sets the divert flags."""
+    sub, topics, device = _setup()
+
+    sub.notify(_make_response(cid=0x00D1, byte9=0x00, bfield=0x0F))
+
+    assert KEY_FLAG_ANALYTICS in device.supported_flags
     topics.flags.publish.assert_not_called()

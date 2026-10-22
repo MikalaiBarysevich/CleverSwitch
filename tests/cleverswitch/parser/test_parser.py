@@ -69,10 +69,12 @@ def test_parse_device_connection_type_zero_becomes_none():
 
 
 def test_parse_hidpp1_error():
-    raw = bytes([REPORT_SHORT, 0x01, 0x8F, 0x08, 0x00, 0x05, 0x00])
+    raw = bytes([REPORT_SHORT, 0x01, 0x8F, 0x03, 0x1D, 0x05, 0x00])
     event = parse(PID, raw)
     assert isinstance(event, HidppErrorEvent)
-    assert event.sw_id == 0x08
+    assert event.feature_index == 0x03
+    assert event.function == 1
+    assert event.sw_id == 0x0D
     assert event.error_code == 0x05
 
 
@@ -80,9 +82,13 @@ def test_parse_hidpp1_error():
 
 
 def test_parse_hidpp2_error():
-    raw = _long_msg(slot=1, feature_id=0xFF, fn_sw=0x08, data=bytes([0x00, 0x09]) + bytes(14))
+    # byte 3 echoes the failed call's feature index, byte 4 its function|sw_id
+    raw = _long_msg(slot=1, feature_id=0xFF, fn_sw=0x05, data=bytes([0x2E, 0x09]) + bytes(14))
     event = parse(PID, raw)
     assert isinstance(event, HidppErrorEvent)
+    assert event.feature_index == 0x05
+    assert event.function == 2
+    assert event.sw_id == 0x0E
     assert event.error_code == 0x09
 
 

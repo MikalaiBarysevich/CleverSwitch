@@ -94,7 +94,9 @@ def test_change_host_noop_on_error_response():
         task,
         topics,
         [
-            HidppErrorEvent(slot=SLOT, pid=PID, sw_id=FEATURE_CHANGE_HOST_SW_ID, error_code=5),
+            HidppErrorEvent(
+                slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=FEATURE_CHANGE_HOST_SW_ID, error_code=5
+            ),
         ],
     )
     task.doTask()

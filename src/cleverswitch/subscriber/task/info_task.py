@@ -1,11 +1,13 @@
 import logging
 import queue
 from abc import ABC, abstractmethod
-from threading import Thread
+from threading import Event, Thread
 
+from ...event.device_connected_event import DeviceConnectedEvent
 from ...event.hidpp_error_event import HidppErrorEvent
 from ...event.hidpp_response_event import HidppResponseEvent
 from ...event.info_task_progress_event import InfoTaskProgressEvent
+from ...event.transport_disconnected_event import TransportDisconnectedEvent
 from ...event.write_event import WriteEvent
 from ...hidpp.protocol import build_msg, pack_params
 from ...model.logi_device import LogiDevice
@@ -38,14 +40,24 @@ class InfoTask(ABC, Subscriber, Thread):
         self._response_queue: queue.Queue = queue.Queue()
         self._sw_id = sw_id
         self._request_id = (request_id & 0xFFF0) | self._sw_id
+        self._expected = self._call_of(self._request_id)
+        self._aborted = Event()
         self._subscription = topics.hid_event.subscribe(self)
 
     def notify(self, event) -> None:
+        if self._is_own_disconnect(event):
+            # A reply after this belongs to whatever runs on reconnect, not to this task.
+            self._aborted.set()
+            self._response_queue.put(None)
+            return
+        if self._aborted.is_set():
+            return
         if (
             isinstance(event, (HidppResponseEvent, HidppErrorEvent))
             and event.slot == self._device.slot
             and event.pid == self._device.pid
             and event.sw_id == self._sw_id
+            and (event.feature_index, event.function) == self._expected
         ):
             self._response_queue.put(event)
 
@@ -61,6 +73,8 @@ class InfoTask(ABC, Subscriber, Thread):
             if success:
                 self._device.connected = True
                 self._fire_dependent_steps()
+            if self._aborted.is_set() and not success:
+                log.debug(f"{self._step_name} for wpid=0x{self._device.wpid:04X} aborted: device disconnected")
             self._topics.info_progress.publish(
                 InfoTaskProgressEvent(
                     slot=self._device.slot,
@@ -68,6 +82,7 @@ class InfoTask(ABC, Subscriber, Thread):
                     step_name=self._step_name,
                     success=success,
                     device=self._device,
+                    aborted=self._aborted.is_set(),
                 )
             )
         finally:
@@ -82,12 +97,22 @@ class InfoTask(ABC, Subscriber, Thread):
         # getCidInfo sweeps) would then splice a late reply in at the wrong offset and silently
         # record the wrong data, where a clean timeout is the honest outcome.
         self._drain_responses()
+        if self._aborted.is_set():
+            return
         params_bytes = pack_params(params)
         rid = ((request_id & 0xFFF0) | self._sw_id) if request_id is not None else self._request_id
+        # Peer apps (e.g. Logi Options+) reuse our sw_ids, so only a reply to the call just sent is ours.
+        self._expected = self._call_of(rid)
         msg = build_msg(self._device.slot, rid, params_bytes)
         self._topics.write.publish(WriteEvent(slot=self._device.slot, pid=self._device.pid, hid_message=msg))
 
+    @staticmethod
+    def _call_of(request_id: int) -> tuple[int, int]:
+        return request_id >> 8, (request_id >> 4) & 0x0F
+
     def _wait_response(self, timeout: float = RESPONSE_TIMEOUT) -> HidppResponseEvent | HidppErrorEvent | None:
+        if self._aborted.is_set():
+            return None
         try:
             return self._response_queue.get(timeout=timeout)
         except queue.Empty:
@@ -99,7 +124,19 @@ class InfoTask(ABC, Subscriber, Thread):
                 stale = self._response_queue.get_nowait()
             except queue.Empty:
                 return
+            if stale is None:
+                continue
             log.debug(f"Discarding stale {type(stale).__name__} for {self._step_name} sw_id={self._sw_id}")
+
+    def _is_own_disconnect(self, event) -> bool:
+        if isinstance(event, TransportDisconnectedEvent):
+            return event.pid == self._device.pid
+        return (
+            isinstance(event, DeviceConnectedEvent)
+            and not event.link_established
+            and event.pid == self._device.pid
+            and event.wpid == self._device.wpid
+        )
 
     def _fire_dependent_steps(self):
         log.debug(f"No dependent steps for {self._step_name}")

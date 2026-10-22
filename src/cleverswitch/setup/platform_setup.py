@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 
-from ..util.util import get_system
+from ..util.util import SYSTEM_LINUX, SYSTEM_MACOS, get_system
 
 log = logging.getLogger(__name__)
 
@@ -14,9 +14,9 @@ _SYSTEM = get_system()
 
 def check() -> None:
     """Run platform-specific checks and log actionable warnings."""
-    if _SYSTEM == "Linux":
+    if _SYSTEM == SYSTEM_LINUX:
         _check_linux()
-    elif _SYSTEM == "Darwin":
+    elif _SYSTEM == SYSTEM_MACOS:
         _check_macos()
     # Windows needs no special setup
 

@@ -6,26 +6,27 @@ import logging
 
 import cleverswitch.setup.platform_setup as ps
 from cleverswitch.setup.platform_setup import _check_linux, _check_macos, check
+from cleverswitch.util.util import SYSTEM_LINUX, SYSTEM_MACOS, SYSTEM_WINDOWS
 
 # ── check() dispatch ──────────────────────────────────────────────────────────
 
 
 def test_check_calls_check_linux_on_linux(mocker):
-    mocker.patch.object(ps, "_SYSTEM", "Linux")
+    mocker.patch.object(ps, "_SYSTEM", SYSTEM_LINUX)
     mock = mocker.patch("cleverswitch.setup.platform_setup._check_linux")
     check()
     mock.assert_called_once()
 
 
 def test_check_calls_check_macos_on_darwin(mocker):
-    mocker.patch.object(ps, "_SYSTEM", "Darwin")
+    mocker.patch.object(ps, "_SYSTEM", SYSTEM_MACOS)
     mock = mocker.patch("cleverswitch.setup.platform_setup._check_macos")
     check()
     mock.assert_called_once()
 
 
 def test_check_does_not_call_platform_helpers_on_windows(mocker):
-    mocker.patch.object(ps, "_SYSTEM", "Windows")
+    mocker.patch.object(ps, "_SYSTEM", SYSTEM_WINDOWS)
     linux_mock = mocker.patch("cleverswitch.setup.platform_setup._check_linux")
     mac_mock = mocker.patch("cleverswitch.setup.platform_setup._check_macos")
     check()

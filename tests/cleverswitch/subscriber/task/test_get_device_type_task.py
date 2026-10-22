@@ -101,7 +101,11 @@ def test_discards_step_on_error_response():
     topics = _make_topics()
     task = GetDeviceTypeTask(device, topics)
 
-    deliver_on_request(task, topics, [HidppErrorEvent(slot=SLOT, pid=PID, sw_id=GET_DEVICE_TYPE_SW_ID, error_code=5)])
+    deliver_on_request(
+        task,
+        topics,
+        [HidppErrorEvent(slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=GET_DEVICE_TYPE_SW_ID, error_code=5)],
+    )
     task.doTask()
 
     assert device.role is None

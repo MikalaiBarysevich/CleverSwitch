@@ -6,8 +6,7 @@ Platform-specific library loading:
   Windows → hidapi.dll             (SetupAPI — located next to the cython-hidapi hid.pyd)
 
 All blocking I/O uses hid_read_timeout so callers control the exact wait time.
-HIDTransport.read_async / write_async delegate to asyncio.to_thread so the
-asyncio event loop in listeners.py stays unblocked while waiting for HID events.
+Each open handle is read by one HidChannel thread (gateway/hid_channel.py).
 """
 
 from __future__ import annotations
@@ -16,12 +15,14 @@ import ctypes
 import dataclasses
 import logging
 import os
-import platform
 import sys
 import threading
 
 from ..errors.errors import TransportError
+from ..util.util import SYSTEM_LINUX, SYSTEM_MACOS, SYSTEM_WINDOWS, get_system
 from .constants import (
+    CONNECTION_BLUETOOTH,
+    CONNECTION_RECEIVER,
     HIDPP_USAGE_PAGES,
     LOGITECH_VENDOR_ID,
     MAX_READ_SIZE,
@@ -29,7 +30,7 @@ from .constants import (
 
 log = logging.getLogger(__name__)
 
-_SYSTEM = platform.system()
+_SYSTEM = get_system()
 
 # ── Platform-specific library candidates ──────────────────────────────────────
 
@@ -53,7 +54,7 @@ _LIB_NAMES: list[str] = [
 
 # Python 3.8+ on Windows no longer searches PATH / CWD for DLLs by default.
 # Add the Scripts directory (where cleverswitch.exe lives) to the DLL search path.
-if _SYSTEM == "Windows":
+if _SYSTEM == SYSTEM_WINDOWS:
     _scripts_dir = os.path.join(sys.prefix, "Scripts")
     if os.path.isdir(_scripts_dir):
         os.add_dll_directory(_scripts_dir)
@@ -64,7 +65,7 @@ if _SYSTEM == "Windows":
 
 # The macOS and Linux release binaries bundle libhidapi into _MEIPASS (see scripts/*/build.sh).
 # ctypes.CDLL does not search there, so try the bundled copy before any system install.
-_BUNDLED_LIB = {"Darwin": "libhidapi.dylib", "Linux": "libhidapi-hidraw.so.0"}.get(_SYSTEM)
+_BUNDLED_LIB = {SYSTEM_MACOS: "libhidapi.dylib", SYSTEM_LINUX: "libhidapi-hidraw.so.0"}.get(_SYSTEM)
 _meipass = getattr(sys, "_MEIPASS", None)
 if _BUNDLED_LIB and _meipass:
     _LIB_NAMES.insert(0, os.path.join(_meipass, _BUNDLED_LIB))
@@ -80,9 +81,9 @@ for _name in _LIB_NAMES:
 
 if _lib is None:
     _hint = {
-        "Linux": "sudo apt install libhidapi-hidraw0",
-        "Darwin": "brew install hidapi",
-        "Windows": "pip install hidapi",
+        SYSTEM_LINUX: "sudo apt install libhidapi-hidraw0",
+        SYSTEM_MACOS: "brew install hidapi",
+        SYSTEM_WINDOWS: "pip install hidapi",
     }.get(_SYSTEM, "install hidapi for your platform")
     raise ImportError(f"Cannot load hidapi library — {_hint}")
 
@@ -100,7 +101,7 @@ _lib.hid_init()
 # hid_darwin_set_open_exclusive(0) allows coexistence with Logi Options+.
 # Must be called AFTER hid_init() and before the first hid_open_path().
 
-if _SYSTEM == "Darwin":
+if _SYSTEM == SYSTEM_MACOS:
     _set_excl = getattr(_lib, "hid_darwin_set_open_exclusive", None)
     if _set_excl is not None:
         _set_excl.argtypes = [ctypes.c_int]
@@ -206,12 +207,12 @@ def _hid_err(dev: int | None = None) -> str:
 
 # ── Platform helpers ──────────────────────────────────────────────────────────
 
-_IS_LINUX = _SYSTEM == "Linux"
-_IS_WINDOWS = _SYSTEM == "Windows"
+_IS_LINUX = _SYSTEM == SYSTEM_LINUX
+_IS_WINDOWS = _SYSTEM == SYSTEM_WINDOWS
 
 
 # hid_enumerate walks and frees a process-global linked list. Concurrent callers (the discovery
-# loop plus every disconnected gateway's _try_connect) must not overlap.
+# loop plus every disconnected HID channel's _try_connect) must not overlap.
 _ENUM_LOCK = threading.Lock()
 
 # Bounded read poll. The handle lock is released between polls, so an outbound write never queues
@@ -272,7 +273,7 @@ def _enumerate_locked(vendor_id: int, product_id: int) -> dict[int, list[HidDevi
             hid_device_content.product_id,
             hid_device_content.usage_page,
             hid_device_content.usage,
-            "receiver" if bus_type == 0x01 else "bluetooth",
+            CONNECTION_RECEIVER if bus_type == 0x01 else CONNECTION_BLUETOOTH,
         )
 
         pid_collections = result.get(pid, list[HidDeviceInfo]())
@@ -295,7 +296,7 @@ class HidDeviceInfo:
     pid: int
     usage_page: int
     usage: int
-    connection_type: str  # "receiver" or "bluetooth"
+    connection_type: str  # CONNECTION_RECEIVER or CONNECTION_BLUETOOTH
 
 
 # ── HIDTransport ──────────────────────────────────────────────────────────────
@@ -304,9 +305,7 @@ class HidDeviceInfo:
 class HIDTransport:
     """Owns one open hid_device* handle.
 
-    Sync read/write are used by the discovery thread (protocol.py request loop).
-    Async read_async/write_async are used by the monitor coroutine so the asyncio
-    event loop is never blocked waiting for HID events.
+    Read by its HidChannel's reader thread; written from the write topic's drain thread.
     """
 
     def __init__(self, kind: str, path: bytes) -> None:

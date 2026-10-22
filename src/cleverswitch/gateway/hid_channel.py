@@ -1,26 +1,22 @@
 import logging
-import platform
 import threading
 import time
+from collections.abc import Callable
 from threading import Thread
 
 from ..errors.errors import TransportError
-from ..event.write_event import WriteEvent
-from ..hidpp.constants import HIDPP_BT_USAGE_LONG, HIDPP_USAGE_LONG, HIDPP_USAGE_SHORT, REPORT_LONG, REPORT_SHORT
+from ..hidpp.constants import CONNECTION_BLUETOOTH
 from ..hidpp.transport import HidDeviceInfo, HIDTransport, enumerate_hid_devices
 from ..listener.event_listener import EventListener
-from ..subscriber.subscriber import Subscriber
 
 log = logging.getLogger(__name__)
 
-_IS_WINDOWS = platform.system() == "Windows"
-
-# How long a write may wait for a gateway that has never connected yet. Measured once from
+# How long a write may wait for a channel that has never connected yet. Measured once from
 # construction, so a collection that never connects can only ever park the write topic's drain
 # thread for this window. Aligned with RESPONSE_TIMEOUT in subscriber/task/info_task.py.
 _FIRST_CONNECT_GRACE = 2.0
 
-# How often a disconnected gateway checks whether its device is back. A device leaving for another
+# How often a disconnected channel checks whether its device is back. A device leaving for another
 # host is the normal case for this tool, so absence must not slow detection down: a backoff that
 # grew while the device was away left a returning keyboard unnoticed for many seconds (issue #121).
 # Enumerating once a second is safe now that hidapi calls are serialised by the transport lock.
@@ -35,24 +31,39 @@ _RECONNECT_BACKOFF_MAX = 30.0
 # exceed HIDTransport._READ_POLL_MS.
 _CLOSE_JOIN_TIMEOUT = 2.0
 
-_USAGE_TO_REPORT_ID = {
-    HIDPP_USAGE_SHORT: REPORT_SHORT,
-    HIDPP_USAGE_LONG: REPORT_LONG,
-    HIDPP_BT_USAGE_LONG: REPORT_LONG,
-}
 
+class HidChannel(Thread):
+    """Reader thread for one HID collection. It reports every connection change through
+    `on_state_changed`; the owning DeviceLink decides what that means for the device."""
 
-class HidGateway(Thread, Subscriber):
-    def __init__(self, device_info: HidDeviceInfo, event_listener: EventListener) -> None:
+    def __init__(
+        self,
+        device_info: HidDeviceInfo,
+        event_listener: EventListener,
+        on_state_changed: Callable[[], None],
+    ) -> None:
         super().__init__(daemon=True)
         self._device_info = device_info
+        self._on_state_changed = on_state_changed
+        self._use_output_report = device_info.connection_type == CONNECTION_BLUETOOTH
         self._connected_signal = threading.Event()
         self._ever_connected: bool = False
         self._grace_deadline = time.monotonic() + _FIRST_CONNECT_GRACE
         self._stop = threading.Event()
+        # Set by a failed write on the write-drain thread; the reader thread acts on it, so only the
+        # reader ever changes connection state.
+        self._reopen_requested = threading.Event()
         self._transport: HIDTransport | None = None
         self._event_listener: EventListener = event_listener
         self._backoff: float = _RECONNECT_BACKOFF_MIN
+
+    @property
+    def device_info(self) -> HidDeviceInfo:
+        return self._device_info
+
+    @property
+    def connected(self) -> bool:
+        return self._connected_signal.is_set()
 
     @property
     def _connected(self) -> bool:
@@ -72,6 +83,9 @@ class HidGateway(Thread, Subscriber):
         try:
             while not self._stop.is_set():
                 if self._connected:
+                    if self._reopen_requested.is_set():
+                        self._reopen_after_write_failure()
+                        continue
                     try:
                         hid_event = self._transport.read()
                         if hid_event is None:
@@ -116,6 +130,18 @@ class HidGateway(Thread, Subscriber):
             log.debug(f"Failed to connect to HID device pid=0x{self._device_info.pid:04X}: {e}")
             self._backoff_wait()
 
+    # A failed write alone doesn't mean the device left: on Windows a BT device still listed after a
+    # host switch fails writes, and reporting that as a disconnect made the link flap. The handle is
+    # reopened quietly; only a failed reopen, or a failed read, reports the device gone.
+    def _reopen_after_write_failure(self) -> None:
+        self._reopen_requested.clear()
+        try:
+            self._transport.try_reopen()
+            log.debug(f"Write failed for pid=0x{self._device_info.pid:04X}, handle reopened")
+        except OSError as e:
+            log.debug(f"Write failed for pid=0x{self._device_info.pid:04X} and reopen failed: {e}")
+            self._set_connected(False)
+
     def _backoff_wait(self) -> None:
         self._stop.wait(self._backoff)
         self._backoff = min(self._backoff * 2, _RECONNECT_BACKOFF_MAX)
@@ -126,46 +152,38 @@ class HidGateway(Thread, Subscriber):
             transport.close()
 
     def _set_connected(self, state: bool) -> None:
+        self._reopen_requested.clear()
         self._connected = state
         if not self._ever_connected:
             self._ever_connected = state
+        self._on_state_changed()
 
-    def notify(self, event) -> None:
-        if not isinstance(event, WriteEvent):
-            return
-
-        if event.pid != self._device_info.pid:
-            return
-
+    # Runs on the owning DeviceLink's write-topic drain thread.
+    def submit(self, msg: bytes) -> None:
         if not self._connected:
             grace = max(0.0, self._grace_deadline - time.monotonic())
             if self._ever_connected or not self._connected_signal.wait(grace):
                 log.debug(f"Dropping write to pid=0x{self._device_info.pid:04X}: device disconnected")
                 return
 
-        if _IS_WINDOWS:
-            expected = _USAGE_TO_REPORT_ID.get(self._device_info.usage)
-            if expected is None or event.hid_message[0] != expected:
-                return
-
-        self._write(event.hid_message)
+        self._write(msg)
 
     def _write(self, msg: bytes) -> None:
         # Snapshot the transport: _try_connect can null it between this check and the write,
         # and the resulting AttributeError is not a TransportError, so it would kill this thread.
         transport = self._transport
-        if not self._connected or transport is None:
+        if not self._connected or self._reopen_requested.is_set() or transport is None:
             log.debug(f"Cannot write to pid=0x{self._device_info.pid:04X}: disconnected")
             return
         log.debug(f"Writing to pid=0x{self._device_info.pid:04X}: {msg.hex()}")
         try:
-            self._do_write(transport, msg)
+            if self._use_output_report:
+                transport.write_output_report(msg)
+            else:
+                transport.write(msg)
         except TransportError:
-            log.debug(f"Write failed for pid=0x{self._device_info.pid:04X}, marking disconnected")
-            self._connected = False
-
-    def _do_write(self, transport: HIDTransport, msg: bytes) -> None:
-        transport.write(msg)
+            log.debug(f"Write failed for pid=0x{self._device_info.pid:04X}, requesting reconnect")
+            self._reopen_requested.set()
 
     def close(self):
         self._stop.set()
@@ -175,5 +193,7 @@ class HidGateway(Thread, Subscriber):
             self.join(timeout=_CLOSE_JOIN_TIMEOUT)
             if not self.is_alive():
                 return
-            log.warning(f"Gateway pid=0x{self._device_info.pid:04X} did not stop in time; closing handle externally")
+            log.warning(
+                f"HID channel pid=0x{self._device_info.pid:04X} did not stop in time; closing handle externally"
+            )
         self._close_transport()

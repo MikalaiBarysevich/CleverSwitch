@@ -4,8 +4,8 @@ Finds keyboard and mouse by scanning:
   1. Bolt / Unifying receivers — one HID device, multiple Logitech devices in slots 1-6
   2. Bluetooth — one HID device per Logitech device
 
-Creates one listener thread per HID path. All listeners share a ProductRegistry
-so host-switch events reach every known device regardless of connection type.
+Creates one DeviceLink per HID product id (see link_factory.py), which owns an HID channel
+thread per HID collection and the pid's EventListener.
 """
 
 from __future__ import annotations
@@ -13,19 +13,14 @@ from __future__ import annotations
 import logging
 import time
 
-from ..connection.trigger.receiver_trigger import ReceiverConnectionTrigger
 from ..event.set_report_flag_event import SetReportFlagEvent
-from ..gateway.hid_gateway import HidGateway
-from ..gateway.hid_gateway_ble import HidGatewayBLE
-from ..gateway.hid_gateway_bt import HidGatewayBT
-from ..gateway.hid_gateway_receiver import HidGatewayReceiver
+from ..gateway.device_link import DeviceLink
 from ..hidpp.constants import FEATURE_REPROG_CONTROLS_V4, KEY_FLAG_ANALYTICS
 from ..hidpp.transport import enumerate_hid_devices
-from ..listener.event_listener import EventListener
 from ..model.context.app_context import AppContext
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..topic.topics import Topics
-from ..util.util import get_system
+from .link_factory import create_link
 
 log = logging.getLogger(__name__)
 
@@ -33,7 +28,7 @@ log = logging.getLogger(__name__)
 def discover(app_context: AppContext) -> None:
     log.info("Starting device discovery…")
 
-    gateways: dict[int, list[HidGateway]] = {}
+    links: dict[int, DeviceLink] = {}
 
     topics: Topics = app_context.topics
     shutdown = app_context.shutdown
@@ -43,32 +38,15 @@ def discover(app_context: AppContext) -> None:
             devices = enumerate_hid_devices(verbose_extra=app_context.config.arguments_settings.verbose_extra)
 
             for pid, collections in devices.items():
-                if pid not in gateways:
-                    device = collections[0]
-                    if device.connection_type == "receiver":
-                        connection_trigger = ReceiverConnectionTrigger(device, topics)
-                    else:
-                        connection_trigger = None
-                    event_listener = EventListener(device, topics)
-                    for collection in collections:
-                        if device.connection_type == "receiver":
-                            hid_gateway = HidGatewayReceiver(collection, event_listener, topics, connection_trigger)
-                        elif device.connection_type == "bluetooth" and get_system() == "Darwin":
-                            hid_gateway = HidGatewayBLE(collection, event_listener)
-                        else:
-                            hid_gateway = HidGatewayBT(collection, event_listener)
-                        topics.write.subscribe(hid_gateway)
-                        pid_gateways = gateways.get(pid, list())
-                        pid_gateways.append(hid_gateway)
-                        gateways[device.pid] = pid_gateways
-                        hid_gateway.start()
-                    event_listener.start()
+                if pid not in links:
+                    link = create_link(pid, collections, topics)
+                    links[pid] = link
+                    link.start()
 
             shutdown.wait(0.5)
         _undivert_all(app_context.device_registry, topics)
-        for gates in gateways.values():
-            for gateway in gates:
-                gateway.close()
+        for link in links.values():
+            link.close()
 
     except RuntimeError as error:
         log.error(f"Error occurred running discovery: {error}")

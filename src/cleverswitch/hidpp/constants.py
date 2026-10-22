@@ -9,6 +9,10 @@ Sources:
 
 LOGITECH_VENDOR_ID = 0x046D
 
+# HidDeviceInfo.connection_type values
+CONNECTION_RECEIVER = "receiver"
+CONNECTION_BLUETOOTH = "bluetooth"
+
 # Receiver USB product IDs
 BOLT_PID = 0xC548
 UNIFYING_PIDS = (0xC52B, 0xC532)
