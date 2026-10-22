@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-import threading
 import time
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from cleverswitch.event.link_channel_changed_event import LinkChannelChangedEvent
 from cleverswitch.event.transport_connected_event import TransportConnectedEvent
 from cleverswitch.event.transport_disconnected_event import TransportDisconnectedEvent
 from cleverswitch.gateway.hid_gateway_ble import HidGatewayBLE
@@ -133,19 +135,7 @@ def test_gatt_channel_is_bound_to_this_gateway():
     gw, event_listener = _make_gw(pid=0xB023)
     assert gw._gatt._pid == 0xB023
     assert gw._gatt._on_report == event_listener.listen
-    assert gw._gatt._link_up is gw._connected_signal
     assert gw._gatt._stop is gw._stop
-
-
-def test_gatt_drop_emits_transport_disconnected():
-    """A GATT drop runs the inherited HidGatewayBT path that emits the typed disconnect."""
-    gw, event_listener = _make_gw(pid=0xB023)
-    gw._connected = True
-
-    gw._gatt._on_drop()
-
-    assert not gw._connected
-    event_listener.emit.assert_called_once_with(TransportDisconnectedEvent(slot=0, pid=0xB023))
 
 
 def test_do_write_uses_gatt_when_it_accepts_the_write(mocker):
@@ -169,105 +159,48 @@ def test_do_write_falls_back_to_hid_when_gatt_declines(mocker):
     transport.write_output_report.assert_called_once_with(b"\x11\xff\x08\x3e")
 
 
-# ── _set_connected gating ─────────────────────────────────────────────────────
+# ── HID owns presence; GATT follows it ───────────────────────────────────────
 
 
-def test_set_connected_true_blocks_until_ble_subscribed(mocker):
-    mocker.patch("cleverswitch.gateway.hid_gateway_ble._BLE_OK", True)
-    gw, event_listener = _make_gw()
-
-    fired = threading.Event()
-
-    def call_set_connected():
-        gw._set_connected(True)
-        fired.set()
-
-    t = threading.Thread(target=call_set_connected, daemon=True)
-    t.start()
-
-    # _connected flips immediately so BLE thread can proceed, but event must not fire yet
-    assert fired.wait(timeout=0.3) is False
-    assert gw._connected is True
-    event_listener.emit.assert_not_called()
-
-    # Subscribe — main thread should wake up and emit the connect
-    gw._gatt.subscribed.set()
-    assert fired.wait(timeout=2.0) is True
-    event_listener.emit.assert_called_once_with(_connected_event())
-
-
-def test_set_connected_true_fires_immediately_when_ble_not_ok(mocker):
-    mocker.patch("cleverswitch.gateway.hid_gateway_ble._BLE_OK", False)
+def test_connect_emits_immediately_and_activates_gatt():
+    """No waiting for GATT: the reader thread must never block on the other channel."""
     gw, event_listener = _make_gw()
 
     gw._set_connected(True)
 
-    assert gw._connected is True
     event_listener.emit.assert_called_once_with(_connected_event())
+    assert gw._gatt._active.is_set()
 
 
-def test_set_connected_true_does_not_fire_if_stop_set_during_wait(mocker):
-    mocker.patch("cleverswitch.gateway.hid_gateway_ble._BLE_OK", True)
-    gw, event_listener = _make_gw()
-
-    fired = threading.Event()
-
-    def call_set_connected():
-        gw._set_connected(True)
-        fired.set()
-
-    t = threading.Thread(target=call_set_connected, daemon=True)
-    t.start()
-
-    # Don't set subscribed; trigger shutdown instead
-    assert fired.wait(timeout=0.3) is False
-    gw._stop.set()
-
-    assert fired.wait(timeout=2.0) is True
-    event_listener.emit.assert_not_called()
-
-
-def test_set_connected_false_clears_ble_subscribed_and_fires_disconnect(mocker):
-    mocker.patch("cleverswitch.gateway.hid_gateway_ble._BLE_OK", True)
-    gw, event_listener = _make_gw()
-    gw._connected = True
-    gw._gatt.subscribed.set()
+def test_disconnect_emits_and_deactivates_gatt():
+    gw, event_listener = _make_gw(pid=0xB023)
+    gw._set_connected(True)
+    event_listener.emit.reset_mock()
 
     gw._set_connected(False)
 
-    assert gw._connected is False
-    assert not gw._gatt.subscribed.is_set()
-    event_listener.emit.assert_called_once_with(TransportDisconnectedEvent(slot=0, pid=gw._device_info.pid))
+    event_listener.emit.assert_called_once_with(TransportDisconnectedEvent(slot=0, pid=0xB023))
+    assert not gw._gatt._active.is_set()
 
 
-def test_set_connected_true_after_grace_emits_connect(mocker):
-    mocker.patch("cleverswitch.gateway.hid_gateway_ble._BLE_OK", True)
-    mocker.patch("cleverswitch.gateway.hid_gateway_ble._BLE_SUBSCRIBE_GRACE", 0.0)
+@pytest.mark.parametrize("up", [True, False])
+def test_gatt_state_is_published_as_channel_change(up):
+    gw, event_listener = _make_gw(pid=0xB023)
+
+    gw._gatt._on_state(up)
+
+    event_listener.emit.assert_called_once_with(LinkChannelChangedEvent(slot=0, pid=0xB023, channel="gatt", up=up))
+
+
+def test_gatt_drop_leaves_the_device_connected():
     gw, event_listener = _make_gw()
-
     gw._set_connected(True)
+    event_listener.emit.reset_mock()
 
-    event_listener.emit.assert_called_once_with(_connected_event())
+    gw._gatt._on_state(False)
 
-
-def test_ble_drop_during_grace_suppresses_connect(mocker):
-    """The disconnect already went out; a connect after it would leave the device marked present."""
-    mocker.patch("cleverswitch.gateway.hid_gateway_ble._BLE_OK", True)
-    mocker.patch("cleverswitch.gateway.hid_gateway_ble._BLE_SUBSCRIBE_GRACE", 0.0)
-    gw, event_listener = _make_gw()
-
-    def drop(timeout):
-        gw._connected = False
-        return False
-
-    mocker.patch.object(gw._gatt.subscribed, "wait", side_effect=drop)
-
-    gw._set_connected(True)
-
-    event_listener.emit.assert_not_called()
-
-
-# ── _find_peripheral_by_wpid ─────────────────────────────────────────────────
+    assert gw._connected
+    assert not any(isinstance(c.args[0], TransportDisconnectedEvent) for c in event_listener.emit.call_args_list)
 
 
 # ── Handle ownership (issue #108) ────────────────────────────────────────────

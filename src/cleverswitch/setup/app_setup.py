@@ -13,6 +13,7 @@ from ..model.context.app_context import AppContext
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.analytics_rejection_subscriber import AnalyticsRejectionSubscriber
 from ..subscriber.change_host_notification_subscriber import ChangeHostNotificationSubscriber
+from ..subscriber.channel_rearm_subscriber import ChannelRearmSubscriber
 from ..subscriber.device_connected_subscriber import DeviceConnectionSubscriber
 from ..subscriber.device_info_subscriber import DeviceInfoSubscriber
 from ..subscriber.direct_device_connection_subscriber import DirectDeviceConnectionSubscriber
@@ -102,4 +103,5 @@ def _init_subscribers(topics: Topics, device_registry: LogiDeviceRegistry, confi
     TransportDisconnectionSubscriber(device_registry, topics)
     ReceiverArmingSubscriber(topics)
     DirectDeviceConnectionSubscriber(topics)
+    ChannelRearmSubscriber(device_registry, topics)
     EventHookSubscriber(config.hooks, device_registry, topics)

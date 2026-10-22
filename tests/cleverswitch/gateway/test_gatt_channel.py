@@ -6,306 +6,382 @@ import asyncio
 import threading
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from cleverswitch.gateway import gatt_channel
 from cleverswitch.gateway.gatt_channel import BLE_PREPEND, GattChannel
+
+KEYBOARD_PNP = bytearray([0x02, 0x6D, 0x04, 0x5B, 0xB3, 0x13, 0x00])  # wpid 0xB35B
+MOUSE_PNP = bytearray([0x02, 0x6D, 0x04, 0x23, 0xB0, 0x13, 0x00])  # wpid 0xB023
 
 
 def _make_channel(pid=0xB023):
     on_report = MagicMock()
-    channel = GattChannel(pid, on_report, threading.Event(), MagicMock(), threading.Event())
+    channel = GattChannel(pid, on_report, MagicMock(), threading.Event())
     return channel, on_report
 
 
-def test_on_notify_prepends_ble_prepend_and_forwards_to_listener():
+def _bleak_client(connected=True):
+    client = MagicMock()
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock()
+    client.start_notify = AsyncMock()
+    client.is_connected = connected
+    return client
+
+
+async def _no_sleep(_t):
+    await asyncio.sleep(0)
+
+
+# ── activation ───────────────────────────────────────────────────────────────
+
+
+def test_activate_and_deactivate_toggle_the_channel():
+    ch, _ = _make_channel()
+    assert not ch._active.is_set()
+    ch.activate()
+    assert ch._active.is_set()
+    ch.deactivate()
+    assert not ch._active.is_set()
+
+
+# ── _on_notify ───────────────────────────────────────────────────────────────
+
+
+def test_on_notify_prepends_ble_prepend_and_forwards_report():
     ch, on_report = _make_channel()
     payload = bytearray([0x11, 0x01, 0x02, 0x03] + [0x00] * 14)
+
     ch._on_notify(None, payload)
 
-    on_report.assert_called_once()
-    forwarded = on_report.call_args[0][0]
-    assert forwarded[:2] == BLE_PREPEND
-    assert forwarded[2:] == bytes(payload)
+    on_report.assert_called_once_with(BLE_PREPEND + bytes(payload))
 
 
-def test_on_notify_result_is_bytes():
-    ch, on_report = _make_channel()
-    ch._on_notify(None, bytearray(18))
-    forwarded = on_report.call_args[0][0]
-    assert isinstance(forwarded, bytes)
+# ── _main ────────────────────────────────────────────────────────────────────
 
 
-def test_main_sleeps_when_not_connected():
-    """_main exits its poll loop on _stop without calling _find_peripheral_by_wpid."""
+def test_main_idles_while_inactive():
     ch, _ = _make_channel()
-    ch._link_up.clear()
 
-    sleep_count = [0]
+    async def fake_sleep(_t):
+        ch._stop.set()
 
     async def run():
-        async def fake_sleep(t):
-            sleep_count[0] += 1
-            ch._stop.set()
-
         with patch("cleverswitch.gateway.gatt_channel.asyncio.sleep", side_effect=fake_sleep):
-            with patch.object(ch, "_find_peripheral_by_wpid", new_callable=AsyncMock) as find_mock:
+            with patch.object(ch, "_find_peripheral_by_wpid", new_callable=AsyncMock) as find:
                 await ch._main()
-                find_mock.assert_not_called()
+                find.assert_not_called()
 
     asyncio.run(run())
-    assert sleep_count[0] == 1
 
 
-def test_main_finds_peripheral_when_connected():
+def test_main_connects_when_active_and_peripheral_found():
     ch, _ = _make_channel()
-    ch._link_up.set()
+    ch.activate()
+    device = MagicMock()
 
-    calls = [0]
+    async def fake_connect(_device):
+        ch._stop.set()
 
     async def run():
-        async def fake_find(wpid):
-            calls[0] += 1
-            ch._stop.set()
-            return None
+        with patch.object(ch, "_find_peripheral_by_wpid", AsyncMock(return_value=device)):
+            with patch.object(ch, "_connect_and_listen", side_effect=fake_connect) as connect:
+                await ch._main()
+                connect.assert_called_once_with(device)
 
+    asyncio.run(run())
+
+
+def test_main_logs_missing_peripheral_once_per_activation(caplog):
+    import logging
+
+    ch, _ = _make_channel()
+    ch.activate()
+    lookups = [0]
+
+    async def fake_find(_wpid):
+        lookups[0] += 1
+        if lookups[0] == 3:
+            ch._stop.set()
+        return None
+
+    async def run():
         with patch.object(ch, "_find_peripheral_by_wpid", side_effect=fake_find):
-            with patch("cleverswitch.gateway.gatt_channel.asyncio.sleep", new_callable=AsyncMock):
+            with patch("cleverswitch.gateway.gatt_channel.asyncio.sleep", AsyncMock()):
                 await ch._main()
 
-    asyncio.run(run())
-    assert calls[0] == 1
+    with caplog.at_level(logging.DEBUG):
+        asyncio.run(run())
+
+    assert lookups[0] == 3
+    assert sum("No GATT peripheral" in r.message for r in caplog.records) == 1
 
 
-def test_main_calls_connect_and_listen_when_peripheral_found():
+def test_main_survives_lookup_errors():
     ch, _ = _make_channel()
-    ch._link_up.set()
+    ch.activate()
+    sleeps = [0]
 
-    connect_calls = [0]
+    async def fake_find(_wpid):
+        raise RuntimeError("BLE stack error")
+
+    async def fake_sleep(_t):
+        sleeps[0] += 1
+        ch._stop.set()
 
     async def run():
-        mock_device = MagicMock()
-
-        async def fake_find(wpid):
-            return mock_device
-
-        async def fake_connect(device):
-            connect_calls[0] += 1
-            ch._stop.set()
-
-        with patch.object(ch, "_find_peripheral_by_wpid", side_effect=fake_find):
-            with patch.object(ch, "_connect_and_listen", side_effect=fake_connect):
-                await ch._main()
-
-    asyncio.run(run())
-    assert connect_calls[0] == 1
-
-
-def test_main_sleeps_on_exception():
-    ch, _ = _make_channel()
-    ch._link_up.set()
-
-    sleep_calls = [0]
-
-    async def run():
-        async def fake_find(wpid):
-            raise RuntimeError("BLE stack error")
-
-        async def fake_sleep(t):
-            sleep_calls[0] += 1
-            ch._stop.set()
-
         with patch.object(ch, "_find_peripheral_by_wpid", side_effect=fake_find):
             with patch("cleverswitch.gateway.gatt_channel.asyncio.sleep", side_effect=fake_sleep):
                 await ch._main()
 
     asyncio.run(run())
-    assert sleep_calls[0] == 1
+    assert sleeps[0] == 1
 
 
-def test_connect_and_listen_subscribes_to_notify_characteristic():
-    ch, on_report = _make_channel()
-    ch._link_up.set()
-
-    mock_client = MagicMock()
-    mock_client.start_notify = AsyncMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=False)
-
-    async def run():
-        ch._stop.set()  # exit the inner while immediately
-
-        with patch("cleverswitch.gateway.gatt_channel.BleakClient", return_value=mock_client):
-            await ch._connect_and_listen(MagicMock())
-
-    asyncio.run(run())
-    mock_client.start_notify.assert_called_once()
-    char_uuid = mock_client.start_notify.call_args[0][0]
-    assert "00010001" in char_uuid
+# ── _connect_and_listen ──────────────────────────────────────────────────────
 
 
-def test_connect_and_listen_disconnected_callback_reports_drop():
-    """A GATT drop is reported to the owner, which decides what it means for the link."""
-    ch, on_report = _make_channel()
-    ch._link_up.set()
+def _listen(ch, client, during=None):
+    """Run one session; `during` runs on the first poll of the listen loop."""
+    polls = [0]
 
-    captured_callback = [None]
-
-    mock_client = MagicMock()
-    mock_client.start_notify = AsyncMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=False)
-
-    def fake_bleak_client(device, disconnected_callback=None, **kwargs):
-        captured_callback[0] = disconnected_callback
-        return mock_client
+    async def fake_sleep(_t):
+        polls[0] += 1
+        if during is not None and polls[0] == 1:
+            during()
+        if polls[0] > 3:
+            ch._stop.set()
 
     async def run():
-        ch._stop.set()
+        with patch("cleverswitch.gateway.gatt_channel.BleakClient", return_value=client) as cls:
+            with patch("cleverswitch.gateway.gatt_channel.asyncio.sleep", side_effect=fake_sleep):
+                await ch._connect_and_listen(MagicMock())
+        return cls
 
-        with patch("cleverswitch.gateway.gatt_channel.BleakClient", side_effect=fake_bleak_client):
-            await ch._connect_and_listen(MagicMock())
-
-    asyncio.run(run())
-
-    assert captured_callback[0] is not None
-
-    captured_callback[0](mock_client)
-    ch._on_drop.assert_called_once_with()
+    return asyncio.run(run())
 
 
-def test_connect_and_listen_setssubscribed_event():
+def test_session_subscribes_to_the_hidpp_characteristic():
     ch, _ = _make_channel()
-    ch._link_up.set()
+    ch.activate()
+    client = _bleak_client()
+
+    _listen(ch, client)
+
+    client.connect.assert_awaited_once()
+    assert client.start_notify.call_args[0][0] == gatt_channel.LOGI_HIDPP_CHAR
+
+
+def test_session_is_live_while_subscribed():
+    ch, _ = _make_channel()
+    ch.activate()
+    seen = []
+
+    _listen(ch, _bleak_client(), during=lambda: seen.append((ch.subscribed.is_set(), ch._client is not None)))
+
+    assert seen == [(True, True)]
     assert not ch.subscribed.is_set()
+    assert ch._client is None
 
-    mock_client = MagicMock()
-    mock_client.start_notify = AsyncMock()
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+def test_session_ends_when_deactivated():
+    ch, _ = _make_channel()
+    ch.activate()
+    client = _bleak_client()
+
+    _listen(ch, client, during=ch.deactivate)
+
+    client.disconnect.assert_awaited_once()
+    ch._on_state.assert_called_once_with(True)  # HID went away; nothing to re-arm
+
+
+def test_shutdown_reports_no_drop():
+    """A re-arm during shutdown would re-divert keys that shutdown just un-diverted."""
+    ch, _ = _make_channel()
+    ch.activate()
+
+    _listen(ch, _bleak_client(), during=ch._stop.set)
+
+    ch._on_state.assert_called_once_with(True)
+
+
+def test_session_ends_when_drop_callback_fires():
+    ch, _ = _make_channel()
+    ch.activate()
+    client = _bleak_client()
+    holder = {}
+
+    def capture(_device, disconnected_callback=None):
+        holder["cb"] = disconnected_callback
+        return client
+
+    async def fake_sleep(_t):
+        holder["cb"](client)
 
     async def run():
-        ch._stop.set()
-        with patch("cleverswitch.gateway.gatt_channel.BleakClient", return_value=mock_client):
-            await ch._connect_and_listen(MagicMock())
+        with patch("cleverswitch.gateway.gatt_channel.BleakClient", side_effect=capture):
+            with patch("cleverswitch.gateway.gatt_channel.asyncio.sleep", side_effect=fake_sleep):
+                await ch._connect_and_listen(MagicMock())
 
     asyncio.run(run())
-    assert ch.subscribed.is_set()
+
+    assert not ch._stop.is_set()
+    assert [c.args for c in ch._on_state.call_args_list] == [(True,), (False,)]
 
 
-def test_find_peripheral_by_wpid_returns_matching_device():
-    ch, _ = _make_channel(pid=0xB023)
-
-    target_wpid = 0xB023
-    # PnP ID: bytes [3:5] little-endian = 0xB023
-    pnp_bytes = bytearray([0x01, 0x6D, 0x04, 0x23, 0xB0, 0x00, 0x00])
-
-    mock_peripheral = MagicMock()
-    mock_peripheral.identifier.return_value.UUIDString.return_value = "UUID-1"
-    mock_peripheral.name.return_value = "MX Keys"
-
-    mock_delegate = MagicMock()
-    mock_delegate.wait_until_ready = AsyncMock()
-    mock_delegate.central_manager.retrieveConnectedPeripheralsWithServices_.return_value = [mock_peripheral]
-
-    mock_probe = MagicMock()
-    mock_probe.read_gatt_char = AsyncMock(return_value=pnp_bytes)
-    mock_probe.__aenter__ = AsyncMock(return_value=mock_probe)
-    mock_probe.__aexit__ = AsyncMock(return_value=False)
-
-    mock_ble_device = MagicMock()
-    mock_ble_device.address = "UUID-1"
-
-    async def run():
-        with patch("cleverswitch.gateway.gatt_channel.CentralManagerDelegate", return_value=mock_delegate):
-            with patch("cleverswitch.gateway.gatt_channel.CBUUID"):
-                with patch("cleverswitch.gateway.gatt_channel.BLEDevice", return_value=mock_ble_device):
-                    with patch("cleverswitch.gateway.gatt_channel.BleakClient", return_value=mock_probe):
-                        result = await ch._find_peripheral_by_wpid(target_wpid)
-        return result
-
-    result = asyncio.run(run())
-    assert result is mock_ble_device
-
-
-def test_find_peripheral_by_wpid_returns_none_when_no_match():
-    ch, _ = _make_channel(pid=0xB023)
-
-    # PnP ID: bytes [3:5] = 0xB024 — wrong device
-    pnp_bytes = bytearray([0x01, 0x6D, 0x04, 0x24, 0xB0, 0x00, 0x00])
-
-    mock_peripheral = MagicMock()
-    mock_peripheral.identifier.return_value.UUIDString.return_value = "UUID-2"
-    mock_peripheral.name.return_value = "Other Device"
-
-    mock_delegate = MagicMock()
-    mock_delegate.wait_until_ready = AsyncMock()
-    mock_delegate.central_manager.retrieveConnectedPeripheralsWithServices_.return_value = [mock_peripheral]
-
-    mock_probe = MagicMock()
-    mock_probe.read_gatt_char = AsyncMock(return_value=pnp_bytes)
-    mock_probe.__aenter__ = AsyncMock(return_value=mock_probe)
-    mock_probe.__aexit__ = AsyncMock(return_value=False)
-
-    mock_ble_device = MagicMock()
-    mock_ble_device.address = "UUID-2"
-
-    async def run():
-        with patch("cleverswitch.gateway.gatt_channel.CentralManagerDelegate", return_value=mock_delegate):
-            with patch("cleverswitch.gateway.gatt_channel.CBUUID"):
-                with patch("cleverswitch.gateway.gatt_channel.BLEDevice", return_value=mock_ble_device):
-                    with patch("cleverswitch.gateway.gatt_channel.BleakClient", return_value=mock_probe):
-                        result = await ch._find_peripheral_by_wpid(0xB023)
-        return result
-
-    result = asyncio.run(run())
-    assert result is None
-
-
-def test_find_peripheral_by_wpid_returns_none_when_no_candidates():
+def test_session_ends_when_client_reports_disconnected_without_callback():
+    """Bluetooth powered off mid-session: CoreBluetooth never fires the drop callback."""
     ch, _ = _make_channel()
+    ch.activate()
+    client = _bleak_client()
 
-    mock_delegate = MagicMock()
-    mock_delegate.wait_until_ready = AsyncMock()
-    mock_delegate.central_manager.retrieveConnectedPeripheralsWithServices_.return_value = []
+    def power_off():
+        client.is_connected = False
+
+    _listen(ch, client, during=power_off)
+
+    assert not ch._stop.is_set()
+    assert [c.args for c in ch._on_state.call_args_list] == [(True,), (False,)]
+
+
+def test_session_drop_never_touches_anything_but_its_own_state():
+    ch, on_report = _make_channel()
+    ch.activate()
+
+    _listen(ch, _bleak_client(), during=ch.deactivate)
+
+    on_report.assert_not_called()
+    assert not ch._stop.is_set()
+
+
+def test_failed_subscribe_reports_no_state_and_disconnects():
+    ch, _ = _make_channel()
+    ch.activate()
+    client = _bleak_client()
+    client.start_notify.side_effect = RuntimeError("no such characteristic")
+
+    with pytest.raises(RuntimeError):
+        _listen(ch, client)
+
+    ch._on_state.assert_not_called()
+    client.disconnect.assert_awaited_once()
+
+
+def test_hung_disconnect_is_abandoned_after_timeout(mocker):
+    mocker.patch("cleverswitch.gateway.gatt_channel._DISCONNECT_TIMEOUT", 0.01)
+    ch, _ = _make_channel()
+    client = _bleak_client()
+
+    async def never_confirms():
+        await asyncio.Event().wait()
+
+    client.disconnect.side_effect = never_confirms
+
+    asyncio.run(asyncio.wait_for(ch._disconnect(client), 1.0))  # must not hang
+
+
+# ── _find_peripheral_by_wpid ─────────────────────────────────────────────────
+
+
+def _peripheral(uuid):
+    cb = MagicMock()
+    cb.identifier.return_value.UUIDString.return_value = uuid
+    cb.name.return_value = uuid
+    return cb
+
+
+def _ble_device(uuid, _name, _details):
+    device = MagicMock()
+    device.address = uuid
+    return device
+
+
+def _find(ch, peripherals, pnp_by_uuid, delegate=None):
+    delegate = delegate or MagicMock()
+    delegate.wait_until_ready = AsyncMock()
+    delegate.central_manager.retrieveConnectedPeripheralsWithServices_.return_value = peripherals
+    probed = []
+
+    def make_client(device):
+        probed.append(device.address)
+        client = _bleak_client()
+        pnp = pnp_by_uuid.get(device.address)
+        client.read_gatt_char = AsyncMock(return_value=pnp, side_effect=None if pnp else Exception("BT error"))
+        return client
 
     async def run():
-        with patch("cleverswitch.gateway.gatt_channel.CentralManagerDelegate", return_value=mock_delegate):
-            with patch("cleverswitch.gateway.gatt_channel.CBUUID"):
-                result = await ch._find_peripheral_by_wpid(0xB023)
-        return result
+        with (
+            patch("cleverswitch.gateway.gatt_channel.CentralManagerDelegate", return_value=delegate) as delegate_cls,
+            patch("cleverswitch.gateway.gatt_channel.CBUUID"),
+            patch("cleverswitch.gateway.gatt_channel.BLEDevice", side_effect=_ble_device),
+            patch("cleverswitch.gateway.gatt_channel.BleakClient", side_effect=make_client),
+        ):
+            result = await ch._find_peripheral_by_wpid(ch._pid)
+        return result, probed, delegate_cls
 
-    result = asyncio.run(run())
-    assert result is None
+    return asyncio.run(run())
 
 
-def test_find_peripheral_by_wpid_skips_probe_exception():
-    """When PnP probe raises, that candidate is skipped and None is returned."""
+def test_find_returns_the_peripheral_whose_pnp_matches():
     ch, _ = _make_channel(pid=0xB023)
+    result, _, _ = _find(ch, [_peripheral("KB"), _peripheral("MOUSE")], {"KB": KEYBOARD_PNP, "MOUSE": MOUSE_PNP})
+    assert result.address == "MOUSE"
 
-    mock_peripheral = MagicMock()
-    mock_peripheral.identifier.return_value.UUIDString.return_value = "UUID-3"
-    mock_peripheral.name.return_value = "Failing Device"
 
-    mock_delegate = MagicMock()
-    mock_delegate.wait_until_ready = AsyncMock()
-    mock_delegate.central_manager.retrieveConnectedPeripheralsWithServices_.return_value = [mock_peripheral]
+def test_find_returns_none_when_nothing_matches():
+    ch, _ = _make_channel(pid=0xB023)
+    result, _, _ = _find(ch, [_peripheral("KB")], {"KB": KEYBOARD_PNP})
+    assert result is None
 
-    mock_probe = MagicMock()
-    mock_probe.read_gatt_char = AsyncMock(side_effect=Exception("BT error"))
-    mock_probe.__aenter__ = AsyncMock(return_value=mock_probe)
-    mock_probe.__aexit__ = AsyncMock(return_value=False)
 
-    mock_ble_device = MagicMock()
-    mock_ble_device.address = "UUID-3"
+def test_find_returns_none_without_candidates():
+    ch, _ = _make_channel()
+    result, probed, _ = _find(ch, [], {})
+    assert result is None
+    assert probed == []
+
+
+def test_find_skips_a_failing_probe():
+    ch, _ = _make_channel(pid=0xB023)
+    result, _, _ = _find(ch, [_peripheral("BROKEN"), _peripheral("MOUSE")], {"MOUSE": MOUSE_PNP})
+    assert result.address == "MOUSE"
+
+
+def test_find_remembers_the_match_and_skips_probing_next_time():
+    ch, _ = _make_channel(pid=0xB023)
+    peripherals = [_peripheral("KB"), _peripheral("MOUSE")]
+    pnp = {"KB": KEYBOARD_PNP, "MOUSE": MOUSE_PNP}
+    _find(ch, peripherals, pnp)
+
+    result, probed, _ = _find(ch, peripherals, pnp, delegate=ch._delegate)
+
+    assert result.address == "MOUSE"
+    assert probed == []
+
+
+def test_find_reuses_one_central_manager_delegate():
+    ch, _ = _make_channel(pid=0xB023)
+    _find(ch, [], {})
+    first = ch._delegate
+
+    _, _, delegate_cls = _find(ch, [], {}, delegate=first)
+
+    assert ch._delegate is first
+    delegate_cls.assert_not_called()
+
+
+def test_probe_always_disconnects():
+    ch, _ = _make_channel(pid=0xB023)
+    client = _bleak_client()
+    client.read_gatt_char = AsyncMock(return_value=MOUSE_PNP)
 
     async def run():
-        with patch("cleverswitch.gateway.gatt_channel.CentralManagerDelegate", return_value=mock_delegate):
-            with patch("cleverswitch.gateway.gatt_channel.CBUUID"):
-                with patch("cleverswitch.gateway.gatt_channel.BLEDevice", return_value=mock_ble_device):
-                    with patch("cleverswitch.gateway.gatt_channel.BleakClient", return_value=mock_probe):
-                        result = await ch._find_peripheral_by_wpid(0xB023)
-        return result
+        with patch("cleverswitch.gateway.gatt_channel.BleakClient", return_value=client):
+            return await ch._probe_wpid(MagicMock())
 
-    result = asyncio.run(run())
-    assert result is None
+    assert asyncio.run(run()) == 0xB023
+    client.disconnect.assert_awaited_once()
 
 
 # ── write: ATT write mode (issue #109) ───────────────────────────────────────

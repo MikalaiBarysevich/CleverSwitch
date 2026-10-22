@@ -11,6 +11,10 @@ LOGI_HIDPP_CHAR = "00010001-0000-1000-8000-011f2000046d"
 PNP_ID_CHAR = "00002a50-0000-1000-8000-00805f9b34fb"
 BLE_PREPEND = bytes([0x11, 0xFF])
 
+# bleak's disconnect awaits a CoreBluetooth confirmation that never arrives when Bluetooth is
+# powered off mid-session; without a bound the channel's loop hangs and never reconnects.
+_DISCONNECT_TIMEOUT = 5.0
+
 try:
     from bleak import BleakClient
     from bleak.backends.corebluetooth.CentralManagerDelegate import CentralManagerDelegate
@@ -35,28 +39,39 @@ class GattChannel:
     20-byte HID++ long reports and handed to `on_report`; outbound writes are marshalled onto that
     thread by `write()`.
 
-    The channel runs only while `link_up` is set, and reports a GATT drop through `on_drop`.
+    The channel runs only while activated. It reports through `on_state` when its subscription
+    comes up, and when it drops on its own while still active. It never changes anyone else's
+    state: a GATT drop is not a device drop.
     """
 
     def __init__(
         self,
         pid: int,
         on_report: Callable[[bytes], None],
-        link_up: threading.Event,
-        on_drop: Callable[[], None],
+        on_state: Callable[[bool], None],
         stop: threading.Event,
     ) -> None:
         self._pid = pid
         self._on_report = on_report
-        self._link_up = link_up
-        self._on_drop = on_drop
+        self._on_state = on_state
         self._stop = stop
+        self._active = threading.Event()
         self._client: BleakClient | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        # Created on the channel's own loop and reused; a new one per lookup leaks a CBCentralManager.
+        self._delegate: CentralManagerDelegate | None = None
+        # CoreBluetooth identifier of the peripheral that matched our pid, so reconnects skip probing.
+        self._peripheral_id: str | None = None
         self.subscribed = threading.Event()
 
     def start(self) -> None:
         Thread(target=self._run_loop, daemon=True).start()
+
+    def activate(self) -> None:
+        self._active.set()
+
+    def deactivate(self) -> None:
+        self._active.clear()
 
     def write(self, msg: bytes, timeout: float = 2.0) -> bool:
         # Per the HID++ BLE transport, function-call responses come back on the same channel as
@@ -94,38 +109,62 @@ class GattChannel:
             loop.close()
 
     async def _main(self) -> None:
+        reported_missing = False
         while not self._stop.is_set():
-            if not self._link_up.is_set():
+            if not self._active.is_set():
+                reported_missing = False
                 await asyncio.sleep(0.5)
                 continue
             try:
                 ble_device = await self._find_peripheral_by_wpid(self._pid)
                 if ble_device is None:
+                    if not reported_missing:
+                        log.debug(f"No GATT peripheral for pid=0x{self._pid:04X} yet, retrying")
+                        reported_missing = True
                     await asyncio.sleep(2.0)
                     continue
+                reported_missing = False
                 await self._connect_and_listen(ble_device)
             except Exception as e:
                 log.warning(f"BLE notify error pid=0x{self._pid:04X}: {e}")
                 await asyncio.sleep(2.0)
 
     async def _connect_and_listen(self, ble_device) -> None:
+        dropped = threading.Event()
+
         def disconnected_callback(_client) -> None:
             log.debug(f"BLE notify dropped pid=0x{self._pid:04X}")
-            self._client = None
-            self._on_drop()
+            dropped.set()
 
-        async with BleakClient(ble_device, disconnected_callback=disconnected_callback) as client:
+        client = BleakClient(ble_device, disconnected_callback=disconnected_callback)
+        await client.connect()
+        try:
             await client.start_notify(LOGI_HIDPP_CHAR, self._on_notify)
             self._client = client
             self.subscribed.set()
             log.debug(f"BLE notify subscribed pid=0x{self._pid:04X}")
-            try:
-                while self._link_up.is_set() and not self._stop.is_set():
-                    await asyncio.sleep(0.5)
-            finally:
-                # No explicit stop_notify: leaving the `async with` disconnects the client, which
-                # tears the subscription down anyway. Calling it here throws on a remote drop.
-                self._client = None
+            self._on_state(True)
+            # is_connected is checked too: the drop callback does not fire when Bluetooth is
+            # powered off mid-session.
+            while self._active.is_set() and not self._stop.is_set() and not dropped.is_set() and client.is_connected:
+                await asyncio.sleep(0.5)
+        finally:
+            was_up = self.subscribed.is_set()
+            self._client = None
+            self.subscribed.clear()
+            # Only a drop on its own is news. Ending because HID went away or we are shutting down
+            # must stay silent: a re-arm then would re-divert keys that shutdown just un-diverted.
+            if was_up and self._active.is_set() and not self._stop.is_set():
+                self._on_state(False)
+            # No explicit stop_notify: disconnecting tears the subscription down anyway, and
+            # calling it throws on a remote drop.
+            await self._disconnect(client)
+
+    async def _disconnect(self, client) -> None:
+        try:
+            await asyncio.wait_for(client.disconnect(), _DISCONNECT_TIMEOUT)
+        except Exception as e:
+            log.debug(f"BLE disconnect did not complete for pid=0x{self._pid:04X}: {e!r}")
 
     def _on_notify(self, _sender, data: bytearray) -> None:
         raw = BLE_PREPEND + bytes(data)
@@ -133,7 +172,9 @@ class GattChannel:
         self._on_report(raw)
 
     async def _find_peripheral_by_wpid(self, target_wpid: int):
-        delegate = CentralManagerDelegate()
+        if self._delegate is None:
+            self._delegate = CentralManagerDelegate()
+        delegate = self._delegate
         await delegate.wait_until_ready()
         candidates = (
             delegate.central_manager.retrieveConnectedPeripheralsWithServices_(
@@ -141,13 +182,24 @@ class GattChannel:
             )
             or []
         )
-        for cb in candidates:
-            ble_device = BLEDevice(cb.identifier().UUIDString(), cb.name() or "unknown", (cb, delegate))
-            try:
-                async with BleakClient(ble_device) as probe:
-                    pnp = await probe.read_gatt_char(PNP_ID_CHAR)
-                    if int.from_bytes(pnp[3:5], "little") == target_wpid:
-                        return ble_device
-            except Exception as e:
-                log.debug(f"PnP probe failed for {ble_device.address}: {e}")
+        devices = [BLEDevice(cb.identifier().UUIDString(), cb.name() or "unknown", (cb, delegate)) for cb in candidates]
+        for ble_device in devices:
+            if ble_device.address == self._peripheral_id:
+                return ble_device
+        for ble_device in devices:
+            if await self._probe_wpid(ble_device) == target_wpid:
+                self._peripheral_id = ble_device.address
+                return ble_device
         return None
+
+    async def _probe_wpid(self, ble_device) -> int | None:
+        probe = BleakClient(ble_device)
+        try:
+            await probe.connect()
+            pnp = await probe.read_gatt_char(PNP_ID_CHAR)
+            return int.from_bytes(pnp[3:5], "little")
+        except Exception as e:
+            log.debug(f"PnP probe failed for {ble_device.address}: {e}")
+            return None
+        finally:
+            await self._disconnect(probe)
