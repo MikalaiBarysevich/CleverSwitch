@@ -15,10 +15,12 @@ from ..subscriber.analytics_rejection_subscriber import AnalyticsRejectionSubscr
 from ..subscriber.change_host_notification_subscriber import ChangeHostNotificationSubscriber
 from ..subscriber.device_connected_subscriber import DeviceConnectionSubscriber
 from ..subscriber.device_info_subscriber import DeviceInfoSubscriber
+from ..subscriber.direct_device_connection_subscriber import DirectDeviceConnectionSubscriber
 from ..subscriber.event_hook_subscriber import EventHookSubscriber
 from ..subscriber.external_unset_flag_subscriber import ExternalUnsetFlagSubscriber
 from ..subscriber.host_change_subscriber import HostChangeSubscriber
 from ..subscriber.info_task_orchestrator import InfoTaskOrchestrator
+from ..subscriber.receiver_arming_subscriber import ReceiverArmingSubscriber
 from ..subscriber.set_report_flag_subscriber import SetReportFlagSubscriber
 from ..subscriber.transport_disconnection_subscriber import TransportDisconnectionSubscriber
 from ..subscriber.wireless_status_subscriber import WirelessStatusSubscriber
@@ -98,4 +100,6 @@ def _init_subscribers(topics: Topics, device_registry: LogiDeviceRegistry, confi
     ChangeHostNotificationSubscriber(device_registry, topics)
     WirelessStatusSubscriber(device_registry, topics)
     TransportDisconnectionSubscriber(device_registry, topics)
+    ReceiverArmingSubscriber(topics)
+    DirectDeviceConnectionSubscriber(topics)
     EventHookSubscriber(config.hooks, device_registry, topics)

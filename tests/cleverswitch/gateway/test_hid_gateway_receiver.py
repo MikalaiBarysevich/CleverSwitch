@@ -5,13 +5,12 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from cleverswitch.errors.errors import TransportError
+from cleverswitch.event.transport_connected_event import TransportConnectedEvent
 from cleverswitch.event.transport_disconnected_event import TransportDisconnectedEvent
 from cleverswitch.gateway.hid_gateway_receiver import HidGatewayReceiver
 from cleverswitch.hidpp.constants import BOLT_PID
 from cleverswitch.hidpp.transport import HidDeviceInfo
 from cleverswitch.listener.event_listener import EventListener
-from cleverswitch.topic.topic import Topic
-from cleverswitch.topic.topics import Topics
 
 
 def _device_info(pid: int = BOLT_PID) -> HidDeviceInfo:
@@ -20,41 +19,27 @@ def _device_info(pid: int = BOLT_PID) -> HidDeviceInfo:
     )
 
 
-def _make_topics() -> Topics:
-    return Topics(
-        hid_event=MagicMock(spec=Topic),
-        write=MagicMock(spec=Topic),
-        device_info=MagicMock(spec=Topic),
-        flags=MagicMock(spec=Topic),
-        info_progress=MagicMock(spec=Topic),
-    )
-
-
-def _make_gateway(pid: int = BOLT_PID) -> tuple[HidGatewayReceiver, MagicMock, Topics]:
+def _make_gateway(pid: int = BOLT_PID) -> tuple[HidGatewayReceiver, MagicMock]:
     event_listener = MagicMock(spec=EventListener)
-    topics = _make_topics()
-    trigger = MagicMock()
-    gw = HidGatewayReceiver(_device_info(pid), event_listener, topics, trigger)
-    return gw, trigger, topics
+    return HidGatewayReceiver(_device_info(pid), event_listener), event_listener
+
+
+def _emitted(listener: MagicMock) -> list:
+    return [c.args[0] for c in listener.emit.call_args_list]
 
 
 # ── _set_connected(True) ─────────────────────────────────────────────────────
 
 
-def test_set_connected_true_calls_trigger():
-    gw, trigger, topics = _make_gateway()
+def test_set_connected_true_emits_transport_connected():
+    gw, listener = _make_gateway()
     gw._set_connected(True)
-    trigger.trigger.assert_called_once()
-
-
-def test_set_connected_true_does_not_publish_transport_disconnected():
-    gw, trigger, topics = _make_gateway()
-    gw._set_connected(True)
-    topics.hid_event.publish.assert_not_called()
+    assert _emitted(listener) == [TransportConnectedEvent(slot=0, pid=BOLT_PID, connection_type="receiver")]
+    listener.listen.assert_not_called()
 
 
 def test_set_connected_true_updates_connected_flag():
-    gw, trigger, topics = _make_gateway()
+    gw, _ = _make_gateway()
     gw._set_connected(True)
     assert gw._connected is True
     assert gw._ever_connected is True
@@ -63,42 +48,25 @@ def test_set_connected_true_updates_connected_flag():
 # ── _set_connected(False) ────────────────────────────────────────────────────
 
 
-def test_set_connected_false_publishes_transport_disconnected_event():
-    gw, trigger, topics = _make_gateway(pid=BOLT_PID)
+def test_set_connected_false_emits_transport_disconnected():
+    gw, listener = _make_gateway()
     gw._set_connected(False)
-
-    topics.hid_event.publish.assert_called_once()
-    event = topics.hid_event.publish.call_args[0][0]
-    assert isinstance(event, TransportDisconnectedEvent)
-    assert event.pid == BOLT_PID
-
-
-def test_set_connected_false_does_not_call_trigger():
-    gw, trigger, topics = _make_gateway()
-    gw._set_connected(False)
-    trigger.trigger.assert_not_called()
+    assert _emitted(listener) == [TransportDisconnectedEvent(slot=0, pid=BOLT_PID)]
 
 
 def test_set_connected_false_updates_connected_flag():
-    gw, trigger, topics = _make_gateway()
+    gw, _ = _make_gateway()
     gw._connected = True
     gw._set_connected(False)
     assert gw._connected is False
 
 
-def test_set_connected_false_publishes_with_slot_zero():
-    gw, trigger, topics = _make_gateway()
-    gw._set_connected(False)
-    event = topics.hid_event.publish.call_args[0][0]
-    assert event.slot == 0
-
-
 # ── Shutdown ─────────────────────────────────────────────────────────────────
 
 
-def test_stopped_read_failure_publishes_no_transport_disconnected():
+def test_stopped_read_failure_emits_no_transport_disconnected():
     """close() closing the transport makes the in-flight read fail — that is not a real disconnect."""
-    gw, trigger, topics = _make_gateway()
+    gw, listener = _make_gateway()
     gw._transport = MagicMock()
 
     def read_after_close():
@@ -107,21 +75,48 @@ def test_stopped_read_failure_publishes_no_transport_disconnected():
 
     gw._transport.read.side_effect = read_after_close
     gw._set_connected(True)
-    topics.hid_event.publish.reset_mock()
+    listener.emit.reset_mock()
 
     gw.run()
 
-    topics.hid_event.publish.assert_not_called()
+    listener.emit.assert_not_called()
 
 
 # ── Reconnect after disconnect ───────────────────────────────────────────────
 
 
-def test_reconnect_after_disconnect_calls_trigger_again():
-    gw, trigger, topics = _make_gateway()
+def test_reconnect_after_disconnect_emits_connected_again():
+    gw, listener = _make_gateway()
 
     gw._set_connected(True)
     gw._set_connected(False)
     gw._set_connected(True)
 
-    assert trigger.trigger.call_count == 2
+    assert [type(e) for e in _emitted(listener)] == [
+        TransportConnectedEvent,
+        TransportDisconnectedEvent,
+        TransportConnectedEvent,
+    ]
+
+
+# ── Write failure ────────────────────────────────────────────────────────────
+
+
+def test_write_failure_emits_transport_disconnected_from_reader(fake_transport, mocker):
+    gw, listener = _make_gateway()
+    gw._transport = fake_transport
+    gw._set_connected(True)
+    listener.emit.reset_mock()
+    fake_transport.fail_next = TransportError("write failed")
+
+    gw._write(bytes([0x11]) + bytes(19))
+    listener.emit.assert_not_called()
+
+    def stop_after(state):
+        type(gw)._set_connected(gw, state)
+        gw._stop.set()
+
+    mocker.patch.object(gw, "_set_connected", side_effect=stop_after)
+    gw.run()
+
+    assert _emitted(listener) == [TransportDisconnectedEvent(slot=0, pid=BOLT_PID)]

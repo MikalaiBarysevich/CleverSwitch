@@ -1,0 +1,90 @@
+"""Unit tests for discovery/link_factory.py."""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+import pytest
+
+from cleverswitch.discovery.link_factory import create_link
+from cleverswitch.gateway.hid_gateway_ble import HidGatewayBLE
+from cleverswitch.gateway.hid_gateway_bt import HidGatewayBT
+from cleverswitch.gateway.hid_gateway_receiver import HidGatewayReceiver
+from cleverswitch.gateway.write_router import ReportIdWriteRouter, WriteRouter
+from cleverswitch.hidpp.constants import BOLT_PID
+from cleverswitch.hidpp.transport import HidDeviceInfo
+from cleverswitch.topic.topic import Topic
+from cleverswitch.topic.topics import Topics
+
+BT_PID = 0xB023
+
+
+def _make_topics():
+    return Topics(
+        hid_event=MagicMock(spec=Topic),
+        write=MagicMock(spec=Topic),
+        device_info=MagicMock(spec=Topic),
+        flags=MagicMock(spec=Topic),
+        info_progress=MagicMock(spec=Topic),
+    )
+
+
+def _receiver(usage=0x0002):
+    return HidDeviceInfo(
+        path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=usage, connection_type="receiver"
+    )
+
+
+def _bluetooth():
+    return HidDeviceInfo(
+        path=b"/dev/hidraw1", vid=0x046D, pid=BT_PID, usage_page=0xFF43, usage=0x0202, connection_type="bluetooth"
+    )
+
+
+def _system(mocker, name):
+    mocker.patch("cleverswitch.discovery.link_factory.get_system", return_value=name)
+
+
+@pytest.mark.parametrize("system", ["Linux", "Darwin", "Windows"])
+def test_receiver_gets_receiver_gateways(mocker, system):
+    _system(mocker, system)
+    link = create_link(BOLT_PID, [_receiver(0x0001), _receiver(0x0002)], _make_topics())
+    assert [type(g) for g in link._gateways] == [HidGatewayReceiver, HidGatewayReceiver]
+
+
+def test_bluetooth_on_linux_gets_bt_gateway(mocker):
+    _system(mocker, "Linux")
+    link = create_link(BT_PID, [_bluetooth()], _make_topics())
+    assert [type(g) for g in link._gateways] == [HidGatewayBT]
+
+
+def test_bluetooth_on_darwin_gets_ble_gateway(mocker):
+    _system(mocker, "Darwin")
+    link = create_link(BT_PID, [_bluetooth()], _make_topics())
+    assert [type(g) for g in link._gateways] == [HidGatewayBLE]
+
+
+def test_windows_routes_by_report_id(mocker):
+    _system(mocker, "Windows")
+    link = create_link(BOLT_PID, [_receiver()], _make_topics())
+    assert isinstance(link._router, ReportIdWriteRouter)
+
+
+@pytest.mark.parametrize("system", ["Linux", "Darwin"])
+def test_other_platforms_use_default_router(mocker, system):
+    _system(mocker, system)
+    link = create_link(BOLT_PID, [_receiver()], _make_topics())
+    assert type(link._router) is WriteRouter
+
+
+def test_gateways_share_the_link_listener(mocker):
+    _system(mocker, "Windows")
+    link = create_link(BOLT_PID, [_receiver(0x0001), _receiver(0x0002)], _make_topics())
+    assert all(g._event_listener is link._listener for g in link._gateways)
+
+
+def test_link_subscribes_to_write_topic(mocker):
+    _system(mocker, "Linux")
+    topics = _make_topics()
+    link = create_link(BOLT_PID, [_receiver()], topics)
+    topics.write.subscribe.assert_called_once_with(link)

@@ -2,6 +2,7 @@ import logging
 import queue
 from threading import Thread
 
+from ..event.event import Event
 from ..hidpp.transport import HidDeviceInfo
 from ..parser.parser import parse
 from ..topic.topics import Topics
@@ -19,13 +20,17 @@ class EventListener(Thread):
     def listen(self, raw_event: bytes) -> None:
         self._event_queue.put(raw_event)
 
+    # Typed events share the raw-report queue so they stay in order with this device's reports.
+    def emit(self, event: Event) -> None:
+        self._event_queue.put(event)
+
     def run(self):
         while True:
-            raw_event = self._event_queue.get()
+            item = self._event_queue.get()
             # One malformed report must not kill this thread — it is the only path from HID to
             # the topics, so its death makes the whole process deaf. Mirrors Topic._notify.
             try:
-                parsed_event = parse(self._device_info.pid, raw_event)
+                parsed_event = item if isinstance(item, Event) else parse(self._device_info.pid, item)
                 if parsed_event is None:
                     continue
 

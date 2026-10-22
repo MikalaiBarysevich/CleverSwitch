@@ -1,3 +1,5 @@
+from ..event.transport_connected_event import TransportConnectedEvent
+from ..event.transport_disconnected_event import TransportDisconnectedEvent
 from ..gateway.hid_gateway import HidGateway
 
 
@@ -7,14 +9,13 @@ class HidGatewayBT(HidGateway):
 
     def _set_connected(self, state: bool) -> None:
         super()._set_connected(state)
-        self._event_listener.listen(self._create_connection_event())
+        self._emit_state(state)
 
-    def _create_connection_event(self) -> bytes:
+    # The state is passed in rather than read from _connected, which another thread may have
+    # changed by the time the event is built.
+    def _emit_state(self, state: bool) -> None:
         pid = self._device_info.pid
-        # Synthesize a HID++ 1.0 Device Connection short report (0x41)
-        # Layout: [report_id, slot, 0x41, 0x00, r1, wpid_lo, wpid_hi]
-        # r1: bits[3:0]=device_type (unknown=0), bit[6]: 0=connected, 1=disconnected
-        r1 = 0x00 if self._connected else 0x40
-        wpid_lo = pid & 0xFF
-        wpid_hi = (pid >> 8) & 0xFF
-        return bytes([0x10, 0xFF, 0x41, 0x00, r1, wpid_lo, wpid_hi])
+        if state:
+            self._event_listener.emit(TransportConnectedEvent(slot=0, pid=pid, connection_type="bluetooth"))
+        else:
+            self._event_listener.emit(TransportDisconnectedEvent(slot=0, pid=pid))

@@ -20,7 +20,7 @@ Communication is via **HID++ 2.0** directly over the Logitech **Bolt USB receive
 - **Python 3.14+**
 - `hid` — cross-platform HID access
 - `pyyaml` — config file parsing
-- `bleak` + `pyobjc-framework-CoreBluetooth` — macOS-only, used by `HidGatewayBLE` for the BLE notify path
+- `bleak` + `pyobjc-framework-CoreBluetooth` — macOS-only, used by `GattChannel` for the BLE notify path
 - `pytest` + `pytest-mock` + `pytest-cov` — testing
 - `ruff` — linting and formatting (line-length 120)
 - All log calls must use f-strings: `log.info(f"wpid=0x{wpid:04X}")` — never `%s`/`%d` style. `wpid` and `pid` values must always be formatted as `0x{value:04X}`.
@@ -66,13 +66,23 @@ The core of the architecture is a typed pub-sub system with one daemon thread pe
 
 ```
 discovery.py
+  └── link_factory.create_link(pid, collections) → DeviceLink — one per HID product id
+      ├── the only write-topic subscriber for that pid; its WriteRouter picks the collection gateway
+      │     (ReportIdWriteRouter on Windows, where short/long reports are separate collections;
+      │     first gateway elsewhere) and calls HidGateway.submit()
   └── HidGatewayReceiver (Bolt/Unifying) | HidGatewayBLE (macOS BT) | HidGatewayBT — one per HID collection, all subclass HidGateway
       └── EventListener (thread, reads raw bytes → parses → publishes to hid_event)
-      └── On (re)connect: HidGatewayReceiver calls ConnectionTrigger.trigger() → enables HID++
-           notifications + enumerates paired devices → DeviceConnectedEvent(s) on hid_event
-      └── On transport drop: HidGatewayReceiver publishes TransportDisconnectedEvent(pid);
+      └── On (re)connect: HidGatewayReceiver emits TransportConnectedEvent(pid, "receiver");
+           ReceiverArmingSubscriber enables HID++ notifications + enumerates paired devices
+           → DeviceConnectedEvent(s) on hid_event
+      └── On transport drop: HidGatewayReceiver emits TransportDisconnectedEvent(pid) through its
+           EventListener (EventListener.emit queues typed events in order with raw reports);
            TransportDisconnectionSubscriber fans out one DeviceConnectedEvent(link_established=False)
            per registered device whose pid matches
+      └── HidGatewayBT / HidGatewayBLE emit TransportConnectedEvent(pid, "bluetooth") /
+           TransportDisconnectedEvent(pid) the same way; DirectDeviceConnectionSubscriber turns the
+           connect into DeviceConnectedEvent(slot=0xFF, wpid=pid), and the disconnect takes the
+           same TransportDisconnectionSubscriber fan-out
 
 DeviceConnectionSubscriber.notify(DeviceConnectedEvent)
   ├── idempotence: skips if logi_device.connected == event.link_established (absorbs duplicates
@@ -122,21 +132,23 @@ Each task type has an `sw_id` constant in `subscriber/task/constants.py`. The sw
 
 ### Receiver enable-notifications message
 
-`ReceiverConnectionTrigger` sends `ENABLE_HIDPP_NOTIFICATIONS_MESSAGE` (SET_REGISTER 0x00 with `r1=0x09`: wireless notifications + software present) before the enumeration message. The receiver's register 0x00 is RAM-only and defaults to 0 at USB power-up, which blocks 0x41 device-connection notifications. Without enabling first, fresh-plugged receivers (notably on macOS) deliver no connection events. The trigger fires from `HidGatewayReceiver._set_connected(True)` on every (re)connect, so notifications are re-armed automatically after USB re-plug.
+`ReceiverArmingSubscriber` (`subscriber/receiver_arming_subscriber.py`) sends `ENABLE_HIDPP_NOTIFICATIONS_MESSAGE` (SET_REGISTER 0x00 with `r1=0x09`: wireless notifications + software present) before the enumeration message. The receiver's register 0x00 is RAM-only and defaults to 0 at USB power-up, which blocks 0x41 device-connection notifications. Without enabling first, fresh-plugged receivers (notably on macOS) deliver no connection events. It reacts to the `TransportConnectedEvent(connection_type="receiver")` that `HidGatewayReceiver._set_connected(True)` emits on every (re)connect, so notifications are re-armed automatically after USB re-plug.
 
 ### macOS BLE hybrid transport
 
 `HidGatewayBLE` (`gateway/hid_gateway_ble.py`) is a macOS-only subclass of `HidGatewayBT`. `discovery.py` selects it when `device.connection_type == "bluetooth"` and `get_system() == "Darwin"`; all other platforms (and macOS receivers) keep using `HidGatewayBT` / `HidGatewayReceiver`.
 
-It exists because **HID++ reporting is bound to the transport channel that armed it**. CleverSwitch and peer apps (OpenLogi; reportedly Logi Options+) arm the same three Easy-Switch CIDs via 0x1B04 `setCidReporting`, and the device reports a key press only on the channel whose request landed last. CleverSwitch arms over the Logitech GATT characteristic; OpenLogi arms over HID (IOHIDManager). So with a peer app running the press can arrive on either channel depending on who armed last, and reading only one goes deaf. `HidGatewayBLE` therefore reads **both**: `run()` starts the BLE asyncio thread and then calls `super().run()` for the inherited HID read loop.
+It exists because **HID++ reporting is bound to the transport channel that armed it**. CleverSwitch and peer apps (OpenLogi; reportedly Logi Options+) arm the same three Easy-Switch CIDs via 0x1B04 `setCidReporting`, and the device reports a key press only on the channel whose request landed last. CleverSwitch arms over the Logitech GATT characteristic; OpenLogi arms over HID (IOHIDManager). So with a peer app running the press can arrive on either channel depending on who armed last, and reading only one goes deaf. `HidGatewayBLE` therefore reads **both**: `run()` starts its `GattChannel` and then calls `super().run()` for the inherited HID read loop.
+
+The GATT side is a separate component, `GattChannel` (`gateway/gatt_channel.py`), which `HidGatewayBLE` composes. The channel's asyncio thread is the sole owner of the `BleakClient`; it hands inbound reports to the gateway's `EventListener`, runs only while the gateway's `_connected_signal` is set, and reports a GATT drop through an `on_drop` callback. The bleak import block and `_BLE_OK` live there.
 
 No deduplication is applied, and none is wanted: channel affinity means a given message is delivered on exactly one channel, so a press cannot arrive twice.
 
 Design:
 - **Inbound**: subscribes to the Logitech proprietary GATT characteristic `00010001-0000-1000-8000-011f2000046d` and prepends `[0x11, 0xFF]` to each 18-byte BLE payload, producing a 20-byte HID++ long report identical to what the parser already handles. Peripheral selection probes the standard PnP ID characteristic (`0x2A50`, bytes [3:5] little-endian = WPID) to match the right paired device by `_device_info.pid`.
-- **Outbound**: `_do_write` sends via `client.write_gatt_char(LOGI_HIDPP_CHAR, msg[2:], response=True)` so function-call responses come back on the BLE notify channel (Logitech replies on the request's transport). Falls back to `super()._do_write` (HID transport) if BLE is unavailable. `response=True` is required, not an optimisation: bleak never checks `canSendWriteWithoutResponse`, so a write-*without*-response is silently discarded when the OS has no credit — only 1 of 3 `setCidReporting` requests was landing. The with-response path is ATT-acknowledged and serialises the burst.
-- **Connect-event ordering**: `_set_connected(True)` is overridden to bypass `HidGatewayBT`'s auto-fire of the synthetic 0x41 connect event. It sets `_connected = True` first to unblock the BLE asyncio thread, then waits on a `threading.Event` (`_ble_subscribed`) until `_connect_and_listen` has called `start_notify`, then publishes the 0x41. This prevents `InfoTask` requests racing the BLE channel coming up. The wait is bounded by `_BLE_SUBSCRIBE_GRACE` (5s): HID is a real read channel now, so a device whose notify path never comes up must still be set up rather than stalling forever. Disconnect fires immediately. If `_BLE_OK` is False (bleak not importable), it fires immediately too.
-- **Drop detection**: `BleakClient.disconnected_callback` calls `self._set_connected(False)`, which clears `_ble_subscribed` and fires the 0x41 disconnect via the inherited path so HID's main loop notices and re-enters `_try_connect`.
+- **Outbound**: `_do_write` calls `GattChannel.write`, which sends via `client.write_gatt_char(LOGI_HIDPP_CHAR, msg[2:], response=True)` so function-call responses come back on the BLE notify channel (Logitech replies on the request's transport). When it returns False (no client yet, or the write failed) the gateway falls back to `super()._do_write` (HID transport). `response=True` is required, not an optimisation: bleak never checks `canSendWriteWithoutResponse`, so a write-*without*-response is silently discarded when the OS has no credit — only 1 of 3 `setCidReporting` requests was landing. The with-response path is ATT-acknowledged and serialises the burst.
+- **Connect-event ordering**: `_set_connected(True)` is overridden to bypass `HidGatewayBT`'s immediate `TransportConnectedEvent`. It sets `_connected = True` first to unblock the BLE asyncio thread, then waits on a `threading.Event` (`GattChannel.subscribed`) until `GattChannel._connect_and_listen` has called `start_notify`, then emits the connect (skipped if a BLE drop already marked the gateway disconnected during the wait). This prevents `InfoTask` requests racing the BLE channel coming up. The wait is bounded by `_BLE_SUBSCRIBE_GRACE` (5s): HID is a real read channel now, so a device whose notify path never comes up must still be set up rather than stalling forever. Disconnect fires immediately. If `_BLE_OK` is False (bleak not importable), it fires immediately too.
+- **Drop detection**: `BleakClient.disconnected_callback` calls the channel's `on_drop`, which is the gateway's `_set_connected(False)`; it clears `GattChannel.subscribed` and emits `TransportDisconnectedEvent` via the inherited path so HID's main loop notices and re-enters `_try_connect`.
 
 ### LogiDevice state
 
@@ -161,9 +173,9 @@ Design:
 
 ### Wiring
 
-`setup/app_setup.py:setup_context()` creates Topics, LogiDeviceRegistry, the DeviceCache (see [Device cache](#device-cache)), and all subscribers. It is the single place where components are connected.
+`setup/app_setup.py:setup_context()` creates Topics, LogiDeviceRegistry, the DeviceCache (see [Device cache](#device-cache)), and all subscribers. It is the single place where components are connected. The one exception is the per-device I/O side: `discovery/link_factory.py:create_link()` builds each `DeviceLink` with its gateways, `EventListener` and `WriteRouter`, and holds all platform / connection-type branching for gateway selection.
 
-Active subscribers: `DeviceConnectionSubscriber`, `DeviceInfoSubscriber`, `InfoTaskOrchestrator`, `SetReportFlagSubscriber`, `ExternalUnsetFlagSubscriber`, `AnalyticsRejectionSubscriber`, `HostChangeSubscriber`, `EventHookSubscriber`, `WirelessStatusSubscriber`, `TransportDisconnectionSubscriber`.
+Active subscribers: `DeviceConnectionSubscriber`, `DeviceInfoSubscriber`, `InfoTaskOrchestrator`, `SetReportFlagSubscriber`, `ExternalUnsetFlagSubscriber`, `AnalyticsRejectionSubscriber`, `HostChangeSubscriber`, `ChangeHostNotificationSubscriber`, `EventHookSubscriber`, `WirelessStatusSubscriber`, `TransportDisconnectionSubscriber`, `ReceiverArmingSubscriber`, `DirectDeviceConnectionSubscriber`.
 
 The parser detects ES CID presses (fn=0 diverted, fn=2 analytics press-only) and emits `HostChangeEvent` instead of generic `HidppNotificationEvent`. `HostChangeSubscriber` reacts to `HostChangeEvent` and sends CHANGE_HOST to all registered devices.
 
