@@ -54,7 +54,10 @@ def _count_response(count: int):
 
 
 def _cid_info_response(cid: int, flags: int):
-    body = bytes([(cid >> 8) & 0xFF, cid & 0xFF, 0x00, 0x00, flags]) + bytes(11)
+    # Analytics lives in the additional-flags byte (payload[8]); the rest in the flags byte (payload[4]).
+    key_flags = flags & ~KEY_FLAG_ANALYTICS
+    additional_flags = flags & KEY_FLAG_ANALYTICS
+    body = bytes([(cid >> 8) & 0xFF, cid & 0xFF, 0x00, 0x00, key_flags, 0x00, 0x00, 0x00, additional_flags]) + bytes(7)
     return HidppResponseEvent(
         slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=FIND_ES_CIDS_FLAGS_SW_ID, payload=body
     )
@@ -101,6 +104,23 @@ def test_analytics_flag_only_publishes():
     assert KEY_FLAG_ANALYTICS in device.supported_flags
     topics.flags.publish.assert_called_once()
     assert isinstance(topics.flags.publish.call_args[0][0], SetReportFlagEvent)
+
+
+def test_nonstandard_bit_in_flags_byte_is_not_analytics():
+    """Bit 0x04 of payload[4] is the 'nonstandard' key flag, not analytics — must not enable analytics mode."""
+    device = _make_device(pending={Task.Name.FIND_ES_CIDS_FLAGS})
+    topics = _make_topics()
+    task = FindESCidsFlagsTask(device, topics)
+
+    body = bytes([0x00, 0xD2, 0x00, 0x00, 0x04]) + bytes(11)
+    response = HidppResponseEvent(
+        slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=FIND_ES_CIDS_FLAGS_SW_ID, payload=body
+    )
+    deliver_on_request(task, topics, [_count_response(1), response])
+    task.doTask()
+
+    assert KEY_FLAG_ANALYTICS not in device.supported_flags
+    topics.flags.publish.assert_not_called()
 
 
 # ── KEY_FLAG_DIVERTABLE only → publishes (divert mode works standalone) ───────
