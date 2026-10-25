@@ -16,6 +16,7 @@ class GetDeviceTypeTask(InfoTask):
 
     def __init__(self, device: LogiDevice, topics: Topics) -> None:
         super().__init__(Task.Name.GET_DEVICE_TYPE, device, topics, FEATURE_ROOT, GET_DEVICE_TYPE_SW_ID)
+        self._resolved_role = False
 
     def doTask(self) -> None:
         if self._device.role is not None:
@@ -42,6 +43,7 @@ class GetDeviceTypeTask(InfoTask):
 
         device_type = response.payload[0]
         self._device.role = ROLE_KEYBOARD if device_type == 0 else ROLE_MOUSE
+        self._resolved_role = True
         log.debug(f"wpid=0x{self._device.wpid:04X}: type={self._device.role}")
         self._device.pending_steps.discard(self._step_name)
 
@@ -53,6 +55,6 @@ class GetDeviceTypeTask(InfoTask):
             self._device.pending_steps.discard(Task.Feature.Name.CID_REPORTING)
             self._device.pending_steps.discard(Task.Name.FIND_ES_CIDS_FLAGS)
             return
-        if Task.Feature.Name.CID_REPORTING not in self._device.pending_steps:
+        if not self._resolved_role or Task.Feature.Name.CID_REPORTING not in self._device.pending_steps:
             return
         CidReportingFeatureTask(self._device, self._topics).start()
