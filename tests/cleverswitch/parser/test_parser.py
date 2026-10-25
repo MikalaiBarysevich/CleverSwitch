@@ -141,8 +141,9 @@ def test_parse_external_unset_flag_ignored_when_divert_set():
 
 def test_parse_external_unset_flag_analytics_clear_detected():
     # raw_event[9] = data[5], so byte9 goes in data[5]
-    # byte9 has ANALYTICS_AVALID set but ANALYTICS_KEY_EVT clear → analytics being cleared
-    byte9 = ANALYTICS_AVALID  # 0x04 set, 0x02 clear
+    # byte9 = 0x02: valid set, analyticsKeyEvt clear → analytics being cleared
+    byte9 = 0x02
+    assert byte9 == ANALYTICS_AVALID
     # data: [CID_HI, CID_LO, bfield, pad, pad, byte9, ...]
     data = bytes([0x00, 0xD2, 0x00, 0x00, 0x00, byte9]) + bytes(10)
     raw = _long_msg(slot=1, feature_id=5, fn_sw=0x32, data=data)
@@ -152,8 +153,9 @@ def test_parse_external_unset_flag_analytics_clear_detected():
 
 
 def test_parse_external_unset_flag_both_analytics_bits_set_no_event():
-    # byte9 has both ANALYTICS_AVALID and ANALYTICS_KEY_EVT set → not being cleared
-    byte9 = ANALYTICS_AVALID | ANALYTICS_KEY_EVT  # 0x06
+    # byte9 = 0x03 (what we send ourselves): valid + analyticsKeyEvt → not being cleared
+    byte9 = 0x03
+    assert byte9 == ANALYTICS_AVALID | ANALYTICS_KEY_EVT
     data = bytes([0x00, 0xD2, 0x00, 0x00, 0x00, byte9]) + bytes(10)
     raw = _long_msg(slot=1, feature_id=5, fn_sw=0x32, data=data)
     assert parse(PID, raw) is None
