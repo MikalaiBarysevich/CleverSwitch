@@ -71,7 +71,6 @@ class InfoTask(ABC, Subscriber, Thread):
                     log.exception(f"Unhandled error in task {self._step_name} for wpid=0x{self._device.wpid:04X}")
             success = already_done or self._step_name not in self._device.pending_steps
             if success:
-                self._device.connected = True
                 self._fire_dependent_steps()
             if self._aborted.is_set() and not success:
                 log.debug(f"{self._step_name} for wpid=0x{self._device.wpid:04X} aborted: device disconnected")
