@@ -150,37 +150,27 @@ def test_does_not_save_when_steps_pending():
     cache.save.assert_not_called()
 
 
-def test_fallback_friendly_name_not_persisted(tmp_path):
+def test_missing_friendly_name_stays_null_in_cache_after_later_saves(tmp_path):
     path = tmp_path / "cache.json"
     cache = DeviceCache(path)
     orch, _, _, _ = _make_orchestrator(cache=cache)
 
     device = _make_device(pending=set())
     device.name = "Wireless Mouse MX Master 3"
-    device.friendly_name = None  # genuine friendly name never fetched (e.g. timed out)
+    device.friendly_name = None
+    other = _make_device(pending=set(), wpid=0x4082)
 
     orch.notify(_progress(device, success=True))
+    orch.notify(_progress(other, success=True))
 
-    # runtime display still falls back to the marketing name
-    assert device.friendly_name == "Wireless Mouse MX Master 3"
-    # but the cache stores the genuine (null) value so it is re-fetched next launch
+    assert device.friendly_name is None
+    assert device.display_name == "Wireless Mouse MX Master 3"
     devices = json.loads(path.read_text())["devices"]
     entry = next(e for e in devices if e["wpid"] == device.wpid)
     assert entry["friendly_name"] is None
 
 
-def test_fallback_copy_sets_friendly_name_from_name_when_all_steps_done():
-    device = _make_device(pending=set())
-    device.name = "Wireless Keyboard MX Keys"
-    device.friendly_name = None
-    orch, topics, _, _ = _make_orchestrator()
-
-    orch.notify(_progress(device, success=True))
-
-    assert device.friendly_name == "Wireless Keyboard MX Keys"
-
-
-def test_fallback_copy_replaces_empty_friendly_name():
+def test_empty_friendly_name_is_left_alone_and_display_name_uses_name():
     device = _make_device(pending=set())
     device.name = "Wireless Keyboard MX Keys"
     device.friendly_name = ""
@@ -188,10 +178,11 @@ def test_fallback_copy_replaces_empty_friendly_name():
 
     orch.notify(_progress(device, success=True))
 
-    assert device.friendly_name == "Wireless Keyboard MX Keys"
+    assert device.friendly_name == ""
+    assert device.display_name == "Wireless Keyboard MX Keys"
 
 
-def test_fallback_copy_does_not_overwrite_existing_friendly_name():
+def test_existing_friendly_name_is_kept():
     device = _make_device(pending=set())
     device.name = "Wireless Keyboard MX Keys"
     device.friendly_name = "MX Keys"
@@ -200,17 +191,6 @@ def test_fallback_copy_does_not_overwrite_existing_friendly_name():
     orch.notify(_progress(device, success=True))
 
     assert device.friendly_name == "MX Keys"
-
-
-def test_fallback_copy_does_not_set_when_name_is_none():
-    device = _make_device(pending=set())
-    device.name = None
-    device.friendly_name = None
-    orch, topics, _, _ = _make_orchestrator()
-
-    orch.notify(_progress(device, success=True))
-
-    assert device.friendly_name is None
 
 
 # ── retry cap ──
