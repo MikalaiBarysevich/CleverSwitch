@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import platform
 import sys
 import threading
 
@@ -15,8 +14,9 @@ from ..discovery.discovery import discover
 from ..errors.errors import CleverSwitchError, ConfigError
 from ..hidpp.transport import hidapi_version
 from ..setup.app_setup import setup_context
+from ..util.util import get_system
 
-_SYSTEM = platform.system()
+_SYSTEM = get_system()
 
 
 def main() -> None:

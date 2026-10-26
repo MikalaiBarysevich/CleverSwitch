@@ -163,7 +163,9 @@ def test_error_on_get_len_leaves_step_pending():
         task,
         topics,
         [
-            HidppErrorEvent(slot=SLOT, pid=PID, sw_id=GET_DEVICE_FRIENDLY_NAME_SW_ID, error_code=5),
+            HidppErrorEvent(
+                slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=GET_DEVICE_FRIENDLY_NAME_SW_ID, error_code=5
+            ),
         ],
     )
     task.doTask()
@@ -206,9 +208,22 @@ def test_chunk_error_leaves_friendly_name_none():
         topics,
         [
             _response(bytes([7, 15, 7])),
-            HidppErrorEvent(slot=SLOT, pid=PID, sw_id=GET_DEVICE_FRIENDLY_NAME_SW_ID, error_code=5),
+            HidppErrorEvent(
+                slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=GET_DEVICE_FRIENDLY_NAME_SW_ID, error_code=5
+            ),
         ],
     )
+    task.doTask()
+
+    assert device.friendly_name is None
+
+
+def test_all_nul_friendly_name_is_stored_as_none():
+    device = _make_device(pending={Task.Name.GET_DEVICE_FRIENDLY_NAME})
+    topics = _make_topics()
+    task = GetDeviceFriendlyNameTask(device, topics)
+
+    deliver_on_request(task, topics, [_response(bytes([2])), _response(bytes(3))])
     task.doTask()
 
     assert device.friendly_name is None

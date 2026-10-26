@@ -42,19 +42,20 @@ def parse(pid: int, raw_event: bytes) -> Event | None:
             device_type=device_type if device_type != 0 else None,
         )
 
-    # HID++ 1.0 error (sub_id=0x8F)
-    if report_id == REPORT_SHORT and feature_id == 0x8F:
-        sw_id = raw_event[3] & 0x0F
-        error_code = raw_event[5]
-        return HidppErrorEvent(slot=slot, pid=pid, sw_id=sw_id, error_code=error_code)
+    # Errors echo the failed request's feature index in byte 3 and its function|sw_id in byte 4:
+    # HID++ 1.0 (sub_id=0x8F, short) and HID++ 2.0 (feature_index=0xFF, long) alike.
+    if (report_id == REPORT_SHORT and feature_id == 0x8F) or (report_id == REPORT_LONG and feature_id == 0xFF):
+        return HidppErrorEvent(
+            slot=slot,
+            pid=pid,
+            feature_index=raw_event[3],
+            function=raw_event[4] >> 4,
+            sw_id=raw_event[4] & 0x0F,
+            error_code=raw_event[5],
+        )
 
     if report_id == REPORT_LONG:
         sw_id = raw_event[3] & 0x0F
-
-        # HID++ 2.0 error (feature_index=0xFF)
-        if feature_id == 0xFF:
-            error_code = raw_event[5]
-            return HidppErrorEvent(slot=slot, pid=pid, sw_id=sw_id, error_code=error_code)
 
         function = (raw_event[3] & 0xF0) >> 4
 

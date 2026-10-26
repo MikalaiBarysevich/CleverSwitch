@@ -7,7 +7,13 @@ from unittest.mock import MagicMock
 
 from cleverswitch.discovery.discovery import _undivert_all, discover
 from cleverswitch.event.set_report_flag_event import SetReportFlagEvent
-from cleverswitch.hidpp.constants import BOLT_PID, FEATURE_CHANGE_HOST, FEATURE_REPROG_CONTROLS_V4, KEY_FLAG_ANALYTICS
+from cleverswitch.hidpp.constants import (
+    BOLT_PID,
+    CONNECTION_RECEIVER,
+    FEATURE_CHANGE_HOST,
+    FEATURE_REPROG_CONTROLS_V4,
+    KEY_FLAG_ANALYTICS,
+)
 from cleverswitch.model.context.app_context import AppContext
 from cleverswitch.model.logi_device import LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
@@ -41,172 +47,68 @@ def test_discover_returns_immediately_when_shutdown_is_already_set(mocker):
     discover(ctx)  # must return without hanging
 
 
-def test_discover_creates_gateway_for_receiver_device(mocker):
+def _receiver_device():
     from cleverswitch.hidpp.transport import HidDeviceInfo
 
-    device = HidDeviceInfo(
-        path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=0x0002, connection_type="receiver"
+    return HidDeviceInfo(
+        path=b"/dev/hidraw0",
+        vid=0x046D,
+        pid=BOLT_PID,
+        usage_page=0xFF00,
+        usage=0x0002,
+        connection_type=CONNECTION_RECEIVER,
     )
-    mocker.patch("cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={BOLT_PID: [device]})
 
-    mock_gateway = mocker.MagicMock()
-    mock_gateway_cls = mocker.patch("cleverswitch.discovery.discovery.HidGatewayReceiver", return_value=mock_gateway)
-    mocker.patch("cleverswitch.discovery.discovery.EventListener")
-    mocker.patch("cleverswitch.discovery.discovery.ReceiverConnectionTrigger")
 
-    shutdown = threading.Event()
+def _stop_after(shutdown, waits=1):
+    count = [0]
 
     def fake_wait(timeout):
-        shutdown.set()
-
-    shutdown.wait = fake_wait
-
-    ctx = _make_app_context(shutdown=shutdown)
-    discover(ctx)
-
-    mock_gateway_cls.assert_called_once()
-    mock_gateway.start.assert_called_once()
-
-
-def test_discover_creates_bt_gateway_for_bluetooth_device(mocker):
-    from cleverswitch.hidpp.transport import HidDeviceInfo
-
-    device = HidDeviceInfo(
-        path=b"/dev/hidraw1", vid=0x046D, pid=0xB023, usage_page=0xFF43, usage=0x0202, connection_type="bluetooth"
-    )
-    mocker.patch("cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={0xB023: [device]})
-
-    mock_gateway = mocker.MagicMock()
-    mock_bt_cls = mocker.patch("cleverswitch.discovery.discovery.HidGatewayBT", return_value=mock_gateway)
-    mocker.patch("cleverswitch.discovery.discovery.HidGateway")
-    mocker.patch("cleverswitch.discovery.discovery.EventListener")
-    mocker.patch("cleverswitch.discovery.discovery.get_system", return_value="Linux")
-
-    shutdown = threading.Event()
-
-    def fake_wait(timeout):
-        shutdown.set()
-
-    shutdown.wait = fake_wait
-
-    ctx = _make_app_context(shutdown=shutdown)
-    discover(ctx)
-
-    mock_bt_cls.assert_called_once()
-    mock_gateway.start.assert_called_once()
-
-
-def test_discover_creates_ble_gateway_for_bluetooth_device_on_darwin(mocker):
-    from cleverswitch.hidpp.transport import HidDeviceInfo
-
-    device = HidDeviceInfo(
-        path=b"/dev/hidraw1", vid=0x046D, pid=0xB023, usage_page=0xFF43, usage=0x0202, connection_type="bluetooth"
-    )
-    mocker.patch("cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={0xB023: [device]})
-
-    mock_gateway = mocker.MagicMock()
-    mock_ble_cls = mocker.patch("cleverswitch.discovery.discovery.HidGatewayBLE", return_value=mock_gateway)
-    mock_bt_cls = mocker.patch("cleverswitch.discovery.discovery.HidGatewayBT")
-    mocker.patch("cleverswitch.discovery.discovery.EventListener")
-    mocker.patch("cleverswitch.discovery.discovery.get_system", return_value="Darwin")
-
-    shutdown = threading.Event()
-
-    def fake_wait(timeout):
-        shutdown.set()
-
-    shutdown.wait = fake_wait
-
-    ctx = _make_app_context(shutdown=shutdown)
-    discover(ctx)
-
-    mock_ble_cls.assert_called_once()
-    mock_bt_cls.assert_not_called()
-    mock_gateway.start.assert_called_once()
-
-
-def test_discover_creates_bt_gateway_for_bluetooth_device_on_non_darwin(mocker):
-    from cleverswitch.hidpp.transport import HidDeviceInfo
-
-    device = HidDeviceInfo(
-        path=b"/dev/hidraw1", vid=0x046D, pid=0xB023, usage_page=0xFF43, usage=0x0202, connection_type="bluetooth"
-    )
-    mocker.patch("cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={0xB023: [device]})
-
-    mock_gateway = mocker.MagicMock()
-    mock_bt_cls = mocker.patch("cleverswitch.discovery.discovery.HidGatewayBT", return_value=mock_gateway)
-    mock_ble_cls = mocker.patch("cleverswitch.discovery.discovery.HidGatewayBLE")
-    mocker.patch("cleverswitch.discovery.discovery.EventListener")
-    mocker.patch("cleverswitch.discovery.discovery.get_system", return_value="Windows")
-
-    shutdown = threading.Event()
-
-    def fake_wait(timeout):
-        shutdown.set()
-
-    shutdown.wait = fake_wait
-
-    ctx = _make_app_context(shutdown=shutdown)
-    discover(ctx)
-
-    mock_bt_cls.assert_called_once()
-    mock_ble_cls.assert_not_called()
-    mock_gateway.start.assert_called_once()
-
-
-def test_discover_does_not_create_duplicate_gateways_for_same_pid(mocker):
-    from cleverswitch.hidpp.transport import HidDeviceInfo
-
-    device = HidDeviceInfo(
-        path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=0x0002, connection_type="receiver"
-    )
-    mocker.patch("cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={BOLT_PID: [device]})
-
-    mock_gateway = mocker.MagicMock()
-    mock_gateway_cls = mocker.patch("cleverswitch.discovery.discovery.HidGatewayReceiver", return_value=mock_gateway)
-    mocker.patch("cleverswitch.discovery.discovery.EventListener")
-    mocker.patch("cleverswitch.discovery.discovery.ReceiverConnectionTrigger")
-
-    shutdown = threading.Event()
-    wait_count = [0]
-
-    def fake_wait(timeout):
-        wait_count[0] += 1
-        if wait_count[0] >= 2:
+        count[0] += 1
+        if count[0] >= waits:
             shutdown.set()
 
     shutdown.wait = fake_wait
 
-    ctx = _make_app_context(shutdown=shutdown)
-    discover(ctx)
 
-    assert mock_gateway_cls.call_count == 1
-
-
-def test_discover_closes_gateways_on_shutdown(mocker):
-    from cleverswitch.hidpp.transport import HidDeviceInfo
-
-    device = HidDeviceInfo(
-        path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=0x0002, connection_type="receiver"
-    )
+def test_discover_creates_and_starts_a_link_per_pid(mocker):
+    device = _receiver_device()
     mocker.patch("cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={BOLT_PID: [device]})
-
-    mock_gateway = mocker.MagicMock()
-    mocker.patch("cleverswitch.discovery.discovery.HidGatewayReceiver", return_value=mock_gateway)
-    mocker.patch("cleverswitch.discovery.discovery.EventListener")
-    mocker.patch("cleverswitch.discovery.discovery.ReceiverConnectionTrigger")
-
+    create_link = mocker.patch("cleverswitch.discovery.discovery.create_link")
     shutdown = threading.Event()
-
-    def fake_wait(timeout):
-        shutdown.set()
-
-    shutdown.wait = fake_wait
+    _stop_after(shutdown)
 
     ctx = _make_app_context(shutdown=shutdown)
     discover(ctx)
 
-    mock_gateway.close.assert_called_once()
+    create_link.assert_called_once_with(BOLT_PID, [device], ctx.topics)
+    create_link.return_value.start.assert_called_once()
+
+
+def test_discover_does_not_create_duplicate_links_for_same_pid(mocker):
+    mocker.patch(
+        "cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={BOLT_PID: [_receiver_device()]}
+    )
+    create_link = mocker.patch("cleverswitch.discovery.discovery.create_link")
+    shutdown = threading.Event()
+    _stop_after(shutdown, waits=2)
+
+    discover(_make_app_context(shutdown=shutdown))
+
+    assert create_link.call_count == 1
+
+
+def test_discover_closes_links_on_shutdown(mocker):
+    mocker.patch(
+        "cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={BOLT_PID: [_receiver_device()]}
+    )
+    create_link = mocker.patch("cleverswitch.discovery.discovery.create_link")
+    shutdown = threading.Event()
+    _stop_after(shutdown)
+
+    discover(_make_app_context(shutdown=shutdown))
+
+    create_link.return_value.close.assert_called_once()
 
 
 # ── _undivert_all ─────────────────────────────────────────────────────────────

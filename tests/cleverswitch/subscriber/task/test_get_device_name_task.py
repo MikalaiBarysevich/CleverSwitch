@@ -125,7 +125,11 @@ def test_sets_name_none_on_count_error():
     topics = _make_topics()
     task = GetDeviceNameTask(device, topics)
 
-    deliver_on_request(task, topics, [HidppErrorEvent(slot=SLOT, pid=PID, sw_id=GET_DEVICE_NAME_SW_ID, error_code=5)])
+    deliver_on_request(
+        task,
+        topics,
+        [HidppErrorEvent(slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=GET_DEVICE_NAME_SW_ID, error_code=5)],
+    )
     task.doTask()
 
     assert device.name is None
@@ -162,8 +166,22 @@ def test_sets_name_none_on_chunk_error():
     deliver_on_request(
         task,
         topics,
-        [_response(bytes([7])), HidppErrorEvent(slot=SLOT, pid=PID, sw_id=GET_DEVICE_NAME_SW_ID, error_code=5)],
+        [
+            _response(bytes([7])),
+            HidppErrorEvent(slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=GET_DEVICE_NAME_SW_ID, error_code=5),
+        ],
     )
+    task.doTask()
+
+    assert device.name is None
+
+
+def test_all_nul_name_is_stored_as_none():
+    device = _make_device(pending={Task.Name.GET_DEVICE_NAME})
+    topics = _make_topics()
+    task = GetDeviceNameTask(device, topics)
+
+    deliver_on_request(task, topics, [_response(bytes([2])), _response(bytes(2))])
     task.doTask()
 
     assert device.name is None

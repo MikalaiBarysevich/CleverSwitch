@@ -9,3 +9,4 @@ class InfoTaskProgressEvent(Event):
     step_name: str
     success: bool
     device: LogiDevice
+    aborted: bool = False

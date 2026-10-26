@@ -53,6 +53,20 @@ def _progress(device, step_name=Task.Feature.Name.CID_REPORTING, success=True):
     return InfoTaskProgressEvent(slot=device.slot, pid=device.pid, step_name=step_name, success=success, device=device)
 
 
+def test_no_retry_when_task_aborted_by_disconnect():
+    """Reconnection restarts pending steps; a retry here would run a second copy alongside it."""
+    device = _make_device(pending={Task.Feature.Name.CID_REPORTING}, connected=True)
+    orch, topics, _, _ = _make_orchestrator()
+    event = _progress(device, step_name=Task.Feature.Name.CID_REPORTING, success=False)
+    event.aborted = True
+
+    with patch("src.cleverswitch.subscriber.info_task_orchestrator._TASK_FACTORIES") as mock_factories:
+        mock_task = MagicMock()
+        mock_factories.__getitem__ = MagicMock(return_value=MagicMock(return_value=mock_task))
+        orch.notify(event)
+        mock_task.start.assert_not_called()
+
+
 def test_logs_fully_discovered_when_no_pending_on_success(caplog):
     device = _make_device(pending=set())
     orch, topics, _, _ = _make_orchestrator()
@@ -159,6 +173,17 @@ def test_fallback_copy_sets_friendly_name_from_name_when_all_steps_done():
     device = _make_device(pending=set())
     device.name = "Wireless Keyboard MX Keys"
     device.friendly_name = None
+    orch, topics, _, _ = _make_orchestrator()
+
+    orch.notify(_progress(device, success=True))
+
+    assert device.friendly_name == "Wireless Keyboard MX Keys"
+
+
+def test_fallback_copy_replaces_empty_friendly_name():
+    device = _make_device(pending=set())
+    device.name = "Wireless Keyboard MX Keys"
+    device.friendly_name = ""
     orch, topics, _, _ = _make_orchestrator()
 
     orch.notify(_progress(device, success=True))

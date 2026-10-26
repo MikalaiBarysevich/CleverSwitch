@@ -50,7 +50,9 @@ class AnalyticsRejectionSubscriber(Subscriber):
         if KEY_FLAG_ANALYTICS not in device.supported_flags:
             return
 
-        if event.payload[5] != 0x00:
+        # The echo is verbatim, and our analytics request never sets divert flags (byte 2). A non-zero
+        # byte 2 is another app's divert request sharing our sw_id, not a rejection of ours.
+        if event.payload[2] != 0x00 or event.payload[5] != 0x00:
             return
 
         log.debug(f"wpid=0x{device.wpid:04X}: analytics rejected on CID 0x{cid:04X}, falling back to divert")

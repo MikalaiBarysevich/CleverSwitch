@@ -57,7 +57,7 @@ class GetDeviceFriendlyNameTask(InfoTask):
             chars.extend(chunk)
 
         if len(chars) == name_len:
-            self._device.friendly_name = decode_string_response(bytes(chars))
+            self._device.friendly_name = decode_string_response(bytes(chars)) or None
             log.debug(f"wpid=0x{self._device.wpid:04X}: friendly_name={self._device.friendly_name}")
             self._device.pending_steps.discard(self._step_name)
         else:

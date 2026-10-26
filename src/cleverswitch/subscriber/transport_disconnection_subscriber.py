@@ -13,8 +13,8 @@ class TransportDisconnectionSubscriber(Subscriber):
     """Fans out a TransportDisconnectedEvent into one DeviceConnectedEvent(link_established=False)
     per registered device whose pid matches the dropped transport.
 
-    This decouples gateway transport-state from per-device disconnect logic:
-    the gateway knows only which pid disconnected; this subscriber translates
+    This decouples link transport-state from per-device disconnect logic:
+    the DeviceLink knows only which pid disconnected; this subscriber translates
     that into per-device events so that DeviceConnectionSubscriber and
     EventHookSubscriber react as if each device sent a normal disconnect report.
     """

@@ -6,7 +6,8 @@ import time
 from unittest.mock import MagicMock
 
 from cleverswitch.event.hidpp_notification_event import HidppNotificationEvent
-from cleverswitch.hidpp.constants import BOLT_PID, REPORT_LONG
+from cleverswitch.event.transport_disconnected_event import TransportDisconnectedEvent
+from cleverswitch.hidpp.constants import BOLT_PID, CONNECTION_RECEIVER, REPORT_LONG
 from cleverswitch.hidpp.transport import HidDeviceInfo
 from cleverswitch.listener.event_listener import EventListener
 from cleverswitch.parser.parser import parse
@@ -16,7 +17,12 @@ from cleverswitch.topic.topics import Topics
 
 def _device_info():
     return HidDeviceInfo(
-        path=b"/dev/hidraw0", vid=0x046D, pid=BOLT_PID, usage_page=0xFF00, usage=0x0002, connection_type="receiver"
+        path=b"/dev/hidraw0",
+        vid=0x046D,
+        pid=BOLT_PID,
+        usage_page=0xFF00,
+        usage=0x0002,
+        connection_type=CONNECTION_RECEIVER,
     )
 
 
@@ -103,3 +109,32 @@ def test_listener_survives_a_publish_failure():
 
     assert listener.is_alive()
     assert topics.hid_event.publish.call_count == 2
+
+
+def test_emit_publishes_typed_event_without_parsing(mocker):
+    topics = _make_topics()
+    listener = EventListener(_device_info(), topics)
+    parse_spy = mocker.patch("cleverswitch.listener.event_listener.parse")
+    event = TransportDisconnectedEvent(slot=0, pid=BOLT_PID)
+    listener.start()
+
+    listener.emit(event)
+    time.sleep(0.1)
+
+    topics.hid_event.publish.assert_called_once_with(event)
+    parse_spy.assert_not_called()
+
+
+def test_emit_keeps_order_with_raw_reports():
+    topics = _make_topics()
+    listener = EventListener(_device_info(), topics)
+    event = TransportDisconnectedEvent(slot=0, pid=BOLT_PID)
+    listener.listen(bytes([REPORT_LONG, 0x01, 0x05, 0x00]) + bytes(16))
+    listener.emit(event)
+
+    listener.start()
+    time.sleep(0.1)
+
+    published = [call.args[0] for call in topics.hid_event.publish.call_args_list]
+    assert isinstance(published[0], HidppNotificationEvent)
+    assert published[1] is event
