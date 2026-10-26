@@ -212,3 +212,23 @@ def test_verbose_extra_applied_when_no_config_file():
     args = argparse.Namespace(config=None, verbose_extra=True)
     config = load(args)
     assert config.arguments_settings.verbose_extra is True
+
+
+@pytest.mark.parametrize("body", ["hooks:\n", "cache:\n", "hooks:\ncache:\n"])
+def test_load_treats_empty_sections_as_defaults(tmp_path, body):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(body)
+
+    cfg = load(_cli_args(config=str(cfg_file)))
+
+    assert cfg.hooks.hooks == {}
+    assert cfg.cache_path == default_config().cache_path
+
+
+@pytest.mark.parametrize("body", ["hooks: 5\n", "cache: [a]\n", "- just\n- a list\n"])
+def test_load_raises_config_error_for_non_mapping_sections(tmp_path, body):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(body)
+
+    with pytest.raises(ConfigError):
+        load(_cli_args(config=str(cfg_file)))

@@ -51,6 +51,9 @@ def load(cli_args: argparse.Namespace) -> Config:
     except yaml.YAMLError as e:
         raise ConfigError(f"Invalid YAML in {cfg_path}: {e}") from e
 
+    if not isinstance(raw, dict):
+        raise ConfigError(f"Config error in {cfg_path}: top level must be a mapping")
+
     try:
         return _parse(raw, cli_args)
     except (KeyError, TypeError, ValueError) as e:
@@ -58,7 +61,7 @@ def load(cli_args: argparse.Namespace) -> Config:
 
 
 def _parse(raw: dict[str, Any], cli_args: argparse.Namespace) -> Config:
-    h = raw.get("hooks", {})
+    h = _section(raw, "hooks")
     hooks = HooksConfig(
         fire_for_all_devices=bool(h.get("fire_for_all_devices", False)),
         hooks=_parse_hooks(h),
@@ -68,12 +71,21 @@ def _parse(raw: dict[str, Any], cli_args: argparse.Namespace) -> Config:
         verbose_extra=cli_args.verbose_extra if cli_args.verbose_extra is not None else False,
     )
 
-    c = raw.get("cache", {})
+    c = _section(raw, "cache")
     cache_path = Path(os.path.expanduser(str(c["path"]))) if c.get("path") else _DEFAULT_CACHE_PATH
 
     config = Config(hooks=hooks, arguments_settings=arguments_settings, cache_path=cache_path)
     _validate(config)
     return config
+
+
+def _section(raw: dict[str, Any], key: str) -> dict[str, Any]:
+    value = raw.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise TypeError(f"'{key}' must be a mapping")
+    return value
 
 
 def _parse_hooks(raw_hooks: dict[str, Any]) -> dict[str, HookEntry]:
