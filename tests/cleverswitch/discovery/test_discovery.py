@@ -15,7 +15,7 @@ from cleverswitch.hidpp.constants import (
     KEY_FLAG_ANALYTICS,
 )
 from cleverswitch.model.context.app_context import AppContext
-from cleverswitch.model.logi_device import LogiDevice
+from cleverswitch.model.logi_device import ROLE_KEYBOARD, ROLE_MOUSE, LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 from cleverswitch.topic.topic import Topic
 from cleverswitch.topic.topics import Topics
@@ -121,7 +121,7 @@ def test_undivert_all_publishes_set_report_flag_event_with_enable_false(mocker):
         wpid=0x407B,
         pid=BOLT_PID,
         slot=1,
-        role="keyboard",
+        role=ROLE_KEYBOARD,
         available_features={FEATURE_REPROG_CONTROLS_V4: 8, FEATURE_CHANGE_HOST: 9},
     )
     registry.register(0x407B, device)
@@ -149,7 +149,7 @@ def test_undivert_all_skips_device_without_reprog_feature(mocker):
         wpid=0x407B,
         pid=BOLT_PID,
         slot=2,
-        role="mouse",
+        role=ROLE_MOUSE,
         available_features={FEATURE_CHANGE_HOST: 9},
     )
     registry.register(0x407B, device)
@@ -174,7 +174,7 @@ def test_undivert_all_skips_device_with_analytics_flag(mocker):
         wpid=0x407B,
         pid=BOLT_PID,
         slot=1,
-        role="keyboard",
+        role=ROLE_KEYBOARD,
         available_features={FEATURE_REPROG_CONTROLS_V4: 8, FEATURE_CHANGE_HOST: 9},
     )
     device.supported_flags = {KEY_FLAG_ANALYTICS}

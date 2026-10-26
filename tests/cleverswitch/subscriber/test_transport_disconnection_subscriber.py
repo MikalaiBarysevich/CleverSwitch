@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from cleverswitch.model.logi_device import ROLE_KEYBOARD, ROLE_MOUSE
 from src.cleverswitch.event.device_connected_event import DeviceConnectedEvent
 from src.cleverswitch.event.transport_disconnected_event import TransportDisconnectedEvent
 from src.cleverswitch.hidpp.constants import BOLT_PID
@@ -29,7 +30,7 @@ def _make_topics():
     )
 
 
-def _make_device(wpid: int, pid: int = PID, slot: int = 1, role: str = "keyboard") -> LogiDevice:
+def _make_device(wpid: int, pid: int = PID, slot: int = 1, role: str = ROLE_KEYBOARD) -> LogiDevice:
     return LogiDevice(wpid=wpid, pid=pid, slot=slot, role=role, available_features={})
 
 
@@ -43,7 +44,7 @@ def _transport_disconnected(pid: int = PID) -> TransportDisconnectedEvent:
 def test_fan_out_emits_disconnect_event_per_matching_device():
     registry = LogiDeviceRegistry()
     registry.register(WPID_KB, _make_device(WPID_KB, slot=1))
-    registry.register(WPID_MOUSE, _make_device(WPID_MOUSE, slot=2, role="mouse"))
+    registry.register(WPID_MOUSE, _make_device(WPID_MOUSE, slot=2, role=ROLE_MOUSE))
 
     topics = _make_topics()
     sub = TransportDisconnectionSubscriber(registry, topics)
@@ -107,7 +108,7 @@ def test_ignores_devices_with_different_pid():
 def test_partial_fan_out_when_mixed_pids():
     registry = LogiDeviceRegistry()
     registry.register(WPID_KB, _make_device(WPID_KB, pid=PID, slot=1))
-    registry.register(WPID_MOUSE, _make_device(WPID_MOUSE, pid=OTHER_PID, slot=2, role="mouse"))
+    registry.register(WPID_MOUSE, _make_device(WPID_MOUSE, pid=OTHER_PID, slot=2, role=ROLE_MOUSE))
 
     topics = _make_topics()
     sub = TransportDisconnectionSubscriber(registry, topics)

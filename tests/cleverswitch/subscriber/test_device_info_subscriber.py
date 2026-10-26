@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from cleverswitch.model.logi_device import ROLE_KEYBOARD
 from src.cleverswitch.event.device_info_request_event import DeviceInfoRequestEvent
 from src.cleverswitch.hidpp.constants import BOLT_PID
 from src.cleverswitch.model.logi_device import LogiDevice
@@ -27,7 +28,7 @@ def _make_topics():
     )
 
 
-def _make_device(role="keyboard"):
+def _make_device(role=ROLE_KEYBOARD):
     return LogiDevice(wpid=WPID, pid=PID, slot=1, role=role, available_features={})
 
 

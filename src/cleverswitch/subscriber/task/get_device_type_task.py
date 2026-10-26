@@ -2,7 +2,7 @@ import logging
 
 from ...event.hidpp_error_event import HidppErrorEvent
 from ...hidpp.constants import FEATURE_DEVICE_TYPE_AND_NAME, FEATURE_ROOT
-from ...model.logi_device import LogiDevice
+from ...model.logi_device import ROLE_KEYBOARD, ROLE_MOUSE, LogiDevice
 from ...subscriber.task.feature.cid_reporting_feature_task import CidReportingFeatureTask
 from ...subscriber.task.info_task import InfoTask
 from ...topic.topics import Topics
@@ -34,15 +34,22 @@ class GetDeviceTypeTask(InfoTask):
         response = self._wait_response()
         if response is None:
             return  # timeout — keep step pending for retry
-        if not isinstance(response, HidppErrorEvent):
-            device_type = response.payload[0]
-            self._device.role = "keyboard" if device_type == 0 else "mouse"
-            log.debug(f"wpid=0x{self._device.wpid:04X}: type={self._device.role}")
+        if isinstance(response, HidppErrorEvent):
+            log.warning(
+                f"wpid=0x{self._device.wpid:04X}: getDeviceType failed with error=0x{response.error_code:02X}, retrying"
+            )
+            return
 
+        device_type = response.payload[0]
+        self._device.role = ROLE_KEYBOARD if device_type == 0 else ROLE_MOUSE
+        log.debug(f"wpid=0x{self._device.wpid:04X}: type={self._device.role}")
         self._device.pending_steps.discard(self._step_name)
 
     def _fire_dependent_steps(self):
-        if self._device.role != "keyboard":
+        if self._device.role is None:
+            log.warning(f"wpid=0x{self._device.wpid:04X}: device type unknown, Easy-Switch key setup left pending")
+            return
+        if self._device.role != ROLE_KEYBOARD:
             self._device.pending_steps.discard(Task.Feature.Name.CID_REPORTING)
             self._device.pending_steps.discard(Task.Name.FIND_ES_CIDS_FLAGS)
             return

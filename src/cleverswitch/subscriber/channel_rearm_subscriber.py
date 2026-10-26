@@ -3,9 +3,11 @@ import logging
 from ..event.link_channel_changed_event import LinkChannelChangedEvent
 from ..event.set_report_flag_event import SetReportFlagEvent
 from ..hidpp.constants import FEATURE_REPROG_CONTROLS_V4
+from ..model.logi_device import ROLE_KEYBOARD
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
 from ..topic.topics import Topics
+from .task.constants import Task
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +32,11 @@ class ChannelRearmSubscriber(Subscriber):
             if device.pid != event.pid or not device.connected:
                 continue
             if FEATURE_REPROG_CONTROLS_V4 not in device.available_features:
+                if device.role == ROLE_KEYBOARD and Task.Feature.Name.CID_REPORTING not in device.pending_steps:
+                    log.warning(
+                        f"Not re-arming Easy-Switch keys on wpid=0x{device.wpid:04X}: "
+                        f"feature 0x{FEATURE_REPROG_CONTROLS_V4:04X} unknown"
+                    )
                 continue
             state = "up" if event.up else "down"
             log.debug(f"{event.channel} {state} for wpid=0x{device.wpid:04X}: re-arming key reporting")

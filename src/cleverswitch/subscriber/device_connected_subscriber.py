@@ -5,10 +5,11 @@ from ..event.device_connected_event import DeviceConnectedEvent
 from ..event.device_info_request_event import DeviceInfoRequestEvent
 from ..event.set_report_flag_event import SetReportFlagEvent
 from ..hidpp.constants import FEATURE_REPROG_CONTROLS_V4
-from ..model.logi_device import LogiDevice
+from ..model.logi_device import ROLE_KEYBOARD, ROLE_MOUSE, LogiDevice
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
 from ..topic.topics import Topics
+from .task.constants import Task
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +60,11 @@ class DeviceConnectionSubscriber(Subscriber):
                     wpid=logi_device.wpid,
                 )
             )
+        elif logi_device.role == ROLE_KEYBOARD and Task.Feature.Name.CID_REPORTING not in logi_device.pending_steps:
+            log.warning(
+                f"Not arming Easy-Switch keys on {name}: feature 0x{FEATURE_REPROG_CONTROLS_V4:04X} unknown. "
+                f"Run with --clear-cache to rediscover"
+            )
 
         missing = logi_device.pending_steps
 
@@ -82,7 +88,7 @@ class DeviceConnectionSubscriber(Subscriber):
             return
 
         if event.device_type is not None:
-            role = "keyboard" if event.device_type == 1 else "mouse"
+            role = ROLE_KEYBOARD if event.device_type == 1 else ROLE_MOUSE
 
         device = LogiDevice(
             wpid=event.wpid,

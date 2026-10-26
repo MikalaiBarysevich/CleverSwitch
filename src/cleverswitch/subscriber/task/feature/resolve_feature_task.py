@@ -21,9 +21,9 @@ class FeatureTask(InfoTask):
         self._feature_code = feature_code
 
     def doTask(self) -> None:
-        if self._feature_code in self._device.available_features.values():
+        if self._feature_code in self._device.available_features:
             log.debug(f"Feature 0x{self._feature_code:04X} already resolved")
-            self._fire_dependent_steps()
+            self._device.pending_steps.discard(self._step_name)
             return
 
         self._send_request(self._feature_code >> 8, self._feature_code & 0xFF, 0x00)
@@ -44,7 +44,15 @@ class FeatureTask(InfoTask):
             feat_idx = event.payload[0]
             self._device.available_features[self._feature_code] = feat_idx
             log.debug(f"wpid=0x{self._device.wpid:04X}: feature 0x{self._feature_code:04X} at index {feat_idx}")
+        elif self._unsupported_is_suspect():
+            log.warning(
+                f"wpid=0x{self._device.wpid:04X}: feature 0x{self._feature_code:04X} reported unsupported, retrying"
+            )
+            return
         else:
             log.debug(f"wpid=0x{self._device.wpid:04X}: feature 0x{self._feature_code:04X} not supported")
 
         self._device.pending_steps.discard(self._step_name)
+
+    def _unsupported_is_suspect(self) -> bool:
+        return False

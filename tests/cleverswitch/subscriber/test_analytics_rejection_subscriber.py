@@ -15,7 +15,7 @@ from cleverswitch.hidpp.constants import (
     KEY_FLAG_PERSISTENTLY_DIVERTABLE,
     SW_ID_DIVERT,
 )
-from cleverswitch.model.logi_device import LogiDevice
+from cleverswitch.model.logi_device import ROLE_KEYBOARD, LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 from cleverswitch.subscriber.analytics_rejection_subscriber import AnalyticsRejectionSubscriber
 from cleverswitch.topic.topic import Topic
@@ -45,7 +45,7 @@ def _make_device(*, with_analytics: bool = True) -> LogiDevice:
         wpid=WPID,
         pid=PID,
         slot=SLOT,
-        role="keyboard",
+        role=ROLE_KEYBOARD,
         available_features={FEATURE_CHANGE_HOST: 9, FEATURE_REPROG_CONTROLS_V4: REPROG_IDX},
         supported_flags=flags,
     )

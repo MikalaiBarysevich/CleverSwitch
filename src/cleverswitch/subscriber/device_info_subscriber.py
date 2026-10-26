@@ -1,6 +1,7 @@
 import logging
 
 from ..event.device_info_request_event import DeviceInfoRequestEvent
+from ..model.logi_device import ROLE_KEYBOARD
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
 from ..topic.topics import Topics
@@ -36,11 +37,11 @@ class DeviceInfoSubscriber(Subscriber):
             device.pending_steps.discard(Task.Name.GET_DEVICE_TYPE)
         if not event.name:
             device.pending_steps.discard(Task.Name.GET_DEVICE_NAME)
-        if device.role is not None and device.role != "keyboard":
+        if device.role is not None and device.role != ROLE_KEYBOARD:
             device.pending_steps.discard(Task.Feature.Name.CID_REPORTING)
             device.pending_steps.discard(Task.Name.FIND_ES_CIDS_FLAGS)
 
-        if device.role == "keyboard":
+        if device.role == ROLE_KEYBOARD:
             CidReportingFeatureTask(device, self._topics).start()
         ChangeHostFeatureTask(device, self._topics).start()
         NameAndTypeFeatureTask(device, self._topics).start()

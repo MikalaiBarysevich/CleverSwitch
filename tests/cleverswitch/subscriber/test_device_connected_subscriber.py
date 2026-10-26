@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock
 
+from cleverswitch.model.logi_device import ROLE_KEYBOARD, ROLE_MOUSE
 from src.cleverswitch.event.device_connected_event import DeviceConnectedEvent
 from src.cleverswitch.event.device_info_request_event import DeviceInfoRequestEvent
 from src.cleverswitch.event.set_report_flag_event import SetReportFlagEvent
@@ -35,7 +37,7 @@ def _make_cache():
     return cache
 
 
-def _make_device(role="keyboard", pending_steps=None):
+def _make_device(role=ROLE_KEYBOARD, pending_steps=None):
     device = LogiDevice(
         wpid=WPID,
         pid=PID,
@@ -61,7 +63,7 @@ def test_new_connection_registers_device():
 
     device = registry.get_by_wpid(WPID)
     assert device is not None
-    assert device.role == "keyboard"
+    assert device.role == ROLE_KEYBOARD
 
 
 def test_new_connection_publishes_device_info_request():
@@ -99,7 +101,7 @@ def test_new_connection_device_type_not_1_is_mouse():
     sub.notify(event)
 
     device = registry.get_by_wpid(0x1234)
-    assert device.role == "mouse"
+    assert device.role == ROLE_MOUSE
 
 
 # ── Reconnection ─────────────────────────────────────────────────────────────
@@ -145,7 +147,7 @@ def test_reconnection_does_not_publish_when_no_reprog_feature():
         wpid=WPID,
         pid=PID,
         slot=1,
-        role="keyboard",
+        role=ROLE_KEYBOARD,
         available_features={FEATURE_CHANGE_HOST: 9},
     )
     device.pending_steps = set()
@@ -156,6 +158,39 @@ def test_reconnection_does_not_publish_when_no_reprog_feature():
     sub.notify(event)
 
     topics.flags.publish.assert_not_called()
+
+
+def _reconnect_without_reprog(role, pending_steps, caplog):
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
+    device = LogiDevice(wpid=WPID, pid=PID, slot=1, role=role, available_features={FEATURE_CHANGE_HOST: 9})
+    device.pending_steps = pending_steps
+    device.connected = False
+    registry.register(WPID, device)
+
+    with caplog.at_level(logging.WARNING):
+        sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1))
+    return topics
+
+
+def test_reconnection_warns_when_keyboard_lacks_reprog_feature(caplog):
+    topics = _reconnect_without_reprog(ROLE_KEYBOARD, set(), caplog)
+
+    topics.flags.publish.assert_not_called()
+    assert "Not arming" in caplog.text
+
+
+def test_reconnection_does_not_warn_while_keyboard_reprog_discovery_pending(caplog):
+    _reconnect_without_reprog(ROLE_KEYBOARD, {Task.Feature.Name.CID_REPORTING}, caplog)
+
+    assert "Not arming" not in caplog.text
+
+
+def test_reconnection_does_not_warn_for_mouse_without_reprog_feature(caplog):
+    _reconnect_without_reprog(ROLE_MOUSE, set(), caplog)
+
+    assert "Not arming" not in caplog.text
 
 
 def test_reconnection_requests_info_if_pending_steps():

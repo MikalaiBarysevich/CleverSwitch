@@ -38,6 +38,7 @@ _CAPPED_STEPS = frozenset(
         Task.Feature.Name.CHANGE_HOST,
         Task.Feature.Name.CID_REPORTING,
         Task.Name.FIND_ES_CIDS_FLAGS,
+        Task.Name.GET_DEVICE_TYPE,
     }
 )
 

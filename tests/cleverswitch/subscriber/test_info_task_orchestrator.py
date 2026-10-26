@@ -266,9 +266,14 @@ def test_uncapped_step_retries_beyond_max():
 
 @pytest.mark.parametrize(
     "step_name",
-    [Task.Feature.Name.CHANGE_HOST, Task.Feature.Name.CID_REPORTING, Task.Name.FIND_ES_CIDS_FLAGS],
+    [
+        Task.Feature.Name.CHANGE_HOST,
+        Task.Feature.Name.CID_REPORTING,
+        Task.Name.FIND_ES_CIDS_FLAGS,
+        Task.Name.GET_DEVICE_TYPE,
+    ],
 )
-def test_all_three_capped_steps_are_bounded(step_name):
+def test_all_capped_steps_are_bounded(step_name):
     device = _make_device(pending={step_name})
     orch, _, _, _ = _make_orchestrator()
 

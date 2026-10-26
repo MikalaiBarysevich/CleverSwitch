@@ -8,7 +8,7 @@ from cleverswitch.event.device_connected_event import DeviceConnectedEvent
 from cleverswitch.event.host_change_event import HostChangeEvent
 from cleverswitch.hidpp.constants import BOLT_PID
 from cleverswitch.model.config.hooks_config import HooksConfig
-from cleverswitch.model.logi_device import LogiDevice
+from cleverswitch.model.logi_device import ROLE_KEYBOARD, LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 from cleverswitch.subscriber.event_hook_subscriber import EventHookSubscriber
 from cleverswitch.topic.topic import Topic
@@ -28,7 +28,7 @@ def _make_topics():
     )
 
 
-def _make_device(wpid=WPID, slot=1, role="keyboard", name="MX Keys"):
+def _make_device(wpid=WPID, slot=1, role=ROLE_KEYBOARD, name="MX Keys"):
     return LogiDevice(wpid=wpid, pid=PID, slot=slot, role=role, available_features={}, name=name)
 
 
@@ -48,7 +48,7 @@ def test_connect_fires_for_known_device(mock_hooks):
     sub = EventHookSubscriber(_hooks_cfg(), registry, _make_topics())
     sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID))
 
-    mock_hooks.fire_connect.assert_called_once_with(_hooks_cfg(), "MX Keys", "keyboard")
+    mock_hooks.fire_connect.assert_called_once_with(_hooks_cfg(), "MX Keys", ROLE_KEYBOARD)
 
 
 @patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
@@ -95,7 +95,7 @@ def test_disconnect_fires_for_known_device(mock_hooks):
     sub = EventHookSubscriber(_hooks_cfg(), registry, _make_topics())
     sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=False, wpid=WPID))
 
-    mock_hooks.fire_disconnect.assert_called_once_with(_hooks_cfg(), "MX Keys", "keyboard")
+    mock_hooks.fire_disconnect.assert_called_once_with(_hooks_cfg(), "MX Keys", ROLE_KEYBOARD)
 
 
 @patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
@@ -118,7 +118,7 @@ def test_host_change_fires_for_known_device(mock_hooks):
     sub = EventHookSubscriber(_hooks_cfg(), registry, _make_topics())
     sub.notify(HostChangeEvent(slot=1, pid=PID, target_host=2))
 
-    mock_hooks.fire_switch.assert_called_once_with(_hooks_cfg(), "MX Keys", "keyboard", 2)
+    mock_hooks.fire_switch.assert_called_once_with(_hooks_cfg(), "MX Keys", ROLE_KEYBOARD, 2)
 
 
 @patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
@@ -189,7 +189,7 @@ def test_connect_passes_friendly_name_when_set(mock_hooks):
     sub = EventHookSubscriber(_hooks_cfg(), registry, _make_topics())
     sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID))
 
-    mock_hooks.fire_connect.assert_called_once_with(_hooks_cfg(), "MX Keys", "keyboard")
+    mock_hooks.fire_connect.assert_called_once_with(_hooks_cfg(), "MX Keys", ROLE_KEYBOARD)
 
 
 @patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
@@ -202,7 +202,7 @@ def test_host_change_passes_friendly_name_when_set(mock_hooks):
     sub = EventHookSubscriber(_hooks_cfg(), registry, _make_topics())
     sub.notify(HostChangeEvent(slot=1, pid=PID, target_host=2))
 
-    mock_hooks.fire_switch.assert_called_once_with(_hooks_cfg(), "MX Keys", "keyboard", 2)
+    mock_hooks.fire_switch.assert_called_once_with(_hooks_cfg(), "MX Keys", ROLE_KEYBOARD, 2)
 
 
 @patch("cleverswitch.subscriber.event_hook_subscriber.hooks")

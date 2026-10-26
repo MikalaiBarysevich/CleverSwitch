@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from cleverswitch.model.logi_device import ROLE_KEYBOARD, ROLE_MOUSE
 from src.cleverswitch.event.hidpp_error_event import HidppErrorEvent
 from src.cleverswitch.event.hidpp_response_event import HidppResponseEvent
 from src.cleverswitch.hidpp.constants import (
@@ -34,7 +35,7 @@ SLOT = 1
 
 
 def _make_device(pending=None, features=None):
-    d = LogiDevice(wpid=0x407B, pid=PID, slot=SLOT, role="keyboard", available_features=features or {})
+    d = LogiDevice(wpid=0x407B, pid=PID, slot=SLOT, role=ROLE_KEYBOARD, available_features=features or {})
     if pending is not None:
         d.pending_steps = set(pending)
     return d
@@ -115,24 +116,41 @@ def test_change_host_noop_when_feat_idx_is_zero():
     assert FEATURE_CHANGE_HOST not in device.available_features
 
 
-def test_change_host_noop_when_feature_code_is_already_an_index():
-    # resolve_feature_task checks `self._feature_code in available_features.values()`.
-    # Feature codes (e.g. 0x1814) are far larger than any index (0-255), so this
-    # path is only reachable if another feature's index happens to equal the code —
-    # effectively never in normal use.  The test below confirms the condition does NOT
-    # match for a typical {FEATURE_CHANGE_HOST: 9} entry, so the task proceeds normally.
-    device = _make_device(
-        pending={Task.Feature.Name.CHANGE_HOST},
-        features={FEATURE_CHANGE_HOST: 9},
-    )
+def test_skips_request_when_feature_code_already_resolved():
+    device = _make_device(pending={Task.Feature.Name.CHANGE_HOST}, features={FEATURE_CHANGE_HOST: 9})
     topics = _make_topics()
     task = ChangeHostFeatureTask(device, topics)
-    task._wait_response = lambda timeout=2.0: None  # timeout immediately
+
     task.doTask()
 
-    # Task sent the request (did not early-return) then timed out without updating features
+    topics.write.publish.assert_not_called()
+    assert Task.Feature.Name.CHANGE_HOST not in device.pending_steps
+
+
+def test_index_equal_to_feature_code_does_not_count_as_resolved():
+    device = _make_device(
+        pending={Task.Feature.Name.NAME_AND_TYPE},
+        features={FEATURE_CHANGE_HOST: FEATURE_DEVICE_TYPE_AND_NAME},
+    )
+    topics = _make_topics()
+    task = NameAndTypeFeatureTask(device, topics)
+    task._wait_response = lambda timeout=2.0: None
+
+    task.doTask()
+
     topics.write.publish.assert_called_once()
-    assert device.available_features.get(FEATURE_CHANGE_HOST) == 9  # unchanged
+    assert Task.Feature.Name.NAME_AND_TYPE in device.pending_steps
+
+
+def test_already_resolved_feature_fires_dependents_once(mocker):
+    device = _make_device(pending={Task.Feature.Name.CID_REPORTING}, features={FEATURE_REPROG_CONTROLS_V4: 8})
+    topics = _make_topics()
+    task = CidReportingFeatureTask(device, topics)
+    mock_find = mocker.patch("src.cleverswitch.subscriber.task.feature.cid_reporting_feature_task.FindESCidsFlagsTask")
+
+    task.run()
+
+    mock_find.return_value.start.assert_called_once()
 
 
 # ── CidReportingFeatureTask ───────────────────────────────────────────────────
@@ -147,6 +165,30 @@ def test_reprog_resolves_feature_index():
     task.doTask()
 
     assert device.available_features.get(FEATURE_REPROG_CONTROLS_V4) == 8
+    assert Task.Feature.Name.CID_REPORTING not in device.pending_steps
+
+
+def test_reprog_keeps_step_pending_when_keyboard_reports_unsupported():
+    device = _make_device(pending={Task.Feature.Name.CID_REPORTING})
+    topics = _make_topics()
+    task = CidReportingFeatureTask(device, topics)
+
+    deliver_on_request(task, topics, [_response(FEATURE_REPROG_CONTROLS_V4_SW_ID, 0)])
+    task.doTask()
+
+    assert FEATURE_REPROG_CONTROLS_V4 not in device.available_features
+    assert Task.Feature.Name.CID_REPORTING in device.pending_steps
+
+
+def test_reprog_accepts_unsupported_for_non_keyboard():
+    device = _make_device(pending={Task.Feature.Name.CID_REPORTING})
+    device.role = ROLE_MOUSE
+    topics = _make_topics()
+    task = CidReportingFeatureTask(device, topics)
+
+    deliver_on_request(task, topics, [_response(FEATURE_REPROG_CONTROLS_V4_SW_ID, 0)])
+    task.doTask()
+
     assert Task.Feature.Name.CID_REPORTING not in device.pending_steps
 
 

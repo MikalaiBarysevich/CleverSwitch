@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from cleverswitch.model.logi_device import ROLE_KEYBOARD
 from src.cleverswitch.event.hidpp_response_event import HidppResponseEvent
 from src.cleverswitch.event.set_report_flag_event import SetReportFlagEvent
 from src.cleverswitch.hidpp.constants import (
@@ -30,7 +31,7 @@ def _make_device(reprog_idx=REPROG_IDX, pending=None):
     features = {FEATURE_CHANGE_HOST: 9}
     if reprog_idx is not None:
         features[FEATURE_REPROG_CONTROLS_V4] = reprog_idx
-    d = LogiDevice(wpid=0x407B, pid=PID, slot=SLOT, role="keyboard", available_features=features)
+    d = LogiDevice(wpid=0x407B, pid=PID, slot=SLOT, role=ROLE_KEYBOARD, available_features=features)
     if pending is not None:
         d.pending_steps = set(pending)
     return d

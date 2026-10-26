@@ -15,7 +15,7 @@ from cleverswitch.hidpp.constants import (
     KEY_FLAG_DIVERTABLE,
     KEY_FLAG_PERSISTENTLY_DIVERTABLE,
 )
-from cleverswitch.model.logi_device import LogiDevice
+from cleverswitch.model.logi_device import ROLE_KEYBOARD, LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 from cleverswitch.subscriber.set_report_flag_subscriber import SetReportFlagSubscriber
 from cleverswitch.topic.topic import Topic
@@ -44,7 +44,7 @@ def _make_device(reprog_idx=REPROG_IDX, supported_flags=None):
         wpid=WPID,
         pid=PID,
         slot=1,
-        role="keyboard",
+        role=ROLE_KEYBOARD,
         available_features=features,
     )
     if supported_flags is not None:

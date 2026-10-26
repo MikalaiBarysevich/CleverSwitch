@@ -4,9 +4,11 @@ import os
 import threading
 from pathlib import Path
 
+from ..hidpp.constants import FEATURE_REPROG_CONTROLS_V4
 from ..model.disk_cache import DiskCache
-from ..model.logi_device import LogiDevice
+from ..model.logi_device import ROLE_KEYBOARD, LogiDevice
 from ..registry.logi_device_registry import LogiDeviceRegistry
+from ..subscriber.task.constants import Task
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +48,7 @@ class DeviceCache:
                 except (KeyError, TypeError, AttributeError) as e:
                     log.warning(f"Skipping malformed device cache entry: {e}")
                     continue
+                self._repair(device)
                 self._cache_registry.register(device.wpid, device)
 
     def find_by_wpid(self, wpid: int) -> LogiDevice | None:
@@ -76,6 +79,15 @@ class DeviceCache:
             log.debug(f"Wrote device cache to {self._path}")
         except OSError as e:
             log.warning(f"Failed to write device cache {self._path}: {e}")
+
+    def _repair(self, device: LogiDevice) -> None:
+        if device.role != ROLE_KEYBOARD or FEATURE_REPROG_CONTROLS_V4 in device.available_features:
+            return
+        log.warning(
+            f"Cached keyboard wpid=0x{device.wpid:04X} has no feature 0x{FEATURE_REPROG_CONTROLS_V4:04X}, "
+            f"rediscovering Easy-Switch keys"
+        )
+        device.pending_steps |= {Task.Feature.Name.CID_REPORTING, Task.Name.FIND_ES_CIDS_FLAGS}
 
     def _encode(self, obj):
         if isinstance(obj, (set, frozenset)):

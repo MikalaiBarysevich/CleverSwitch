@@ -1,5 +1,5 @@
 from ....hidpp.constants import FEATURE_REPROG_CONTROLS_V4
-from ....model.logi_device import LogiDevice
+from ....model.logi_device import ROLE_KEYBOARD, LogiDevice
 from ....topic.topics import Topics
 from ..constants import FEATURE_REPROG_CONTROLS_V4_SW_ID, Task
 from ..find_es_cids_flags_task import FindESCidsFlagsTask
@@ -15,6 +15,11 @@ class CidReportingFeatureTask(FeatureTask):
             FEATURE_REPROG_CONTROLS_V4,
             FEATURE_REPROG_CONTROLS_V4_SW_ID,
         )
+
+    # A peer app's getFeature reply on a shared sw_id can look like "not supported". Accepting it would
+    # cache a keyboard that is never armed, so keep the step pending and let the orchestrator's cap decide.
+    def _unsupported_is_suspect(self) -> bool:
+        return self._device.role == ROLE_KEYBOARD
 
     def _fire_dependent_steps(self):
         FindESCidsFlagsTask(self._device, self._topics).start()

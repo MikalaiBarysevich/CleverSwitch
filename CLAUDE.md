@@ -110,7 +110,7 @@ InfoTaskOrchestrator.notify(InfoTaskProgressEvent)
   │     Saving before the fallback keeps a genuinely-missing friendly_name persisted as null (re-fetched
   │     next launch) rather than baking in the marketing name.
   └── failure + device.connected → retries the task immediately, up to MAX_DISCOVERY_ATTEMPTS (5)
-        for the three steps in _CAPPED_STEPS (CHANGE_HOST, CID_REPORTING, FIND_ES_CIDS_FLAGS);
+        for the steps in _CAPPED_STEPS (CHANGE_HOST, CID_REPORTING, FIND_ES_CIDS_FLAGS, GET_DEVICE_TYPE);
         on exhaustion logs once at CRITICAL and keeps running. Cosmetic steps retry unbounded.
         The step stays in pending_steps, so the device is never cached and gets a fresh budget
         when DeviceInfoRequestEvent arrives (the orchestrator's second subscription, on
@@ -131,6 +131,11 @@ Task dependency chain:
 - `NameAndTypeFeatureTask` → fires `GetDeviceTypeTask` + `GetDeviceNameTask`
 - `FriendlyNameFeatureTask` → fires `GetDeviceFriendlyNameTask`
 - `ChangeHostFeatureTask` has no dependents
+
+A keyboard must never be cached without `FEATURE_REPROG_CONTROLS_V4` (0x1B04), or it is never armed:
+- `GetDeviceTypeTask` keeps its step pending on an error reply. Its dependents drop the CID steps only when the role is known and not `"keyboard"`; with the role unknown they stay pending, so the device is not cached
+- `CidReportingFeatureTask` treats a "not supported" getFeature reply for a keyboard as suspect (a peer app's reply on a shared sw_id can look like one) and keeps the step pending; the orchestrator's cap bounds the retries
+- `FeatureTask` checks `available_features` keys (feature codes), not values (indexes), to skip an already-resolved feature
 
 Each task type has an `sw_id` constant in `subscriber/task/constants.py`. The sw_id is a 4-bit nibble whose bit 3 must be set (`SW_ID_MASK`), so **8–15 is the entire space and every value is already allocated** — including `SW_ID = 0x08`, `SW_ID_DIVERT = 0x0E` and `SW_ID_HOST_CHANGE = 0x0F` in `hidpp/constants.py`. Two are already double-booked: `SW_ID_DIVERT` equals `FEATURE_DEVICE_FRIENDLY_NAME_SW_ID`, and `SW_ID_HOST_CHANGE` equals `GET_DEVICE_FRIENDLY_NAME_SW_ID`. A shared sw_id is survivable because `Topic.publish` copies each event into *every* subscriber's own queue: a collision can only put noise in the wrong task's queue, never steal a response from the right one. Filter precisely (by function code where needed), and rely on `_send_request`'s drain for the rest.
 
@@ -173,6 +178,7 @@ Design:
 
 - **Path**: `config.cache_path`, from config key `cache.path`; defaults to `~/.config/cleverswitch/device_cache.json`. `--clear-cache` deletes the file and exits without starting the daemon.
 - **Never crashes startup**: `load()` degrades to empty on any read failure (missing/corrupt file, wrong `version`, malformed `devices`), and skips individual malformed entries.
+- **Repairs a cached keyboard without 0x1B04**: `load()` re-adds `CID_REPORTING` + `FIND_ES_CIDS_FLAGS` to its `pending_steps`, so the reconnection path rediscovers them. `DeviceConnectionSubscriber` and `ChannelRearmSubscriber` log a WARNING if they still find a keyboard without 0x1B04 and no pending CID step.
 - **Fits the existing architecture — no new event or topic.** `setup_context()` builds the cache (loaded once) and injects it into `DeviceConnectionSubscriber`, `InfoTaskOrchestrator`, and `AnalyticsRejectionSubscriber`.
   - Read on connect: `DeviceConnectionSubscriber` registers a cache-hit device and runs the reconnection path — arming flags and requesting info only for still-pending steps (so a partially-cached device fetches just the gaps).
   - Written by `InfoTaskOrchestrator.save` on full discovery, and by `AnalyticsRejectionSubscriber` when it drops `KEY_FLAG_ANALYTICS`.

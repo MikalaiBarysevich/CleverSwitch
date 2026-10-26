@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from cleverswitch.model.logi_device import ROLE_KEYBOARD, ROLE_MOUSE
 from src.cleverswitch.cache.device_cache import CACHE_VERSION, DeviceCache
 from src.cleverswitch.model.logi_device import LogiDevice
 from src.cleverswitch.subscriber.task.constants import Task
@@ -17,7 +18,7 @@ def _keyboard():
         wpid=WPID,
         pid=PID,
         slot=1,
-        role="keyboard",
+        role=ROLE_KEYBOARD,
         available_features={0x0005: 4, 0x0007: 6, 0x1814: 9, 0x1B04: 5},
         name="Wireless Keyboard MX Keys",
         friendly_name="MX Keys",
@@ -32,7 +33,7 @@ def _mouse():
         wpid=0x4082,
         pid=PID,
         slot=2,
-        role="mouse",
+        role=ROLE_MOUSE,
         available_features={0x0005: 3, 0x0007: 5, 0x1814: 7},
         name="MX Master 3",
         friendly_name="MX Master 3",
@@ -88,14 +89,14 @@ def test_load_skips_malformed_entry_keeps_siblings(tmp_path):
     cache.save(_keyboard())  # valid sibling written
 
     data = json.loads(path.read_text())
-    data["devices"].append({"role": "mouse"})  # entry missing required keys
+    data["devices"].append({"role": ROLE_MOUSE})  # entry missing required keys
     path.write_text(json.dumps(data))
 
     cache2 = DeviceCache(path)
     cache2.load()  # must not raise
     survivor = cache2.find_by_wpid(WPID)
     assert survivor is not None
-    assert survivor.role == "keyboard"
+    assert survivor.role == ROLE_KEYBOARD
 
 
 def test_save_swallows_write_error(tmp_path, mocker):
@@ -104,7 +105,7 @@ def test_save_swallows_write_error(tmp_path, mocker):
     mocker.patch("src.cleverswitch.cache.device_cache.os.replace", side_effect=OSError("disk full"))
     cache.save(_keyboard())  # must not raise
     # in-memory entry still registered even though the disk write failed
-    assert cache.find_by_wpid(WPID).role == "keyboard"
+    assert cache.find_by_wpid(WPID).role == ROLE_KEYBOARD
 
 
 # ── round-trip + encoding ────────────────────────────────────────────────────────
@@ -119,12 +120,37 @@ def test_save_then_load_round_trip(tmp_path):
     device = reloaded.find_by_wpid(WPID)
 
     assert device is not None
-    assert device.role == "keyboard"
+    assert device.role == ROLE_KEYBOARD
     assert device.available_features == {0x0005: 4, 0x0007: 6, 0x1814: 9, 0x1B04: 5}
     assert device.name == "Wireless Keyboard MX Keys"
     assert device.friendly_name == "MX Keys"
     assert device.supported_flags == {0x20, 0x40}
     assert device.pending_steps == set()
+
+
+def test_load_requeues_es_discovery_for_keyboard_without_reprog(tmp_path):
+    path = tmp_path / "cache.json"
+    keyboard = _keyboard()
+    del keyboard.available_features[0x1B04]
+    DeviceCache(path).save(keyboard)
+
+    reloaded = DeviceCache(path)
+    reloaded.load()
+
+    assert reloaded.find_by_wpid(WPID).pending_steps == {
+        Task.Feature.Name.CID_REPORTING,
+        Task.Name.FIND_ES_CIDS_FLAGS,
+    }
+
+
+def test_load_leaves_mouse_without_reprog_untouched(tmp_path):
+    path = tmp_path / "cache.json"
+    DeviceCache(path).save(_mouse())
+
+    reloaded = DeviceCache(path)
+    reloaded.load()
+
+    assert reloaded.find_by_wpid(0x4082).pending_steps == set()
 
 
 def test_save_persists_pending_steps(tmp_path):
@@ -156,8 +182,8 @@ def test_multiple_devices_round_trip(tmp_path):
 
     reloaded = DeviceCache(path)
     reloaded.load()
-    assert reloaded.find_by_wpid(WPID).role == "keyboard"
-    assert reloaded.find_by_wpid(0x4082).role == "mouse"
+    assert reloaded.find_by_wpid(WPID).role == ROLE_KEYBOARD
+    assert reloaded.find_by_wpid(0x4082).role == ROLE_MOUSE
 
 
 # ── atomic write ─────────────────────────────────────────────────────────────────

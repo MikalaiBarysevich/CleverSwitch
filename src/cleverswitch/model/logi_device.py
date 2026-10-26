@@ -2,13 +2,16 @@ import dataclasses
 
 from ..subscriber.task.constants import Task
 
+ROLE_KEYBOARD = "keyboard"
+ROLE_MOUSE = "mouse"
+
 
 @dataclasses.dataclass
 class LogiDevice:
     wpid: int
     pid: int
     slot: int  # 1-6 for receiver-paired, 0xFF for Bluetooth direct
-    role: str | None  # "keyboard" or "mouse"
+    role: str | None  # ROLE_KEYBOARD or ROLE_MOUSE
     available_features: dict[int, int]  # feature_code → feature_index
     name: str | None = None
     friendly_name: str | None = None
