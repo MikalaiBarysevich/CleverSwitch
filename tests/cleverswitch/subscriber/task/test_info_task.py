@@ -11,7 +11,7 @@ from cleverswitch.event.hidpp_error_event import HidppErrorEvent
 from cleverswitch.event.hidpp_response_event import HidppResponseEvent
 from cleverswitch.event.transport_disconnected_event import TransportDisconnectedEvent
 from cleverswitch.hidpp.constants import BOLT_PID
-from cleverswitch.model.logi_device import LogiDevice
+from cleverswitch.model.logi_device import ROLE_KEYBOARD, LogiDevice
 from cleverswitch.subscriber.task.info_task import InfoTask
 from cleverswitch.topic.topic import Topic
 from cleverswitch.topic.topics import Topics
@@ -22,7 +22,7 @@ SW_ID = 0x09
 
 
 def _make_device(pending=None):
-    d = LogiDevice(wpid=0x407B, pid=PID, slot=SLOT, role="keyboard", available_features={})
+    d = LogiDevice(wpid=0x407B, pid=PID, slot=SLOT, role=ROLE_KEYBOARD, available_features={})
     if pending is not None:
         d.pending_steps = set(pending)
     return d

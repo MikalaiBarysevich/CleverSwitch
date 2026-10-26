@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from ..model.config.hook_entry import HookEntry
 from ..model.config.hook_type import HookType
 from ..model.config.hooks_config import HooksConfig
+from ..model.logi_device import ROLE_KEYBOARD
 
 log = logging.getLogger(__name__)
 
@@ -15,7 +16,7 @@ _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="cleverswitch-h
 
 
 def fire(hooks: tuple[HookEntry, ...], env_vars: dict[str, str], *, fire_for_all_devices: bool = False) -> None:
-    is_keyboard = env_vars.get("CLEVERSWITCH_DEVICE") == "keyboard"
+    is_keyboard = env_vars.get("CLEVERSWITCH_DEVICE") == ROLE_KEYBOARD
     for hook in hooks:
         all_devices = fire_for_all_devices if hook.fire_for_all_devices is None else hook.fire_for_all_devices
         if not all_devices and not is_keyboard:

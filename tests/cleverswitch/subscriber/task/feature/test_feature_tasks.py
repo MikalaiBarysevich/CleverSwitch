@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from cleverswitch.model.logi_device import ROLE_KEYBOARD, ROLE_MOUSE
 from src.cleverswitch.event.hidpp_error_event import HidppErrorEvent
 from src.cleverswitch.event.hidpp_response_event import HidppResponseEvent
 from src.cleverswitch.hidpp.constants import (
@@ -34,7 +35,7 @@ SLOT = 1
 
 
 def _make_device(pending=None, features=None):
-    d = LogiDevice(wpid=0x407B, pid=PID, slot=SLOT, role="keyboard", available_features=features or {})
+    d = LogiDevice(wpid=0x407B, pid=PID, slot=SLOT, role=ROLE_KEYBOARD, available_features=features or {})
     if pending is not None:
         d.pending_steps = set(pending)
     return d
@@ -181,7 +182,7 @@ def test_reprog_keeps_step_pending_when_keyboard_reports_unsupported():
 
 def test_reprog_accepts_unsupported_for_non_keyboard():
     device = _make_device(pending={Task.Feature.Name.CID_REPORTING})
-    device.role = "mouse"
+    device.role = ROLE_MOUSE
     topics = _make_topics()
     task = CidReportingFeatureTask(device, topics)
 

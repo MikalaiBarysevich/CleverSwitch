@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from cleverswitch.model.logi_device import ROLE_KEYBOARD, ROLE_MOUSE
 from src.cleverswitch.event.hidpp_error_event import HidppErrorEvent
 from src.cleverswitch.event.hidpp_response_event import HidppResponseEvent
 from src.cleverswitch.hidpp.constants import BOLT_PID, FEATURE_DEVICE_TYPE_AND_NAME
@@ -57,7 +58,7 @@ def test_sets_role_keyboard_for_type_0():
     deliver_on_request(task, topics, [_type_response(0)])
     task.doTask()
 
-    assert device.role == "keyboard"
+    assert device.role == ROLE_KEYBOARD
     assert Task.Name.GET_DEVICE_TYPE not in device.pending_steps
 
 
@@ -69,11 +70,11 @@ def test_sets_role_mouse_for_non_zero_type():
     deliver_on_request(task, topics, [_type_response(3)])
     task.doTask()
 
-    assert device.role == "mouse"
+    assert device.role == ROLE_MOUSE
 
 
 def test_skips_when_role_already_known():
-    device = _make_device(role="keyboard", pending={Task.Name.GET_DEVICE_TYPE})
+    device = _make_device(role=ROLE_KEYBOARD, pending={Task.Name.GET_DEVICE_TYPE})
     topics = _make_topics()
     task = GetDeviceTypeTask(device, topics)
 
@@ -167,7 +168,7 @@ def test_discards_keyboard_only_steps_when_role_is_mouse():
     deliver_on_request(task, topics, [_type_response(3)])
     task.run()
 
-    assert device.role == "mouse"
+    assert device.role == ROLE_MOUSE
     assert Task.Feature.Name.CID_REPORTING not in device.pending_steps
     assert Task.Name.FIND_ES_CIDS_FLAGS not in device.pending_steps
 

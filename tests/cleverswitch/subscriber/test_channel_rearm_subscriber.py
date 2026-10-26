@@ -11,7 +11,7 @@ from cleverswitch.event.link_channel_changed_event import CHANNEL_GATT, LinkChan
 from cleverswitch.event.set_report_flag_event import SetReportFlagEvent
 from cleverswitch.event.transport_disconnected_event import TransportDisconnectedEvent
 from cleverswitch.hidpp.constants import FEATURE_REPROG_CONTROLS_V4
-from cleverswitch.model.logi_device import LogiDevice
+from cleverswitch.model.logi_device import ROLE_KEYBOARD, ROLE_MOUSE, LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 from cleverswitch.subscriber.channel_rearm_subscriber import ChannelRearmSubscriber
 from cleverswitch.topic.topic import Topic
@@ -75,7 +75,7 @@ def test_skips_a_device_without_reprog_controls():
 
 
 def test_warns_when_keyboard_lacks_reprog_controls(caplog):
-    keyboard = _device(KEYBOARD, reprog=False, role="keyboard")
+    keyboard = _device(KEYBOARD, reprog=False, role=ROLE_KEYBOARD)
     keyboard.pending_steps = set()
     subscriber, topics = _setup(keyboard)
 
@@ -87,7 +87,7 @@ def test_warns_when_keyboard_lacks_reprog_controls(caplog):
 
 
 def test_no_warning_while_keyboard_reprog_discovery_pending(caplog):
-    subscriber, _ = _setup(_device(KEYBOARD, reprog=False, role="keyboard"))
+    subscriber, _ = _setup(_device(KEYBOARD, reprog=False, role=ROLE_KEYBOARD))
 
     with caplog.at_level(logging.WARNING):
         subscriber.notify(_changed())
@@ -96,7 +96,7 @@ def test_no_warning_while_keyboard_reprog_discovery_pending(caplog):
 
 
 def test_no_warning_for_mouse_without_reprog_controls(caplog):
-    mouse = _device(KEYBOARD, reprog=False, role="mouse")
+    mouse = _device(KEYBOARD, reprog=False, role=ROLE_MOUSE)
     mouse.pending_steps = set()
     subscriber, _ = _setup(mouse)
 

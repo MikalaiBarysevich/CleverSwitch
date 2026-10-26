@@ -11,7 +11,7 @@ from cleverswitch.hidpp.constants import (
     FEATURE_CHANGE_HOST,
     FEATURE_REPROG_CONTROLS_V4,
 )
-from cleverswitch.model.logi_device import LogiDevice
+from cleverswitch.model.logi_device import ROLE_KEYBOARD, LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 from cleverswitch.subscriber.change_host_notification_subscriber import ChangeHostNotificationSubscriber
 from cleverswitch.topic.topic import Topic
@@ -32,7 +32,7 @@ def _make_device(*, slot: int = SLOT, pid: int = PID, change_host_idx: int | Non
         wpid=WPID,
         pid=pid,
         slot=slot,
-        role="keyboard",
+        role=ROLE_KEYBOARD,
         available_features=features,
         friendly_name="MX KEYS S",
     )

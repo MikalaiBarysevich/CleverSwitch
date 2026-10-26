@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from cleverswitch.model.logi_device import ROLE_KEYBOARD
 from src.cleverswitch.event.hidpp_error_event import HidppErrorEvent
 from src.cleverswitch.event.hidpp_response_event import HidppResponseEvent
 from src.cleverswitch.hidpp.constants import BOLT_PID, FEATURE_DEVICE_TYPE_AND_NAME
@@ -24,7 +25,7 @@ def _make_device(name=None, pending=None, features=None):
         wpid=0x407B,
         pid=PID,
         slot=SLOT,
-        role="keyboard",
+        role=ROLE_KEYBOARD,
         available_features=features if features is not None else {FEATURE_DEVICE_TYPE_AND_NAME: NAME_IDX},
         name=name,
     )

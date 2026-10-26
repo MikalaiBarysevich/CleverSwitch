@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ..hidpp.constants import FEATURE_REPROG_CONTROLS_V4
 from ..model.disk_cache import DiskCache
-from ..model.logi_device import LogiDevice
+from ..model.logi_device import ROLE_KEYBOARD, LogiDevice
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.task.constants import Task
 
@@ -81,7 +81,7 @@ class DeviceCache:
             log.warning(f"Failed to write device cache {self._path}: {e}")
 
     def _repair(self, device: LogiDevice) -> None:
-        if device.role != "keyboard" or FEATURE_REPROG_CONTROLS_V4 in device.available_features:
+        if device.role != ROLE_KEYBOARD or FEATURE_REPROG_CONTROLS_V4 in device.available_features:
             return
         log.warning(
             f"Cached keyboard wpid=0x{device.wpid:04X} has no feature 0x{FEATURE_REPROG_CONTROLS_V4:04X}, "

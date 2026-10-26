@@ -9,6 +9,7 @@ from cleverswitch.hook.hooks import _run, fire, fire_connect, fire_disconnect, f
 from cleverswitch.model.config.hook_entry import HookEntry
 from cleverswitch.model.config.hook_type import HookType
 from cleverswitch.model.config.hooks_config import HooksConfig
+from cleverswitch.model.logi_device import ROLE_KEYBOARD, ROLE_MOUSE
 
 # ── builders ──────────────────────────────────────────────────────────────────
 
@@ -35,48 +36,48 @@ def _command(
 def test_fire_submits_one_task_per_hook(mocker):
     mock_submit = mocker.patch("cleverswitch.hook.hooks._executor.submit")
     hooks = (_script("/a.sh"), _script("/b.sh"))
-    fire(hooks, {"CLEVERSWITCH_DEVICE": "keyboard"})
+    fire(hooks, {"CLEVERSWITCH_DEVICE": ROLE_KEYBOARD})
     assert mock_submit.call_count == 2
 
 
 def test_fire_does_nothing_for_empty_hooks_tuple(mocker):
     mock_submit = mocker.patch("cleverswitch.hook.hooks._executor.submit")
-    fire((), {"CLEVERSWITCH_DEVICE": "keyboard"})
+    fire((), {"CLEVERSWITCH_DEVICE": ROLE_KEYBOARD})
     mock_submit.assert_not_called()
 
 
 def test_fire_skips_mouse_events_by_default(mocker):
     mock_submit = mocker.patch("cleverswitch.hook.hooks._executor.submit")
     hooks = (_script("/a.sh"),)
-    fire(hooks, {"CLEVERSWITCH_DEVICE": "mouse"})
+    fire(hooks, {"CLEVERSWITCH_DEVICE": ROLE_MOUSE})
     mock_submit.assert_not_called()
 
 
 def test_fire_allows_mouse_events_when_fire_for_all_devices_is_true(mocker):
     mock_submit = mocker.patch("cleverswitch.hook.hooks._executor.submit")
     hooks = (_script("/a.sh"),)
-    fire(hooks, {"CLEVERSWITCH_DEVICE": "mouse"}, fire_for_all_devices=True)
+    fire(hooks, {"CLEVERSWITCH_DEVICE": ROLE_MOUSE}, fire_for_all_devices=True)
     assert mock_submit.call_count == 1
 
 
 def test_fire_per_hook_override_true_fires_mouse_when_global_false(mocker):
     mock_submit = mocker.patch("cleverswitch.hook.hooks._executor.submit")
     hooks = (_script("/a.sh", fire_for_all_devices=True),)
-    fire(hooks, {"CLEVERSWITCH_DEVICE": "mouse"}, fire_for_all_devices=False)
+    fire(hooks, {"CLEVERSWITCH_DEVICE": ROLE_MOUSE}, fire_for_all_devices=False)
     assert mock_submit.call_count == 1
 
 
 def test_fire_per_hook_override_false_stays_keyboard_only_when_global_true(mocker):
     mock_submit = mocker.patch("cleverswitch.hook.hooks._executor.submit")
     hooks = (_script("/a.sh", fire_for_all_devices=False),)
-    fire(hooks, {"CLEVERSWITCH_DEVICE": "mouse"}, fire_for_all_devices=True)
+    fire(hooks, {"CLEVERSWITCH_DEVICE": ROLE_MOUSE}, fire_for_all_devices=True)
     mock_submit.assert_not_called()
 
 
 def test_fire_per_hook_none_inherits_global_true_for_mouse(mocker):
     mock_submit = mocker.patch("cleverswitch.hook.hooks._executor.submit")
     hooks = (_script("/a.sh", fire_for_all_devices=None),)
-    fire(hooks, {"CLEVERSWITCH_DEVICE": "mouse"}, fire_for_all_devices=True)
+    fire(hooks, {"CLEVERSWITCH_DEVICE": ROLE_MOUSE}, fire_for_all_devices=True)
     assert mock_submit.call_count == 1
 
 
@@ -85,7 +86,7 @@ def test_fire_mixed_overrides_submits_only_hooks_passing_their_own_gate(mocker):
     widen = _script("/widen.sh", name="widen", fire_for_all_devices=True)
     inherit = _script("/inherit.sh", name="inherit", fire_for_all_devices=None)
     narrow = _script("/narrow.sh", name="narrow", fire_for_all_devices=False)
-    fire((widen, inherit, narrow), {"CLEVERSWITCH_DEVICE": "mouse"}, fire_for_all_devices=False)
+    fire((widen, inherit, narrow), {"CLEVERSWITCH_DEVICE": ROLE_MOUSE}, fire_for_all_devices=False)
     submitted = [call.args[1].name for call in mock_submit.call_args_list]
     assert submitted == ["widen"]
 
@@ -98,12 +99,12 @@ def test_fire_switch_selects_switch_hooks_and_sets_env(mocker):
     switch_hook = _script("/hook.sh", name="s", types=(HookType.SWITCH,))
     connect_hook = _script("/other.sh", name="c", types=(HookType.CONNECT,))
     hooks_cfg = HooksConfig(hooks={"s": switch_hook, "c": connect_hook})
-    fire_switch(hooks_cfg, device_name="MX Keys", role="keyboard", target_host=1)
+    fire_switch(hooks_cfg, device_name="MX Keys", role=ROLE_KEYBOARD, target_host=1)
     mock_fire.assert_called_once_with(
         (switch_hook,),
         {
             "CLEVERSWITCH_EVENT": "switch",
-            "CLEVERSWITCH_DEVICE": "keyboard",
+            "CLEVERSWITCH_DEVICE": ROLE_KEYBOARD,
             "CLEVERSWITCH_DEVICE_NAME": "MX Keys",
             "CLEVERSWITCH_TARGET_HOST": "2",  # converted to 1-based
         },
@@ -115,12 +116,12 @@ def test_fire_connect_selects_connect_hooks_and_sets_env(mocker):
     mock_fire = mocker.patch("cleverswitch.hook.hooks.fire")
     connect_hook = _script("/hook.sh", name="c", types=(HookType.CONNECT,))
     hooks_cfg = HooksConfig(hooks={"c": connect_hook})
-    fire_connect(hooks_cfg, device_name="MX Master 3", role="mouse")
+    fire_connect(hooks_cfg, device_name="MX Master 3", role=ROLE_MOUSE)
     mock_fire.assert_called_once_with(
         (connect_hook,),
         {
             "CLEVERSWITCH_EVENT": "connect",
-            "CLEVERSWITCH_DEVICE": "mouse",
+            "CLEVERSWITCH_DEVICE": ROLE_MOUSE,
             "CLEVERSWITCH_DEVICE_NAME": "MX Master 3",
         },
         fire_for_all_devices=False,
@@ -131,12 +132,12 @@ def test_fire_disconnect_selects_disconnect_hooks_and_sets_env(mocker):
     mock_fire = mocker.patch("cleverswitch.hook.hooks.fire")
     disconnect_hook = _script("/hook.sh", name="d", types=(HookType.DISCONNECT,))
     hooks_cfg = HooksConfig(hooks={"d": disconnect_hook})
-    fire_disconnect(hooks_cfg, device_name="MX Keys", role="keyboard")
+    fire_disconnect(hooks_cfg, device_name="MX Keys", role=ROLE_KEYBOARD)
     mock_fire.assert_called_once_with(
         (disconnect_hook,),
         {
             "CLEVERSWITCH_EVENT": "disconnect",
-            "CLEVERSWITCH_DEVICE": "keyboard",
+            "CLEVERSWITCH_DEVICE": ROLE_KEYBOARD,
             "CLEVERSWITCH_DEVICE_NAME": "MX Keys",
         },
         fire_for_all_devices=False,
@@ -147,8 +148,8 @@ def test_fire_selects_hook_registered_for_multiple_types(mocker):
     mock_fire = mocker.patch("cleverswitch.hook.hooks.fire")
     multi = _script("/hook.sh", name="m", types=(HookType.CONNECT, HookType.DISCONNECT))
     hooks_cfg = HooksConfig(hooks={"m": multi})
-    fire_connect(hooks_cfg, device_name="MX Keys", role="keyboard")
-    fire_disconnect(hooks_cfg, device_name="MX Keys", role="keyboard")
+    fire_connect(hooks_cfg, device_name="MX Keys", role=ROLE_KEYBOARD)
+    fire_disconnect(hooks_cfg, device_name="MX Keys", role=ROLE_KEYBOARD)
     assert [call.args[0] for call in mock_fire.call_args_list] == [(multi,), (multi,)]
 
 

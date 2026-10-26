@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 from cleverswitch.event.external_unset_flag_event import ExternalUnsetFlagEvent
 from cleverswitch.event.set_report_flag_event import SetReportFlagEvent
 from cleverswitch.hidpp.constants import BOLT_PID, FEATURE_CHANGE_HOST, FEATURE_REPROG_CONTROLS_V4
-from cleverswitch.model.logi_device import LogiDevice
+from cleverswitch.model.logi_device import ROLE_KEYBOARD, LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 from cleverswitch.subscriber.external_unset_flag_subscriber import ExternalUnsetFlagSubscriber
 from cleverswitch.topic.topic import Topic
@@ -35,7 +35,7 @@ def _make_device(slot=1, reprog_idx=REPROG_IDX):
         wpid=0x407B,
         pid=PID,
         slot=slot,
-        role="keyboard",
+        role=ROLE_KEYBOARD,
         available_features=features,
     )
 

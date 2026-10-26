@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from cleverswitch.hidpp.constants import BOLT_PID
-from cleverswitch.model.logi_device import LogiDevice
+from cleverswitch.model.logi_device import ROLE_KEYBOARD, ROLE_MOUSE, LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 
 
-def _make_device(wpid=0x407B, slot=1, role="keyboard"):
+def _make_device(wpid=0x407B, slot=1, role=ROLE_KEYBOARD):
     return LogiDevice(wpid=wpid, pid=BOLT_PID, slot=slot, role=role, available_features={})
 
 
@@ -45,9 +45,9 @@ def test_get_by_wpid_not_found():
 
 def test_register_overwrites_existing():
     registry = LogiDeviceRegistry()
-    device1 = _make_device(role="keyboard")
-    device2 = _make_device(role="mouse")
+    device1 = _make_device(role=ROLE_KEYBOARD)
+    device2 = _make_device(role=ROLE_MOUSE)
     registry.register(0x407B, device1)
     registry.register(0x407B, device2)
-    assert registry.get_by_wpid(0x407B).role == "mouse"
+    assert registry.get_by_wpid(0x407B).role == ROLE_MOUSE
     assert len(registry.all_entries()) == 1

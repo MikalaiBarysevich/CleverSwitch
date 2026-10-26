@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 from cleverswitch.event.host_change_event import HostChangeEvent
 from cleverswitch.event.write_event import WriteEvent
 from cleverswitch.hidpp.constants import BOLT_PID, FEATURE_CHANGE_HOST
-from cleverswitch.model.logi_device import LogiDevice
+from cleverswitch.model.logi_device import ROLE_KEYBOARD, ROLE_MOUSE, LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 from cleverswitch.subscriber.host_change_subscriber import HostChangeSubscriber
 from cleverswitch.topic.topic import Topic
@@ -39,8 +39,8 @@ def test_host_change_sends_to_all_devices():
     topics = _make_topics()
     sub = HostChangeSubscriber(registry, topics)
 
-    kb = _make_device(WPID_KB, slot=1, role="keyboard")
-    mouse = _make_device(WPID_MOUSE, slot=2, role="mouse")
+    kb = _make_device(WPID_KB, slot=1, role=ROLE_KEYBOARD)
+    mouse = _make_device(WPID_MOUSE, slot=2, role=ROLE_MOUSE)
     registry.register(WPID_KB, kb)
     registry.register(WPID_MOUSE, mouse)
 
@@ -56,8 +56,8 @@ def test_host_change_skips_device_without_change_host():
     topics = _make_topics()
     sub = HostChangeSubscriber(registry, topics)
 
-    kb = _make_device(WPID_KB, slot=1, role="keyboard")
-    no_ch = LogiDevice(wpid=0x9999, pid=PID, slot=3, role="mouse", available_features={}, name="no-ch")
+    kb = _make_device(WPID_KB, slot=1, role=ROLE_KEYBOARD)
+    no_ch = LogiDevice(wpid=0x9999, pid=PID, slot=3, role=ROLE_MOUSE, available_features={}, name="no-ch")
     registry.register(WPID_KB, kb)
     registry.register(0x9999, no_ch)
 
