@@ -10,7 +10,7 @@ from ..registry.logi_device_registry import LogiDeviceRegistry
 
 log = logging.getLogger(__name__)
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 
 
 class DeviceCache:

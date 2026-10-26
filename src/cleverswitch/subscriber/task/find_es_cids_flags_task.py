@@ -49,11 +49,12 @@ class FindESCidsFlagsTask(InfoTask):
             if cid not in HOST_SWITCH_CIDS:
                 continue
             flags = response.payload[4]
+            additional_flags = response.payload[8]
             if flags & KEY_FLAG_DIVERTABLE:
                 self._device.supported_flags.add(KEY_FLAG_DIVERTABLE)
             if flags & KEY_FLAG_PERSISTENTLY_DIVERTABLE:
                 self._device.supported_flags.add(KEY_FLAG_PERSISTENTLY_DIVERTABLE)
-            if flags & KEY_FLAG_ANALYTICS:
+            if additional_flags & KEY_FLAG_ANALYTICS:
                 self._device.supported_flags.add(KEY_FLAG_ANALYTICS)
             cid_seen = True
             break
