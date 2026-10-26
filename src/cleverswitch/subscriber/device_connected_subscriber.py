@@ -52,6 +52,14 @@ class DeviceConnectionSubscriber(Subscriber):
         if not event.link_established:
             return
 
+        if (logi_device.slot, logi_device.pid) != (event.slot, event.pid):
+            log.info(
+                f"{name} moved from slot={logi_device.slot} pid=0x{logi_device.pid:04X} "
+                f"to slot={event.slot} pid=0x{event.pid:04X}"
+            )
+            logi_device.slot = event.slot
+            logi_device.pid = event.pid
+
         if FEATURE_REPROG_CONTROLS_V4 in logi_device.available_features:
             self._topics.flags.publish(
                 SetReportFlagEvent(

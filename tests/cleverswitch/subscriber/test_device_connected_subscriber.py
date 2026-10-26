@@ -378,3 +378,49 @@ def test_cache_hit_requests_info_for_missing_steps():
 
     assert registry.get_by_wpid(WPID) is cached
     topics.device_info.publish.assert_called_once()
+
+
+def test_cache_hit_takes_slot_and_pid_from_connection_event():
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    cache = _make_cache()
+
+    cached = _make_device(pending_steps=set())
+    cached.connected = False
+    cache.find_by_wpid.return_value = cached
+
+    sub = DeviceConnectionSubscriber(registry, topics, cache)
+
+    sub.notify(DeviceConnectedEvent(slot=3, pid=0xC52B, link_established=True, wpid=WPID, device_type=1))
+
+    device = registry.get_by_wpid(WPID)
+    assert (device.slot, device.pid) == (3, 0xC52B)
+    flag_event = topics.flags.publish.call_args[0][0]
+    assert (flag_event.slot, flag_event.pid) == (3, 0xC52B)
+
+
+def test_reconnect_in_new_slot_updates_registered_device():
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    device = _make_device(pending_steps=set())
+    device.connected = False
+    registry.register(WPID, device)
+
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
+
+    sub.notify(DeviceConnectedEvent(slot=4, pid=PID, link_established=True, wpid=WPID, device_type=1))
+
+    assert device.slot == 4
+
+
+def test_disconnect_does_not_change_slot():
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    device = _make_device(pending_steps=set())
+    registry.register(WPID, device)
+
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
+
+    sub.notify(DeviceConnectedEvent(slot=4, pid=PID, link_established=False, wpid=WPID, device_type=1))
+
+    assert device.slot == 1
