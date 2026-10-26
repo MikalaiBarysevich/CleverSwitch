@@ -239,3 +239,27 @@ def test_save_overwrites_existing_entry(tmp_path):
     reloaded = DeviceCache(path)
     reloaded.load()
     assert reloaded.find_by_wpid(WPID).friendly_name == "Renamed"
+
+
+def test_load_non_utf8_file_degrades(tmp_path):
+    path = tmp_path / "cache.json"
+    path.write_bytes(b"\xff\xfe\x00garbage\x80")
+    cache = DeviceCache(path)
+    cache.load()
+    assert cache.find_by_wpid(WPID) is None
+
+
+def test_load_skips_entry_with_non_numeric_feature_key(tmp_path):
+    path = tmp_path / "cache.json"
+    cache = DeviceCache(path)
+    cache.save(_keyboard())
+
+    data = json.loads(path.read_text())
+    bad = dict(data["devices"][0], wpid=0x9999, available_features={"abc": 1})
+    data["devices"].append(bad)
+    path.write_text(json.dumps(data))
+
+    cache2 = DeviceCache(path)
+    cache2.load()
+    assert cache2.find_by_wpid(WPID) is not None
+    assert cache2.find_by_wpid(0x9999) is None

@@ -30,7 +30,7 @@ class DeviceCache:
                 with open(self._path) as cache_path:
                     data = json.load(cache_path)
                 disk_cache = DiskCache(**data)
-            except (OSError, json.JSONDecodeError, TypeError) as e:
+            except (OSError, ValueError, TypeError) as e:
                 log.warning(f"Could not read device cache {self._path}: {e}. Starting empty")
                 return
 
@@ -45,7 +45,7 @@ class DeviceCache:
             for device_data in disk_cache.devices:
                 try:
                     device = self._decode(device_data)
-                except (KeyError, TypeError, AttributeError) as e:
+                except (KeyError, TypeError, AttributeError, ValueError) as e:
                     log.warning(f"Skipping malformed device cache entry: {e}")
                     continue
                 self._repair(device)
