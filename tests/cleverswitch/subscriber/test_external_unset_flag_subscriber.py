@@ -89,3 +89,27 @@ def test_non_external_unset_flag_event_is_noop():
     sub.notify("not an event")  # must not raise
 
     topics.flags.publish.assert_not_called()
+
+
+def test_bluetooth_devices_sharing_slot_are_told_apart_by_pid():
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = ExternalUnsetFlagSubscriber(registry, topics)
+
+    mouse = LogiDevice(wpid=0xB023, pid=0xB023, slot=0xFF, role="mouse", available_features={FEATURE_CHANGE_HOST: 9})
+    keyboard = LogiDevice(
+        wpid=0xB35B,
+        pid=0xB35B,
+        slot=0xFF,
+        role="keyboard",
+        available_features={FEATURE_CHANGE_HOST: 9, FEATURE_REPROG_CONTROLS_V4: REPROG_IDX},
+    )
+    registry.register(mouse.wpid, mouse)
+    registry.register(keyboard.wpid, keyboard)
+
+    sub.notify(ExternalUnsetFlagEvent(slot=0xFF, pid=0xB35B, feature_index=REPROG_IDX, cid=0x00D1))
+
+    topics.flags.publish.assert_called_once()
+    published = topics.flags.publish.call_args[0][0]
+    assert isinstance(published, SetReportFlagEvent)
+    assert published.wpid == 0xB35B

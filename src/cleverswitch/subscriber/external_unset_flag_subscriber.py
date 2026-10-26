@@ -20,10 +20,10 @@ class ExternalUnsetFlagSubscriber(Subscriber):
         if not isinstance(event, ExternalUnsetFlagEvent):
             return
 
-        # Find the device by slot to verify feature_index matches REPROG_CONTROLS_V4
+        # Find the device by slot and pid to verify feature_index matches REPROG_CONTROLS_V4
         device = None
         for entry in self._device_registry.all_entries():
-            if entry.slot == event.slot:
+            if entry.slot == event.slot and entry.pid == event.pid:
                 device = entry
                 break
 
