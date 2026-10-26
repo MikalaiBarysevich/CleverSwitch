@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -30,9 +31,9 @@ def _make_topics():
     )
 
 
-def _device(wpid, connected=True, reprog=True):
+def _device(wpid, connected=True, reprog=True, role=None):
     features = {FEATURE_REPROG_CONTROLS_V4: 8} if reprog else {}
-    return LogiDevice(wpid=wpid, pid=wpid, slot=0xFF, role=None, available_features=features, connected=connected)
+    return LogiDevice(wpid=wpid, pid=wpid, slot=0xFF, role=role, available_features=features, connected=connected)
 
 
 def _setup(*devices):
@@ -71,6 +72,38 @@ def test_skips_a_device_without_reprog_controls():
     subscriber, topics = _setup(_device(KEYBOARD, reprog=False))
     subscriber.notify(_changed())
     topics.flags.publish.assert_not_called()
+
+
+def test_warns_when_keyboard_lacks_reprog_controls(caplog):
+    keyboard = _device(KEYBOARD, reprog=False, role="keyboard")
+    keyboard.pending_steps = set()
+    subscriber, topics = _setup(keyboard)
+
+    with caplog.at_level(logging.WARNING):
+        subscriber.notify(_changed())
+
+    topics.flags.publish.assert_not_called()
+    assert "Not re-arming" in caplog.text
+
+
+def test_no_warning_while_keyboard_reprog_discovery_pending(caplog):
+    subscriber, _ = _setup(_device(KEYBOARD, reprog=False, role="keyboard"))
+
+    with caplog.at_level(logging.WARNING):
+        subscriber.notify(_changed())
+
+    assert "Not re-arming" not in caplog.text
+
+
+def test_no_warning_for_mouse_without_reprog_controls(caplog):
+    mouse = _device(KEYBOARD, reprog=False, role="mouse")
+    mouse.pending_steps = set()
+    subscriber, _ = _setup(mouse)
+
+    with caplog.at_level(logging.WARNING):
+        subscriber.notify(_changed())
+
+    assert "Not re-arming" not in caplog.text
 
 
 def test_skips_devices_on_other_pids():

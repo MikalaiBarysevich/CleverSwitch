@@ -96,7 +96,7 @@ def test_skips_when_feature_not_available():
     assert Task.Name.GET_DEVICE_TYPE not in device.pending_steps
 
 
-def test_discards_step_on_error_response():
+def test_keeps_step_pending_on_error_response():
     device = _make_device(pending={Task.Name.GET_DEVICE_TYPE})
     topics = _make_topics()
     task = GetDeviceTypeTask(device, topics)
@@ -109,7 +109,52 @@ def test_discards_step_on_error_response():
     task.doTask()
 
     assert device.role is None
-    assert Task.Name.GET_DEVICE_TYPE not in device.pending_steps
+    assert Task.Name.GET_DEVICE_TYPE in device.pending_steps
+
+
+def test_error_response_keeps_keyboard_steps_pending():
+    device = _make_device(
+        pending={Task.Name.GET_DEVICE_TYPE, Task.Feature.Name.CID_REPORTING, Task.Name.FIND_ES_CIDS_FLAGS},
+    )
+    topics = _make_topics()
+    task = GetDeviceTypeTask(device, topics)
+
+    deliver_on_request(
+        task,
+        topics,
+        [HidppErrorEvent(slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=GET_DEVICE_TYPE_SW_ID, error_code=5)],
+    )
+    task.run()
+
+    assert Task.Feature.Name.CID_REPORTING in device.pending_steps
+    assert Task.Name.FIND_ES_CIDS_FLAGS in device.pending_steps
+    assert topics.info_progress.publish.call_args.args[0].success is False
+
+
+def test_unknown_role_keeps_keyboard_steps_pending(mocker):
+    device = _make_device(pending={Task.Feature.Name.CID_REPORTING, Task.Name.FIND_ES_CIDS_FLAGS}, features={})
+    topics = _make_topics()
+    task = GetDeviceTypeTask(device, topics)
+    mock_cid = mocker.patch("src.cleverswitch.subscriber.task.get_device_type_task.CidReportingFeatureTask")
+
+    task.run()
+
+    mock_cid.assert_not_called()
+    assert Task.Feature.Name.CID_REPORTING in device.pending_steps
+    assert Task.Name.FIND_ES_CIDS_FLAGS in device.pending_steps
+
+
+def test_keyboard_role_starts_cid_reporting(mocker):
+    device = _make_device(pending={Task.Name.GET_DEVICE_TYPE, Task.Feature.Name.CID_REPORTING})
+    topics = _make_topics()
+    task = GetDeviceTypeTask(device, topics)
+    mock_cid = mocker.patch("src.cleverswitch.subscriber.task.get_device_type_task.CidReportingFeatureTask")
+
+    deliver_on_request(task, topics, [_type_response(0)])
+    task.run()
+
+    mock_cid.assert_called_once_with(device, topics)
+    mock_cid.return_value.start.assert_called_once()
 
 
 def test_discards_keyboard_only_steps_when_role_is_mouse():

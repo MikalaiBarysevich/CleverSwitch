@@ -34,14 +34,21 @@ class GetDeviceTypeTask(InfoTask):
         response = self._wait_response()
         if response is None:
             return  # timeout — keep step pending for retry
-        if not isinstance(response, HidppErrorEvent):
-            device_type = response.payload[0]
-            self._device.role = "keyboard" if device_type == 0 else "mouse"
-            log.debug(f"wpid=0x{self._device.wpid:04X}: type={self._device.role}")
+        if isinstance(response, HidppErrorEvent):
+            log.warning(
+                f"wpid=0x{self._device.wpid:04X}: getDeviceType failed with error=0x{response.error_code:02X}, retrying"
+            )
+            return
 
+        device_type = response.payload[0]
+        self._device.role = "keyboard" if device_type == 0 else "mouse"
+        log.debug(f"wpid=0x{self._device.wpid:04X}: type={self._device.role}")
         self._device.pending_steps.discard(self._step_name)
 
     def _fire_dependent_steps(self):
+        if self._device.role is None:
+            log.warning(f"wpid=0x{self._device.wpid:04X}: device type unknown, Easy-Switch key setup left pending")
+            return
         if self._device.role != "keyboard":
             self._device.pending_steps.discard(Task.Feature.Name.CID_REPORTING)
             self._device.pending_steps.discard(Task.Name.FIND_ES_CIDS_FLAGS)

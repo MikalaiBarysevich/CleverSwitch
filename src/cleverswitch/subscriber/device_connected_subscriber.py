@@ -9,6 +9,7 @@ from ..model.logi_device import LogiDevice
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
 from ..topic.topics import Topics
+from .task.constants import Task
 
 log = logging.getLogger(__name__)
 
@@ -58,6 +59,11 @@ class DeviceConnectionSubscriber(Subscriber):
                     pid=logi_device.pid,
                     wpid=logi_device.wpid,
                 )
+            )
+        elif logi_device.role == "keyboard" and Task.Feature.Name.CID_REPORTING not in logi_device.pending_steps:
+            log.warning(
+                f"Not arming Easy-Switch keys on {name}: feature 0x{FEATURE_REPROG_CONTROLS_V4:04X} unknown. "
+                f"Run with --clear-cache to rediscover"
             )
 
         missing = logi_device.pending_steps

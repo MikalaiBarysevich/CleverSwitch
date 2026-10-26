@@ -127,6 +127,31 @@ def test_save_then_load_round_trip(tmp_path):
     assert device.pending_steps == set()
 
 
+def test_load_requeues_es_discovery_for_keyboard_without_reprog(tmp_path):
+    path = tmp_path / "cache.json"
+    keyboard = _keyboard()
+    del keyboard.available_features[0x1B04]
+    DeviceCache(path).save(keyboard)
+
+    reloaded = DeviceCache(path)
+    reloaded.load()
+
+    assert reloaded.find_by_wpid(WPID).pending_steps == {
+        Task.Feature.Name.CID_REPORTING,
+        Task.Name.FIND_ES_CIDS_FLAGS,
+    }
+
+
+def test_load_leaves_mouse_without_reprog_untouched(tmp_path):
+    path = tmp_path / "cache.json"
+    DeviceCache(path).save(_mouse())
+
+    reloaded = DeviceCache(path)
+    reloaded.load()
+
+    assert reloaded.find_by_wpid(0x4082).pending_steps == set()
+
+
 def test_save_persists_pending_steps(tmp_path):
     path = tmp_path / "cache.json"
     partial = _keyboard()

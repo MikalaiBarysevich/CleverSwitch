@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock
 
 from src.cleverswitch.event.device_connected_event import DeviceConnectedEvent
@@ -156,6 +157,39 @@ def test_reconnection_does_not_publish_when_no_reprog_feature():
     sub.notify(event)
 
     topics.flags.publish.assert_not_called()
+
+
+def _reconnect_without_reprog(role, pending_steps, caplog):
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
+    device = LogiDevice(wpid=WPID, pid=PID, slot=1, role=role, available_features={FEATURE_CHANGE_HOST: 9})
+    device.pending_steps = pending_steps
+    device.connected = False
+    registry.register(WPID, device)
+
+    with caplog.at_level(logging.WARNING):
+        sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1))
+    return topics
+
+
+def test_reconnection_warns_when_keyboard_lacks_reprog_feature(caplog):
+    topics = _reconnect_without_reprog("keyboard", set(), caplog)
+
+    topics.flags.publish.assert_not_called()
+    assert "Not arming" in caplog.text
+
+
+def test_reconnection_does_not_warn_while_keyboard_reprog_discovery_pending(caplog):
+    _reconnect_without_reprog("keyboard", {Task.Feature.Name.CID_REPORTING}, caplog)
+
+    assert "Not arming" not in caplog.text
+
+
+def test_reconnection_does_not_warn_for_mouse_without_reprog_feature(caplog):
+    _reconnect_without_reprog("mouse", set(), caplog)
+
+    assert "Not arming" not in caplog.text
 
 
 def test_reconnection_requests_info_if_pending_steps():
