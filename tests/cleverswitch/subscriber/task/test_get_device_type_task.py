@@ -183,3 +183,39 @@ def test_keeps_step_pending_on_timeout():
 
     assert device.role is None
     assert Task.Name.GET_DEVICE_TYPE in device.pending_steps
+
+
+def test_starts_cid_reporting_after_resolving_keyboard_role(mocker):
+    device = _make_device(pending={Task.Name.GET_DEVICE_TYPE, Task.Feature.Name.CID_REPORTING})
+    topics = _make_topics()
+    task = GetDeviceTypeTask(device, topics)
+    cid_task = mocker.patch("src.cleverswitch.subscriber.task.get_device_type_task.CidReportingFeatureTask")
+
+    deliver_on_request(task, topics, [_type_response(0)])
+    task.run()
+
+    cid_task.assert_called_once_with(device, topics)
+    cid_task.return_value.start.assert_called_once()
+
+
+def test_does_not_start_cid_reporting_when_role_was_already_known(mocker):
+    device = _make_device(role="keyboard", pending={Task.Name.GET_DEVICE_TYPE, Task.Feature.Name.CID_REPORTING})
+    topics = _make_topics()
+    task = GetDeviceTypeTask(device, topics)
+    cid_task = mocker.patch("src.cleverswitch.subscriber.task.get_device_type_task.CidReportingFeatureTask")
+
+    task.run()
+
+    cid_task.assert_not_called()
+    assert Task.Feature.Name.CID_REPORTING in device.pending_steps
+
+
+def test_does_not_start_cid_reporting_when_step_already_done(mocker):
+    device = _make_device(role="keyboard", pending={Task.Feature.Name.CID_REPORTING})
+    topics = _make_topics()
+    task = GetDeviceTypeTask(device, topics)
+    cid_task = mocker.patch("src.cleverswitch.subscriber.task.get_device_type_task.CidReportingFeatureTask")
+
+    task.run()
+
+    cid_task.assert_not_called()
