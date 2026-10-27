@@ -66,8 +66,6 @@ class InfoTaskOrchestrator(Subscriber):
             if not device.pending_steps and device.wpid not in self._announced:
                 self._announced.add(device.wpid)
                 self._cache.save(device)
-                if not device.friendly_name and device.name:
-                    device.friendly_name = device.name
                 log.info(f"Device fully discovered: {device}")
         elif not event.aborted:
             # An aborted step stays pending; the reconnection path restarts it.

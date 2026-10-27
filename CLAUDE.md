@@ -105,10 +105,8 @@ InfoTask (Thread + Subscriber)
   └── publishes InfoTaskProgressEvent to info_progress
 
 InfoTaskOrchestrator.notify(InfoTaskProgressEvent)
-  ├── success + pending_steps empty → cache.save(device) FIRST, then applies friendly_name fallback
-  │     (copies device.name if friendly_name is None), logs "Device fully discovered" (once per wpid).
-  │     Saving before the fallback keeps a genuinely-missing friendly_name persisted as null (re-fetched
-  │     next launch) rather than baking in the marketing name.
+  ├── success + pending_steps empty → cache.save(device), logs "Device fully discovered" (once per wpid).
+  │     friendly_name is never back-filled from name; display_name already falls back to it.
   └── failure + device.connected → retries the task immediately, up to MAX_DISCOVERY_ATTEMPTS (5)
         for the steps in _CAPPED_STEPS (CHANGE_HOST, CID_REPORTING, FIND_ES_CIDS_FLAGS, GET_DEVICE_TYPE);
         on exhaustion logs once at CRITICAL and keeps running. Cosmetic steps retry unbounded.
