@@ -464,3 +464,16 @@ def test_run_reports_not_aborted_on_plain_failure():
     task.run()
 
     assert topics.info_progress.publish.call_args[0][0].aborted is False
+
+
+@pytest.mark.parametrize("pending", [{"test_step"}, set()])
+def test_run_does_not_mark_disconnected_device_connected(pending):
+    device = _make_device(pending=pending)
+    device.connected = False
+    topics = _make_topics()
+
+    task = _ConcreteTask(device, topics, do_task_fn=lambda: device.pending_steps.discard("test_step"))
+    task.run()
+
+    assert device.connected is False
+    assert topics.info_progress.publish.call_args[0][0].success is True
