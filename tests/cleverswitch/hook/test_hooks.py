@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import sys
+import time
 
 from cleverswitch.hook.hooks import _run, fire, fire_connect, fire_disconnect, fire_switch
 from cleverswitch.model.config.hook_entry import HookEntry
@@ -243,18 +245,16 @@ def test_run_logs_warning_on_timeout(mocker, tmp_path, caplog):
     assert "timed out" in caplog.text
 
 
-def test_run_kills_process_on_timeout(mocker, tmp_path):
-    script = tmp_path / "hook.sh"
-    script.touch()
-    mock_process = mocker.MagicMock()
-    exc = subprocess.TimeoutExpired(cmd=str(script), timeout=5)
-    exc.process = mock_process
-    mocker.patch("cleverswitch.hook.hooks.subprocess.run", side_effect=exc)
+def test_run_kills_hanging_command_at_timeout_without_orphan_warning(caplog):
+    hook = _command(f'"{sys.executable}" -c "import time; time.sleep(10)"', timeout=1)
 
-    _run(_script(str(script), timeout=5), {})
+    started = time.monotonic()
+    with caplog.at_level(logging.WARNING, logger="cleverswitch.hook.hooks"):
+        _run(hook, {})
 
-    mock_process.kill.assert_called_once()
-    mock_process.communicate.assert_called_once()
+    assert time.monotonic() - started < 5
+    assert "timed out after 1s" in caplog.text
+    assert "may still be running" not in caplog.text
 
 
 def test_run_logs_warning_on_unexpected_exception(mocker, tmp_path, caplog):
@@ -294,14 +294,12 @@ def test_run_command_logs_warning_on_nonzero_exit_code(mocker, caplog):
 
 def test_run_command_logs_warning_on_timeout(mocker, caplog):
     exc = subprocess.TimeoutExpired(cmd="slow-command", timeout=5)
-    exc.process = mocker.MagicMock()
     mocker.patch("cleverswitch.hook.hooks.subprocess.run", side_effect=exc)
 
     with caplog.at_level(logging.WARNING, logger="cleverswitch.hook.hooks"):
         _run(_command("slow-command", timeout=5), {})
 
     assert "timed out" in caplog.text
-    exc.process.kill.assert_called_once()
 
 
 def test_run_command_logs_warning_on_unexpected_exception(mocker, caplog):

@@ -93,13 +93,7 @@ def _run(hook: HookEntry, extra_env: dict[str, str]) -> None:
                 log.warning(f"Hook stderr: {result.stderr.strip()}")
         elif result.stdout:
             log.debug(f"Hook stdout: {result.stdout.strip()}")
-    except subprocess.TimeoutExpired as e:
-        proc = getattr(e, "process", None)
-        if proc is not None:
-            proc.kill()
-            proc.communicate()
-        else:
-            log.warning(f"Hook {label} timed out but process handle unavailable — child may still be running")
+    except subprocess.TimeoutExpired:
         log.warning(f"Hook {label} timed out after {hook.timeout}s")
     except Exception as e:
         log.warning(f"Hook {label} failed: {e}")
