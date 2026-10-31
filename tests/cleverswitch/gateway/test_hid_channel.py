@@ -7,12 +7,7 @@ import time
 from unittest.mock import MagicMock
 
 from cleverswitch.errors.errors import TransportError
-from cleverswitch.gateway.hid_channel import (
-    _RECONNECT_BACKOFF_MAX,
-    _RECONNECT_BACKOFF_MIN,
-    _RECONNECT_INTERVAL,
-    HidChannel,
-)
+from cleverswitch.gateway.hid_channel import _OPEN_RETRY_DELAYS, HidChannel
 from cleverswitch.hidpp.constants import BOLT_PID, CONNECTION_BLUETOOTH, CONNECTION_RECEIVER, REPORT_LONG
 from cleverswitch.hidpp.transport import HidDeviceInfo
 from cleverswitch.listener.event_listener import EventListener
@@ -165,13 +160,13 @@ def _stopping_channel() -> HidChannel:
 def test_run_exits_without_reconnecting_when_stopped(mocker):
     """close() must actually stop the thread instead of having it reopen the closed transport."""
     gw = _stopping_channel()
-    try_connect = mocker.patch.object(gw, "_try_connect")
+    try_open = mocker.patch.object(gw, "_try_open")
 
     gw.start()
     gw.join(timeout=2.0)
 
     assert not gw.is_alive(), "run() must exit once _stop is set"
-    try_connect.assert_not_called()
+    try_open.assert_not_called()
 
 
 def test_run_stopped_transport_error_does_not_mark_disconnected(mocker):
@@ -260,7 +255,8 @@ def test_close_on_own_thread_does_not_deadlock(make_fake_transport, mocker):
     transport = make_fake_transport()
     gw = HidChannel(_device_info(), MagicMock(spec=EventListener), MagicMock())
     gw._transport = transport
-    mocker.patch.object(gw, "_try_connect", side_effect=lambda: gw.close())
+    gw.attach(b"/dev/hidraw0")
+    mocker.patch.object(gw, "_try_open", side_effect=lambda *_: gw.close())
 
     gw.start()
     gw.join(timeout=2.0)
@@ -303,28 +299,6 @@ def test_run_continues_after_none_read():
     gw.run()
 
     event_listener.listen.assert_called_once_with(event)
-
-
-def test_try_connect_with_no_transport_and_changed_path_does_not_raise(mocker):
-    info = _device_info()
-    gw = HidChannel(info, MagicMock(spec=EventListener), MagicMock())
-    gw._transport = None
-    moved = HidDeviceInfo(
-        path=b"/dev/hidraw9",
-        vid=0x046D,
-        pid=info.pid,
-        usage_page=info.usage_page,
-        usage=info.usage,
-        connection_type=CONNECTION_RECEIVER,
-    )
-    mocker.patch("cleverswitch.gateway.hid_channel.enumerate_hid_devices", return_value={info.pid: [moved]})
-    transport_cls = mocker.patch("cleverswitch.gateway.hid_channel.HIDTransport")
-
-    gw._try_connect()  # must not raise AttributeError on the None transport
-
-    assert gw._device_info.path == b"/dev/hidraw9"
-    transport_cls.assert_called_once()
-    assert gw._connected
 
 
 def test_write_uses_snapshot_when_transport_is_nulled_concurrently():
@@ -431,91 +405,169 @@ def test_reconnect_clears_pending_reopen():
     assert not gw._reopen_requested.is_set()
 
 
-# ── Reconnect backoff ───────────────────────────────────────────────────────
+# ── Attach / detach ─────────────────────────────────────────────────────────
+
+PATH = b"/dev/hidraw0"
+OTHER_PATH = b"/dev/hidraw7"
 
 
-def _present(info):
-    return {
-        info.pid: [
-            HidDeviceInfo(
-                path=info.path,
-                vid=0x046D,
-                pid=info.pid,
-                usage_page=info.usage_page,
-                usage=info.usage,
-                connection_type=CONNECTION_RECEIVER,
-            )
-        ]
-    }
+def _commanded_channel(mocker, transports=None, open_error=None):
+    on_state_changed = MagicMock()
+    gw = HidChannel(_device_info(), MagicMock(spec=EventListener), on_state_changed)
+    transport_cls = mocker.patch("cleverswitch.gateway.hid_channel.HIDTransport")
+    if open_error is not None:
+        transport_cls.side_effect = open_error
+    elif transports is not None:
+        transport_cls.side_effect = transports
+    sleeps: list[float | None] = []
+    mocker.patch.object(gw, "_sleep", side_effect=sleeps.append)
+    return gw, transport_cls, on_state_changed, sleeps
 
 
-def test_absent_device_is_polled_at_a_flat_interval(mocker):
-    """A device away on another host must be noticed promptly when it returns (issue #121)."""
+def test_without_attach_the_reader_sleeps_until_a_command(mocker):
+    gw, transport_cls, _, sleeps = _commanded_channel(mocker)
+
+    gw._step()
+
+    transport_cls.assert_not_called()
+    assert sleeps == [None]
+
+
+def test_attach_opens_the_path_and_reports_connected(mocker):
+    gw, transport_cls, on_state_changed, _ = _commanded_channel(mocker)
+
+    gw.attach(PATH)
+    gw._step()
+
+    transport_cls.assert_called_once_with(CONNECTION_RECEIVER, PATH)
+    assert gw.connected
+    on_state_changed.assert_called_once_with()
+
+
+def test_detach_closes_the_handle_and_reports_disconnected(mocker, make_fake_transport):
+    transport = make_fake_transport()
+    gw, _, on_state_changed, _ = _commanded_channel(mocker, transports=[transport])
+    gw.attach(PATH)
+    gw._step()
+
+    gw.detach()
+    gw._step()
+
+    assert transport.close_count == 1
+    assert not gw.connected
+    assert on_state_changed.call_count == 2
+
+
+def test_attach_with_a_new_path_reopens_on_it(mocker, make_fake_transport):
+    first, second = make_fake_transport(), make_fake_transport()
+    gw, transport_cls, _, _ = _commanded_channel(mocker, transports=[first, second])
+    gw.attach(PATH)
+    gw._step()
+
+    gw.attach(OTHER_PATH)
+    gw._step()
+    gw._step()
+
+    assert [c.args[1] for c in transport_cls.call_args_list] == [PATH, OTHER_PATH]
+    assert first.close_count == 1
+    assert gw.connected
+
+
+def test_read_failure_waits_for_the_next_attach(mocker, make_fake_transport):
+    transport = make_fake_transport()
+    gw, transport_cls, _, sleeps = _commanded_channel(mocker, transports=[transport, make_fake_transport()])
+    gw.attach(PATH)
+    gw._step()
+    transport.fail_next = TransportError("gone")
+
+    gw._step()
+    gw._step()
+
+    assert not gw.connected
+    assert transport_cls.call_count == 1
+    assert sleeps == [None]
+
+    gw.attach(PATH)
+    gw._step()
+
+    assert transport_cls.call_count == 2
+    assert gw.connected
+
+
+def test_read_failure_after_a_newer_attach_reopens_at_once(mocker, make_fake_transport):
+    """Windows keeps one path across a quick drop and return: the attach for the return arrives while
+    the stale handle is still open, and the read failure that follows must not be taken as final."""
+    transport = make_fake_transport()
+    gw, transport_cls, _, sleeps = _commanded_channel(mocker, transports=[transport, make_fake_transport()])
+    gw.attach(PATH)
+    gw._step()
+    gw.attach(PATH)
+    transport.fail_next = TransportError("stale handle")
+
+    gw._step()
+    gw._step()
+
+    assert transport_cls.call_count == 2
+    assert gw.connected
+    assert sleeps == []
+
+
+def test_open_failure_retries_with_growing_delays_then_waits(mocker, caplog):
+    gw, transport_cls, on_state_changed, sleeps = _commanded_channel(mocker, open_error=OSError("busy"))
+    gw.attach(PATH)
+
+    for _ in range(len(_OPEN_RETRY_DELAYS) + 2):
+        gw._step()
+
+    assert transport_cls.call_count == len(_OPEN_RETRY_DELAYS) + 1
+    assert sleeps == [*_OPEN_RETRY_DELAYS, None]
+    assert any("Cannot open HID device pid=0xC548" in r.message for r in caplog.records)
+    on_state_changed.assert_not_called()
+
+
+def test_new_attach_after_giving_up_tries_again_with_a_fresh_budget(mocker):
+    gw, transport_cls, _, sleeps = _commanded_channel(mocker, open_error=OSError("busy"))
+    gw.attach(PATH)
+    for _ in range(len(_OPEN_RETRY_DELAYS) + 1):
+        gw._step()
+    sleeps.clear()
+
+    gw.attach(PATH)
+    gw._step()
+
+    assert transport_cls.call_count == len(_OPEN_RETRY_DELAYS) + 2
+    assert sleeps == [_OPEN_RETRY_DELAYS[0]]
+
+
+def test_open_failure_warning_mentions_input_monitoring_on_macos(mocker, caplog):
+    mocker.patch("cleverswitch.gateway.hid_channel.get_system", return_value="Darwin")
+    gw, _, _, _ = _commanded_channel(mocker, open_error=OSError("not permitted"))
+    gw.attach(PATH)
+
+    for _ in range(len(_OPEN_RETRY_DELAYS) + 1):
+        gw._step()
+
+    assert any("Input Monitoring" in r.message for r in caplog.records)
+
+
+def test_attach_wakes_a_sleeping_reader(mocker, make_fake_transport):
+    transport_cls = mocker.patch("cleverswitch.gateway.hid_channel.HIDTransport", return_value=make_fake_transport())
     gw = HidChannel(_device_info(), MagicMock(spec=EventListener), MagicMock())
-    mocker.patch("cleverswitch.gateway.hid_channel.enumerate_hid_devices", return_value={})
-    waits: list[float] = []
-    mocker.patch.object(gw._stop, "wait", side_effect=lambda t: waits.append(t))
+    gw.start()
+    try:
+        gw.attach(PATH)
+        assert gw._connected_signal.wait(2.0)
+    finally:
+        gw.close()
 
-    for _ in range(20):
-        gw._try_connect()
-
-    assert waits == [_RECONNECT_INTERVAL] * 20
+    transport_cls.assert_called_once_with(CONNECTION_RECEIVER, PATH)
+    assert not gw.is_alive()
 
 
-def test_absence_resets_open_failure_backoff(mocker):
+def test_sleep_returns_on_wake_and_clears_it():
     gw = HidChannel(_device_info(), MagicMock(spec=EventListener), MagicMock())
-    gw._backoff = 16.0
-    mocker.patch("cleverswitch.gateway.hid_channel.enumerate_hid_devices", return_value={})
-    mocker.patch.object(gw._stop, "wait")
+    gw._wake.set()
 
-    gw._try_connect()
+    gw._sleep(5.0)
 
-    assert gw._backoff == _RECONNECT_BACKOFF_MIN
-
-
-def test_backoff_grows_while_device_fails_to_open(mocker):
-    info = _device_info()
-    gw = HidChannel(info, MagicMock(spec=EventListener), MagicMock())
-    mocker.patch("cleverswitch.gateway.hid_channel.enumerate_hid_devices", return_value=_present(info))
-    mocker.patch("cleverswitch.gateway.hid_channel.HIDTransport", side_effect=OSError("open failed"))
-    waits: list[float] = []
-    mocker.patch.object(gw._stop, "wait", side_effect=lambda t: waits.append(t))
-
-    for _ in range(3):
-        gw._try_connect()
-
-    assert waits == [1.0, 2.0, 4.0]
-
-
-def test_open_failure_backoff_is_capped(mocker):
-    info = _device_info()
-    gw = HidChannel(info, MagicMock(spec=EventListener), MagicMock())
-    mocker.patch("cleverswitch.gateway.hid_channel.enumerate_hid_devices", return_value=_present(info))
-    mocker.patch("cleverswitch.gateway.hid_channel.HIDTransport", side_effect=OSError("open failed"))
-    waits: list[float] = []
-    mocker.patch.object(gw._stop, "wait", side_effect=lambda t: waits.append(t))
-
-    for _ in range(20):
-        gw._try_connect()
-
-    assert max(waits) == _RECONNECT_BACKOFF_MAX
-
-
-def test_backoff_resets_after_successful_connect(mocker):
-    info = _device_info()
-    gw = HidChannel(info, MagicMock(spec=EventListener), MagicMock())
-    gw._backoff = 16.0
-    same_path = HidDeviceInfo(
-        path=info.path,
-        vid=0x046D,
-        pid=info.pid,
-        usage_page=info.usage_page,
-        usage=info.usage,
-        connection_type=CONNECTION_RECEIVER,
-    )
-    mocker.patch("cleverswitch.gateway.hid_channel.enumerate_hid_devices", return_value={info.pid: [same_path]})
-    mocker.patch("cleverswitch.gateway.hid_channel.HIDTransport")
-
-    gw._try_connect()
-
-    assert gw._backoff == _RECONNECT_BACKOFF_MIN
+    assert not gw._wake.is_set()

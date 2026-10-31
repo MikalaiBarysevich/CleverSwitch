@@ -19,8 +19,11 @@ def create_link(pid: int, collections: list[HidDeviceInfo], topics: Topics) -> D
     listener = EventListener(collections[0], topics)
     router = ReportIdWriteRouter() if get_system() == SYSTEM_WINDOWS else WriteRouter()
     link = DeviceLink(pid, connection_type, topics, listener, router)
-    hid_channels = [HidChannel(collection, listener, link.on_hid_state_changed) for collection in collections]
-    link.attach(hid_channels, _create_gatt(pid, connection_type, listener, link))
+    link.attach(
+        lambda collection: HidChannel(collection, listener, link.on_hid_state_changed),
+        _create_gatt(pid, connection_type, listener, link),
+    )
+    link.update(collections)
     return link
 
 

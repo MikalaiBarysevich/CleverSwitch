@@ -8,7 +8,7 @@ import sys
 import pytest
 
 from src.cleverswitch.cli.cli_module import _parse_args, _setup_logging, main
-from src.cleverswitch.errors.errors import CleverSwitchError
+from src.cleverswitch.errors.errors import CleverSwitchError, HotplugError
 
 # ── _parse_args() ─────────────────────────────────────────────────────────────
 
@@ -117,3 +117,25 @@ def test_main_exits_with_code_1_on_clever_switch_error(mocker, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         main()
     assert exc.value.code == 1
+
+
+def test_main_exits_with_code_1_when_discovery_fails(mocker, monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["cleverswitch"])
+    mocker.patch("src.cleverswitch.cli.cli_module.setup_context", return_value=mocker.MagicMock())
+    mocker.patch("src.cleverswitch.cli.cli_module._setup_logging")
+    mocker.patch("src.cleverswitch.cli.cli_module.discover", side_effect=HotplugError("no netlink"))
+
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 1
+
+
+def test_main_returns_normally_when_discovery_ends(mocker, monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["cleverswitch"])
+    mocker.patch("src.cleverswitch.cli.cli_module.setup_context", return_value=mocker.MagicMock())
+    mocker.patch("src.cleverswitch.cli.cli_module._setup_logging")
+    discover = mocker.patch("src.cleverswitch.cli.cli_module.discover")
+
+    main()
+
+    discover.assert_called_once()
