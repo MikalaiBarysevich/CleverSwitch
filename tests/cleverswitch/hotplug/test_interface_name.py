@@ -25,6 +25,11 @@ HID_GUID = "{4d1e55b2-f16f-11cf-88cb-001111000030}"
             rf"#9&2a&0&0000#{HID_GUID}",
             0xB023,
         ),
+        (
+            r"\\?\HID#{00001124-0000-1000-8000-00805f9b34fb}_VID&0002046d_PID&b342&Col02"
+            rf"#8&2a3b4c5d&0&0001#{HID_GUID}",
+            0xB342,
+        ),
     ],
 )
 def test_logitech_interfaces_give_their_pid(link, pid):
@@ -36,6 +41,7 @@ def test_logitech_interfaces_give_their_pid(link, pid):
     [
         rf"\\?\HID#VID_045E&PID_07A5&MI_01&Col01#7&2&0&0000#{HID_GUID}",
         r"\\?\HID#{00001812-0000-1000-8000-00805f9b34fb}_Dev_VID&02045e_PID&0b13_REV&0509_aa#9&3&0&0000",
+        r"\\?\HID#{00001124-0000-1000-8000-00805f9b34fb}_VID&000205ac_PID&0255&Col01#8&1&0&0000",
         r"\\?\ACPI#PNP0303#4&1d401fb5&0#{884b96c3-56ef-11d1-bc8c-00a0c91405dd}",
         "",
     ],
