@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 
 from ..model.config.hook_entry import HookEntry
@@ -79,21 +80,29 @@ def _run(hook: HookEntry, extra_env: dict[str, str]) -> None:
         log.debug(f"Running hook script '{label}': {expanded} (timeout={hook.timeout}s)")
 
     try:
-        result = subprocess.run(
-            cmd,
-            env=env,
-            timeout=hook.timeout,
-            capture_output=True,
-            text=True,
-            shell=shell,
-        )
+        with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+            result = subprocess.run(
+                cmd,
+                env=env,
+                timeout=hook.timeout,
+                stdout=stdout,
+                stderr=stderr,
+                shell=shell,
+            )
+            out = _read_output(stdout)
+            err = _read_output(stderr)
         if result.returncode != 0:
             log.warning(f"Hook {label} exited with code {result.returncode}")
-            if result.stderr:
-                log.warning(f"Hook stderr: {result.stderr.strip()}")
-        elif result.stdout:
-            log.debug(f"Hook stdout: {result.stdout.strip()}")
+            if err:
+                log.warning(f"Hook stderr: {err}")
+        elif out:
+            log.debug(f"Hook stdout: {out}")
     except subprocess.TimeoutExpired:
         log.warning(f"Hook {label} timed out after {hook.timeout}s")
     except Exception as e:
         log.warning(f"Hook {label} failed: {e}")
+
+
+def _read_output(output) -> str:
+    output.seek(0)
+    return output.read().decode(errors="replace").strip()

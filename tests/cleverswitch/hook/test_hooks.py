@@ -7,6 +7,8 @@ import subprocess
 import sys
 import time
 
+import pytest
+
 from cleverswitch.hook.hooks import _run, fire, fire_connect, fire_disconnect, fire_switch
 from cleverswitch.model.config.hook_entry import HookEntry
 from cleverswitch.model.config.hook_type import HookType
@@ -255,6 +257,35 @@ def test_run_kills_hanging_command_at_timeout_without_orphan_warning(caplog):
     assert time.monotonic() - started < 5
     assert "timed out after 1s" in caplog.text
     assert "may still be running" not in caplog.text
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX shell")
+def test_run_does_not_wait_for_a_background_process_the_hook_started(caplog):
+    hook = _command(f'"{sys.executable}" -c "import time; time.sleep(10)" &', timeout=5)
+
+    started = time.monotonic()
+    with caplog.at_level(logging.WARNING, logger="cleverswitch.hook.hooks"):
+        _run(hook, {})
+
+    assert time.monotonic() - started < 3
+    assert "timed out" not in caplog.text
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX shell")
+def test_run_logs_stderr_of_a_failing_command(caplog):
+    with caplog.at_level(logging.WARNING, logger="cleverswitch.hook.hooks"):
+        _run(_command("echo out; echo broken >&2; exit 3"), {})
+
+    assert "exited with code 3" in caplog.text
+    assert "Hook stderr: broken" in caplog.text
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX shell")
+def test_run_logs_stdout_of_a_successful_command(caplog):
+    with caplog.at_level(logging.DEBUG, logger="cleverswitch.hook.hooks"):
+        _run(_command("echo hello"), {})
+
+    assert "Hook stdout: hello" in caplog.text
 
 
 def test_run_logs_warning_on_unexpected_exception(mocker, tmp_path, caplog):
