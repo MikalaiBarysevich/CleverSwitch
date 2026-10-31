@@ -6,8 +6,9 @@ from threading import Thread
 
 from ..errors.errors import TransportError
 from ..hidpp.constants import CONNECTION_BLUETOOTH
-from ..hidpp.transport import HidDeviceInfo, HIDTransport, enumerate_hid_devices
+from ..hidpp.transport import HidDeviceInfo, HIDTransport
 from ..listener.event_listener import EventListener
+from ..util.util import SYSTEM_MACOS, get_system
 
 log = logging.getLogger(__name__)
 
@@ -16,16 +17,9 @@ log = logging.getLogger(__name__)
 # thread for this window. Aligned with RESPONSE_TIMEOUT in subscriber/task/info_task.py.
 _FIRST_CONNECT_GRACE = 2.0
 
-# How often a disconnected channel checks whether its device is back. A device leaving for another
-# host is the normal case for this tool, so absence must not slow detection down: a backoff that
-# grew while the device was away left a returning keyboard unnoticed for many seconds (issue #121).
-# Enumerating once a second is safe now that hidapi calls are serialised by the transport lock.
-_RECONNECT_INTERVAL = 1.0
-
-# Backoff for a device that is present but cannot be opened (e.g. a missing Input Monitoring grant),
-# so a persistent failure doesn't retry and log once a second forever.
-_RECONNECT_BACKOFF_MIN = 1.0
-_RECONNECT_BACKOFF_MAX = 30.0
+# Waits between attempts to open a node the OS reports present. After the last one the channel
+# waits for the next attach().
+_OPEN_RETRY_DELAYS = (1.0, 2.0, 4.0, 8.0, 16.0)
 
 # How long close() waits for the reader thread to tear down its own handle. Must comfortably
 # exceed HIDTransport._READ_POLL_MS.
@@ -33,8 +27,9 @@ _CLOSE_JOIN_TIMEOUT = 2.0
 
 
 class HidChannel(Thread):
-    """Reader thread for one HID collection. It reports every connection change through
-    `on_state_changed`; the owning DeviceLink decides what that means for the device."""
+    """Reader thread for one HID collection. Its owner says which node path to use with attach() and
+    detach(); every connection change is reported through `on_state_changed`, and the owning
+    DeviceLink decides what that means for the device."""
 
     def __init__(
         self,
@@ -50,12 +45,22 @@ class HidChannel(Thread):
         self._ever_connected: bool = False
         self._grace_deadline = time.monotonic() + _FIRST_CONNECT_GRACE
         self._stop = threading.Event()
+        self._wake = threading.Event()
         # Set by a failed write on the write-drain thread; the reader thread acts on it, so only the
         # reader ever changes connection state.
         self._reopen_requested = threading.Event()
         self._transport: HIDTransport | None = None
         self._event_listener: EventListener = event_listener
-        self._backoff: float = _RECONNECT_BACKOFF_MIN
+
+        self._command_lock = threading.Lock()
+        self._desired_path: bytes | None = None
+        self._generation = 0
+
+        self._open_path: bytes | None = None
+        self._open_generation = -1
+        self._dead_generation = -1
+        self._failing_generation = -1
+        self._open_failures = 0
 
     @property
     def device_info(self) -> HidDeviceInfo:
@@ -76,63 +81,109 @@ class HidChannel(Thread):
         else:
             self._connected_signal.clear()
 
+    # Any thread. Every call is a fresh report that the node is present, so a path given up on after
+    # a failure is tried again.
+    def attach(self, path: bytes) -> None:
+        with self._command_lock:
+            self._desired_path = path
+            self._generation += 1
+        self._wake.set()
+
+    def detach(self) -> None:
+        with self._command_lock:
+            self._desired_path = None
+        self._wake.set()
+
     def run(self):
         # The reader owns its handle end to end: hid_close's CancelIo only cancels I/O issued by
         # the calling thread, so closing from anywhere else can leave the kernel writing into
         # freed heap. close() sets _stop and joins instead of touching the transport.
         try:
             while not self._stop.is_set():
-                if self._connected:
-                    if self._reopen_requested.is_set():
-                        self._reopen_after_write_failure()
-                        continue
-                    try:
-                        hid_event = self._transport.read()
-                        if hid_event is None:
-                            continue
-                        self._event_listener.listen(hid_event)
-                        log.debug(
-                            f"Received HID event from pid=0x{self._device_info.pid:04X}: {hid_event.hex()}",
-                        )
-                    except TransportError:
-                        if self._stop.is_set():
-                            break
-                        log.debug(f"Device disconnected pid=0x{self._device_info.pid:04X}")
-                        self._set_connected(False)
-                else:
-                    self._try_connect()
+                self._step()
         finally:
             self._close_transport()
 
-    def _try_connect(self):
-        this_device_collection = enumerate_hid_devices(product_id=self._device_info.pid)
-        if len(this_device_collection) == 0:
-            self._backoff = _RECONNECT_BACKOFF_MIN
-            self._stop.wait(_RECONNECT_INTERVAL)
+    def _step(self) -> None:
+        with self._command_lock:
+            self._wake.clear()
+            desired, generation = self._desired_path, self._generation
+
+        if self._connected:
+            if desired != self._open_path:
+                self._drop()
+            elif self._reopen_requested.is_set():
+                self._reopen_after_write_failure()
+            else:
+                self._read_once()
             return
 
-        for device in this_device_collection[self._device_info.pid]:
-            if device.usage_page == self._device_info.usage_page and device.usage == self._device_info.usage:
-                if device.path != self._device_info.path:
-                    self._device_info.path = device.path
-                    self._close_transport()
-                    self._transport = None
-                break
+        if desired is None or generation == self._dead_generation:
+            self._sleep(None)
+            return
+        self._try_open(desired, generation)
 
+    def _read_once(self) -> None:
         try:
-            if self._transport is None:
-                self._transport = HIDTransport(self._device_info.connection_type, self._device_info.path)
-            else:
-                self._transport.try_reopen()
-            self._set_connected(True)
-            self._backoff = _RECONNECT_BACKOFF_MIN
-        except OSError as e:
-            log.debug(f"Failed to connect to HID device pid=0x{self._device_info.pid:04X}: {e}")
-            self._backoff_wait()
+            hid_event = self._transport.read()
+        except TransportError:
+            if self._stop.is_set():
+                return
+            log.debug(f"Device disconnected pid=0x{self._device_info.pid:04X}")
+            self._lost()
+            return
+        if hid_event is None:
+            return
+        self._event_listener.listen(hid_event)
+        log.debug(f"Received HID event from pid=0x{self._device_info.pid:04X}: {hid_event.hex()}")
 
-    # A failed write alone doesn't mean the device left: on Windows a BT device still listed after a
-    # host switch fails writes, and reporting that as a disconnect made the link flap. The handle is
-    # reopened quietly; only a failed reopen, or a failed read, reports the device gone.
+    def _try_open(self, path: bytes, generation: int) -> None:
+        if generation != self._failing_generation:
+            self._failing_generation = generation
+            self._open_failures = 0
+        self._close_transport()
+        self._transport = None
+        try:
+            self._transport = HIDTransport(self._device_info.connection_type, path)
+        except OSError as e:
+            self._on_open_failure(generation, e)
+            return
+        self._open_path = path
+        self._open_generation = generation
+        self._open_failures = 0
+        self._set_connected(True)
+
+    def _on_open_failure(self, generation: int, error: OSError) -> None:
+        if self._open_failures < len(_OPEN_RETRY_DELAYS):
+            delay = _OPEN_RETRY_DELAYS[self._open_failures]
+            self._open_failures += 1
+            log.debug(f"Failed to open HID device pid=0x{self._device_info.pid:04X}: {error}; retrying in {delay}s")
+            self._sleep(delay)
+            return
+        self._dead_generation = generation
+        hint = " (check the Input Monitoring permission)" if get_system() == SYSTEM_MACOS else ""
+        log.warning(
+            f"Cannot open HID device pid=0x{self._device_info.pid:04X}: {error}{hint}; waiting for it to be reconnected"
+        )
+
+    # A failure on the open handle. If the OS has reported the node since it was opened, that report
+    # may be the device coming back, so the open is retried; otherwise the channel waits for one.
+    def _lost(self) -> None:
+        with self._command_lock:
+            generation = self._generation
+        if generation == self._open_generation:
+            self._dead_generation = generation
+        self._drop()
+
+    def _drop(self) -> None:
+        self._close_transport()
+        self._transport = None
+        self._open_path = None
+        self._set_connected(False)
+
+    # A failed write alone doesn't mean the device left: CHANGE_HOST makes the device leave mid-write,
+    # and the OS reports its removal separately. The handle is reopened quietly; only a failed reopen,
+    # or a failed read, reports it gone.
     def _reopen_after_write_failure(self) -> None:
         self._reopen_requested.clear()
         try:
@@ -140,11 +191,11 @@ class HidChannel(Thread):
             log.debug(f"Write failed for pid=0x{self._device_info.pid:04X}, handle reopened")
         except OSError as e:
             log.debug(f"Write failed for pid=0x{self._device_info.pid:04X} and reopen failed: {e}")
-            self._set_connected(False)
+            self._lost()
 
-    def _backoff_wait(self) -> None:
-        self._stop.wait(self._backoff)
-        self._backoff = min(self._backoff * 2, _RECONNECT_BACKOFF_MAX)
+    def _sleep(self, timeout: float | None) -> None:
+        self._wake.wait(timeout)
+        self._wake.clear()
 
     def _close_transport(self) -> None:
         transport = self._transport
@@ -169,8 +220,8 @@ class HidChannel(Thread):
         self._write(msg)
 
     def _write(self, msg: bytes) -> None:
-        # Snapshot the transport: _try_connect can null it between this check and the write,
-        # and the resulting AttributeError is not a TransportError, so it would kill this thread.
+        # Snapshot the transport: the reader can null it between this check and the write, and the
+        # resulting AttributeError is not a TransportError, so it would kill this thread.
         transport = self._transport
         if not self._connected or self._reopen_requested.is_set() or transport is None:
             log.debug(f"Cannot write to pid=0x{self._device_info.pid:04X}: disconnected")
@@ -187,6 +238,7 @@ class HidChannel(Thread):
 
     def close(self):
         self._stop.set()
+        self._wake.set()
         if threading.current_thread() is self:
             return  # run()'s finally closes the handle on the way out
         if self.is_alive():

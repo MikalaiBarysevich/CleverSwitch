@@ -77,6 +77,7 @@ def _setup_topics() -> Topics:
         device_info=Topic(),
         flags=Topic(),
         info_progress=Topic(),
+        hotplug=Topic(),
     )
 
 

@@ -5,11 +5,14 @@ from __future__ import annotations
 import threading
 from unittest.mock import MagicMock
 
+import pytest
+
 from cleverswitch.discovery.discovery import _undivert_all, discover
+from cleverswitch.errors.errors import HotplugError
+from cleverswitch.event.hotplug_resync_event import HotplugResyncEvent
 from cleverswitch.event.set_report_flag_event import SetReportFlagEvent
 from cleverswitch.hidpp.constants import (
     BOLT_PID,
-    CONNECTION_RECEIVER,
     FEATURE_CHANGE_HOST,
     FEATURE_REPROG_CONTROLS_V4,
     KEY_FLAG_ANALYTICS,
@@ -39,76 +42,78 @@ def _make_app_context(shutdown=None, registry=None, topics=None):
     return AppContext(device_registry=registry, topics=topics, config=config, shutdown=shutdown)
 
 
-def test_discover_returns_immediately_when_shutdown_is_already_set(mocker):
-    mocker.patch("cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={})
+def _patch_wiring(mocker):
+    manager_cls = mocker.patch("cleverswitch.discovery.discovery.LinkManager")
+    create_backend = mocker.patch("cleverswitch.discovery.discovery.create_backend")
+    undivert = mocker.patch("cleverswitch.discovery.discovery._undivert_all")
+    order = MagicMock()
+    order.attach_mock(create_backend.return_value.start, "backend_start")
+    order.attach_mock(create_backend.return_value.stop, "backend_stop")
+    order.attach_mock(undivert, "undivert")
+    order.attach_mock(manager_cls.return_value.close_all, "close_all")
+    return manager_cls, create_backend, undivert, order
+
+
+def _stopped_context():
     shutdown = threading.Event()
     shutdown.set()
-    ctx = _make_app_context(shutdown=shutdown)
-    discover(ctx)  # must return without hanging
+    return _make_app_context(shutdown=shutdown)
 
 
-def _receiver_device():
-    from cleverswitch.hidpp.transport import HidDeviceInfo
+def test_discover_builds_the_link_manager_on_the_hotplug_topic(mocker):
+    manager_cls, _, _, _ = _patch_wiring(mocker)
+    ctx = _stopped_context()
 
-    return HidDeviceInfo(
-        path=b"/dev/hidraw0",
-        vid=0x046D,
-        pid=BOLT_PID,
-        usage_page=0xFF00,
-        usage=0x0002,
-        connection_type=CONNECTION_RECEIVER,
-    )
-
-
-def _stop_after(shutdown, waits=1):
-    count = [0]
-
-    def fake_wait(timeout):
-        count[0] += 1
-        if count[0] >= waits:
-            shutdown.set()
-
-    shutdown.wait = fake_wait
-
-
-def test_discover_creates_and_starts_a_link_per_pid(mocker):
-    device = _receiver_device()
-    mocker.patch("cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={BOLT_PID: [device]})
-    create_link = mocker.patch("cleverswitch.discovery.discovery.create_link")
-    shutdown = threading.Event()
-    _stop_after(shutdown)
-
-    ctx = _make_app_context(shutdown=shutdown)
     discover(ctx)
 
-    create_link.assert_called_once_with(BOLT_PID, [device], ctx.topics)
-    create_link.return_value.start.assert_called_once()
+    manager_cls.assert_called_once_with(ctx.topics, verbose_extra=False)
 
 
-def test_discover_does_not_create_duplicate_links_for_same_pid(mocker):
-    mocker.patch(
-        "cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={BOLT_PID: [_receiver_device()]}
-    )
-    create_link = mocker.patch("cleverswitch.discovery.discovery.create_link")
-    shutdown = threading.Event()
-    _stop_after(shutdown, waits=2)
+def test_discover_resyncs_after_the_backend_is_registered(mocker):
+    _, create_backend, _, _ = _patch_wiring(mocker)
+    ctx = _stopped_context()
+    ctx.topics.hotplug = MagicMock(spec=Topic)
+    ctx.topics.hotplug.publish.side_effect = lambda _e: create_backend.return_value.start.assert_called_once()
 
-    discover(_make_app_context(shutdown=shutdown))
+    discover(ctx)
 
-    assert create_link.call_count == 1
+    create_backend.assert_called_once_with(ctx.topics)
+    ctx.topics.hotplug.publish.assert_called_once_with(HotplugResyncEvent(slot=0, pid=0))
 
 
-def test_discover_closes_links_on_shutdown(mocker):
-    mocker.patch(
-        "cleverswitch.discovery.discovery.enumerate_hid_devices", return_value={BOLT_PID: [_receiver_device()]}
-    )
-    create_link = mocker.patch("cleverswitch.discovery.discovery.create_link")
-    shutdown = threading.Event()
-    _stop_after(shutdown)
+def test_discover_tears_down_in_order_on_shutdown(mocker):
+    _, _, _, order = _patch_wiring(mocker)
 
-    discover(_make_app_context(shutdown=shutdown))
+    discover(_stopped_context())
 
-    create_link.return_value.close.assert_called_once()
+    assert [c[0] for c in order.mock_calls] == ["backend_start", "backend_stop", "undivert", "close_all"]
+
+
+def test_discover_waits_for_shutdown(mocker):
+    _patch_wiring(mocker)
+    ctx = _make_app_context()
+    worker = threading.Thread(target=discover, args=(ctx,), daemon=True)
+    worker.start()
+    worker.join(timeout=0.2)
+    assert worker.is_alive()
+
+    ctx.shutdown.set()
+    worker.join(timeout=2.0)
+
+    assert not worker.is_alive()
+
+
+def test_discover_propagates_a_backend_that_cannot_start(mocker):
+    manager_cls, create_backend, undivert, _ = _patch_wiring(mocker)
+    create_backend.return_value.start.side_effect = HotplugError("no netlink")
+    ctx = _stopped_context()
+    ctx.topics.hotplug = MagicMock(spec=Topic)
+
+    with pytest.raises(HotplugError):
+        discover(ctx)
+
+    ctx.topics.hotplug.publish.assert_not_called()
+    undivert.assert_not_called()
 
 
 # ── _undivert_all ─────────────────────────────────────────────────────────────

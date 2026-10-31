@@ -31,3 +31,7 @@ class TransportError(CleverSwitchError):
 
 class ConfigError(CleverSwitchError):
     pass
+
+
+class HotplugError(CleverSwitchError):
+    pass

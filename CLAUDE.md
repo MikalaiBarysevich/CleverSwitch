@@ -51,12 +51,13 @@ git update-index --chmod=+x scripts/mac/<file>.command
 
 The core of the architecture is a typed pub-sub system with one daemon thread per subscriber.
 
-**`Topics`** (`topic/topics.py`) is a typed dataclass with five channels:
+**`Topics`** (`topic/topics.py`) is a typed dataclass with six channels:
 - `hid_event` — all inbound HID++ events (DeviceConnectedEvent, HidppResponseEvent, HidppNotificationEvent, HidppErrorEvent, TransportDisconnectedEvent, etc.)
 - `write` — outbound HID messages (WriteEvent)
 - `device_info` — triggers device setup (DeviceInfoRequestEvent)
 - `flags` — apply/re-apply key reporting flags (SetReportFlagEvent); `SetReportFlagSubscriber` selects analytics mode (byte 9) or divert mode (byte 6) based on `device.supported_flags`
 - `info_progress` — task completion feedback (InfoTaskProgressEvent)
+- `hotplug` — OS device notifications (HidNodeAddedEvent, HidNodeRemovedEvent, HotplugResyncEvent); only LinkManager subscribes. Defaults to a fresh `Topic`, so tests that build `Topics` field by field need not pass it
 
 **`Topic`** (`topic/topic.py`) — each `subscribe(subscriber)` call creates a private `queue.Queue` and a daemon thread that drains it by calling `subscriber.notify(event)`, and returns that queue as a handle. `publish(event)` enqueues on all subscriber queues simultaneously. `unsubscribe(subscription)` takes the handle back, removes the queue, and stops its drain thread via an internal sentinel — short-lived subscribers (`InfoTask`) must call it or they leak a thread and a queue for the life of the process.
 
@@ -65,19 +66,44 @@ The core of the architecture is a typed pub-sub system with one daemon thread pe
 ### Device lifecycle
 
 ```
-discovery.py
+discovery.discover()
+  ├── hotplug/backend_factory.create_backend() → HotplugBackend, one per platform (nothing polls):
+  │     Linux: NetlinkHotplugBackend — udevd's netlink group (2, after rules ran, so the uaccess ACL
+  │     is already applied), root-sent messages only, hidraw add/remove → pid from DEVPATH; ENOBUFS →
+  │     HotplugResyncEvent.
+  │     macOS: IOKitHotplugBackend — an IOHIDManager matching Logitech's vendor id, scheduled on its
+  │     own CFRunLoop thread; matching/removal callbacks read only ProductID (the IORegistry entry is
+  │     already gone on removal; IOHIDDeviceRef values are reused, so never key by the ref). The
+  │     manager is never opened, so it needs no Input Monitoring permission.
+  │     Windows: CfgMgrHotplugBackend — CM_Register_Notification for GUID_DEVINTERFACE_HID; the
+  │     callback runs on a system thread pool, parses the pid from the interface's symbolic link
+  │     (USB `VID_046D&PID_xxxx`, BLE `VID&02046D_PID&xxxx`) and publishes. A switched-away BT
+  │     device's interfaces are removed, so no extra Bluetooth signal is needed. stop() must never
+  │     run on a callback: CM_Unregister_Notification waits for callbacks in flight.
+  │     No backend for the platform, or one that cannot start → HotplugError →
+  │     exit 1. Publishes HidNode{Added,Removed}Event(pid) on the hotplug topic
+  ├── one HotplugResyncEvent after the backend is registered (startup sweep)
+  ├── LinkManager (hotplug subscriber, single drain thread): every event re-enumerates its pid with
+  │     hidapi — the event only says where to look — and creates the pid's link the first time,
+  │     otherwise calls DeviceLink.update(collections). Links are parked, never destroyed
   └── link_factory.create_link(pid, collections) → DeviceLink — one per HID product id
+      ├── update(collections): one HidChannel per (usage_page, usage), created on first sight;
+      │     listed collections are attach(path)ed, missing ones detach()ed
       ├── HidChannel — one reader thread per HID collection (Bluetooth ones write output reports);
+      │     driven by attach/detach (latest command wins; it sleeps when it has nothing to open);
       │     reports every open/close to DeviceLink.on_hid_state_changed (non-blocking). A failed
-      │     write only makes the reader reopen its handle quietly; a failed read, or a failed reopen,
-      │     is what reports the device gone (Windows keeps a switched-away BT device listed, so
-      │     treating write failures as disconnects made the link flap)
+      │     open retries after 1/2/4/8/16 s, then waits for the next attach. A failed read, or a
+      │     failed reopen after a write failure, closes the handle and waits for the next attach —
+      │     unless an attach arrived since the open (Windows keeps one path across a quick drop and
+      │     return), then it reopens at once. A failed write only reopens the handle quietly
       ├── GattChannel — macOS Bluetooth only (and only when bleak imports); see the BLE section
       ├── EventListener (thread, reads raw bytes → parses → publishes to hid_event)
       ├── the only write-topic subscriber for that pid: GATT first when subscribed, otherwise the
       │     HID collection its WriteRouter picks (ReportIdWriteRouter on Windows, where short/long
       │     reports are separate collections; first channel elsewhere) via HidChannel.submit()
-      └── owns presence: the device is present while EVERY collection is open, and only changes
+      └── owns presence: the device is present while EVERY collection is open (and, for a Windows
+            receiver, both its short and long HID++ collections have been listed — they arrive as
+            separate events, so an early enumeration can see just one), and only changes
             are emitted (through EventListener.emit, in order with raw reports), so a
             multi-collection device connects and disconnects once:
             ├── TransportConnectedEvent(pid, "receiver") → ReceiverArmingSubscriber enables
@@ -184,7 +210,7 @@ Design:
 
 ### Wiring
 
-`setup/app_setup.py:setup_context()` creates Topics, LogiDeviceRegistry, the DeviceCache (see [Device cache](#device-cache)), and all subscribers. It is the single place where components are connected. The one exception is the per-device I/O side: `discovery/link_factory.py:create_link()` builds each `DeviceLink` with its HID channels, optional `GattChannel`, `EventListener` and `WriteRouter`, and holds all platform / connection-type branching.
+`setup/app_setup.py:setup_context()` creates Topics, LogiDeviceRegistry, the DeviceCache (see [Device cache](#device-cache)), and all subscribers. It is the single place where components are connected. The one exception is the I/O side: `discovery.discover()` builds the `HotplugBackend` and `LinkManager`, and `discovery/link_factory.py:create_link()` builds each `DeviceLink` with its HID channels, optional `GattChannel`, `EventListener` and `WriteRouter`, and holds all platform / connection-type branching.
 
 Active subscribers: `DeviceConnectionSubscriber`, `DeviceInfoSubscriber`, `InfoTaskOrchestrator`, `SetReportFlagSubscriber`, `ExternalUnsetFlagSubscriber`, `AnalyticsRejectionSubscriber`, `HostChangeSubscriber`, `ChangeHostNotificationSubscriber`, `EventHookSubscriber`, `WirelessStatusSubscriber`, `TransportDisconnectionSubscriber`, `ReceiverArmingSubscriber`, `DirectDeviceConnectionSubscriber`, `ChannelRearmSubscriber`.
 
@@ -204,5 +230,5 @@ The parser detects ES CID presses (fn=0 diverted, fn=2 analytics press-only) and
 - `conftest.py` in the root `tests/` directory provides `FakeTransport`, `fake_transport`, and `make_fake_transport` fixtures.
 - Subscriber tests construct `Topics` with `MagicMock(spec=Topic)` for all channels and assert `publish.assert_called_once()` / `assert_not_called()`. See skill: `@write-subscriber-test`.
 - `InfoTask` tests must feed responses with `tests/task_helpers.py:deliver_on_request(task, topics, [...])`, which delivers one response per published request. Pre-loading `task._response_queue` no longer works — `_send_request` drains it, because that ordering cannot happen on real hardware.
-- `transport.py` and `__main__.py` are excluded from coverage (hardware I/O and entry point).
+- `transport.py`, `__main__.py`, `hotplug/linux/netlink_backend.py`, `hotplug/macos/iokit.py` and `hotplug/windows/cfgmgr32.py` are excluded from coverage (hardware I/O, entry point, OS notification glue). Keep parsing and threading out of the OS glue (e.g. `hotplug/linux/udev_message.py`, `hotplug/windows/interface_name.py`; the IOKit and CfgMgr backends take an injectable factory) so it stays tested.
 - Coverage threshold: **90%** (enforced in `pyproject.toml`).

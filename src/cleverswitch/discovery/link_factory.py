@@ -5,7 +5,13 @@ from ..gateway.device_link import DeviceLink
 from ..gateway.gatt_channel import GattChannel
 from ..gateway.hid_channel import HidChannel
 from ..gateway.write_router import ReportIdWriteRouter, WriteRouter
-from ..hidpp.constants import CONNECTION_BLUETOOTH
+from ..hidpp.constants import (
+    CONNECTION_BLUETOOTH,
+    CONNECTION_RECEIVER,
+    HIDPP_RECEIVER_USAGE_PAGE,
+    HIDPP_USAGE_LONG,
+    HIDPP_USAGE_SHORT,
+)
 from ..hidpp.transport import HidDeviceInfo
 from ..listener.event_listener import EventListener
 from ..topic.topics import Topics
@@ -13,14 +19,25 @@ from ..util.util import SYSTEM_MACOS, SYSTEM_WINDOWS, get_system
 
 log = logging.getLogger(__name__)
 
+# Windows splits a receiver's short and long HID++ reports into two collections that arrive as
+# separate hotplug events, so presence must wait until both have been listed.
+_WINDOWS_RECEIVER_COLLECTIONS = frozenset(
+    {(HIDPP_RECEIVER_USAGE_PAGE, HIDPP_USAGE_SHORT), (HIDPP_RECEIVER_USAGE_PAGE, HIDPP_USAGE_LONG)}
+)
+
 
 def create_link(pid: int, collections: list[HidDeviceInfo], topics: Topics) -> DeviceLink:
     connection_type = collections[0].connection_type
     listener = EventListener(collections[0], topics)
-    router = ReportIdWriteRouter() if get_system() == SYSTEM_WINDOWS else WriteRouter()
-    link = DeviceLink(pid, connection_type, topics, listener, router)
-    hid_channels = [HidChannel(collection, listener, link.on_hid_state_changed) for collection in collections]
-    link.attach(hid_channels, _create_gatt(pid, connection_type, listener, link))
+    windows = get_system() == SYSTEM_WINDOWS
+    router = ReportIdWriteRouter() if windows else WriteRouter()
+    required = _WINDOWS_RECEIVER_COLLECTIONS if windows and connection_type == CONNECTION_RECEIVER else frozenset()
+    link = DeviceLink(pid, connection_type, topics, listener, router, required)
+    link.attach(
+        lambda collection: HidChannel(collection, listener, link.on_hid_state_changed),
+        _create_gatt(pid, connection_type, listener, link),
+    )
+    link.update(collections)
     return link
 
 
