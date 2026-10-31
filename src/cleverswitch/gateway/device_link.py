@@ -25,7 +25,8 @@ class DeviceLink(Subscriber):
     collections the OS currently lists; it creates a channel the first time a collection is seen
     and never removes one, so a device that leaves is parked rather than torn down.
 
-    The device is present while every HID collection is open. Only changes in presence are
+    The device is present while every HID collection is open, and every required collection has been
+    listed at least once. Only changes in presence are
     emitted, so a device with several collections connects and disconnects once. The GATT
     channel runs while the device is present; its own up/down is published as a
     LinkChannelChangedEvent and never affects presence.
@@ -41,8 +42,10 @@ class DeviceLink(Subscriber):
         topics: Topics,
         listener: EventListener,
         router: WriteRouter,
+        required_collections: frozenset[tuple[int, int]] = frozenset(),
     ) -> None:
         self._pid = pid
+        self._required_collections = required_collections
         self._connection_type = connection_type
         self._listener = listener
         self._router = router
@@ -80,7 +83,11 @@ class DeviceLink(Subscriber):
     # Runs on an HID channel's reader thread, so it must never block.
     def on_hid_state_changed(self) -> None:
         with self._lock:
-            present = bool(self._hid_channels) and all(hid_channel.connected for hid_channel in self._hid_channels)
+            present = (
+                bool(self._hid_channels)
+                and self._required_collections <= self._channels_by_collection.keys()
+                and all(hid_channel.connected for hid_channel in self._hid_channels)
+            )
             if present == self._present:
                 return
             self._present = present

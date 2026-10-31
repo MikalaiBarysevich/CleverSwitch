@@ -211,6 +211,37 @@ def test_multi_collection_device_connects_and_disconnects_once():
     assert [type(e) for e in _emitted(listener)] == [TransportConnectedEvent, TransportDisconnectedEvent]
 
 
+def test_required_collection_never_listed_keeps_the_device_absent():
+    short = _hid_channel(connected=True)
+    listener = MagicMock(spec=EventListener)
+    link = DeviceLink(
+        BOLT_PID, CONNECTION_RECEIVER, _make_topics(), listener, WriteRouter(), frozenset({(0xFF00, 1), (0xFF00, 2)})
+    )
+    link.attach(_factory([short]))
+    link.update([_collection(1)])
+
+    link.on_hid_state_changed()
+
+    listener.emit.assert_not_called()
+
+
+def test_device_becomes_present_once_its_late_required_collection_opens():
+    short, long = _hid_channel(connected=True), _hid_channel()
+    listener = MagicMock(spec=EventListener)
+    link = DeviceLink(
+        BOLT_PID, CONNECTION_RECEIVER, _make_topics(), listener, WriteRouter(), frozenset({(0xFF00, 1), (0xFF00, 2)})
+    )
+    link.attach(_factory([short, long]))
+    link.update([_collection(1)])
+    link.on_hid_state_changed()
+
+    link.update([_collection(1), _collection(2)])
+    long.connected = True
+    link.on_hid_state_changed()
+
+    assert _emitted(listener) == [TransportConnectedEvent(slot=0, pid=BOLT_PID, connection_type=CONNECTION_RECEIVER)]
+
+
 def test_repeated_reports_without_change_emit_nothing():
     hid_channel = _hid_channel(connected=True)
     link, _, listener, _ = _make_link([hid_channel])

@@ -126,3 +126,23 @@ def test_link_subscribes_to_write_topic(mocker):
     topics = _make_topics()
     link = create_link(BOLT_PID, [_receiver()], topics)
     topics.write.subscribe.assert_called_once_with(link)
+
+
+def test_windows_receiver_requires_both_hidpp_collections(mocker):
+    _system(mocker, SYSTEM_WINDOWS)
+    link = create_link(BOLT_PID, [_receiver(0x0001)], _make_topics())
+    assert link._required_collections == {(0xFF00, 0x0001), (0xFF00, 0x0002)}
+
+
+@pytest.mark.parametrize(
+    ("system", "pid", "collection"),
+    [
+        (SYSTEM_WINDOWS, BT_PID, _bluetooth()),
+        (SYSTEM_LINUX, BOLT_PID, _receiver()),
+        (SYSTEM_MACOS, BOLT_PID, _receiver()),
+    ],
+)
+def test_other_links_require_no_collection(mocker, system, pid, collection):
+    _system(mocker, system)
+    link = create_link(pid, [collection], _make_topics())
+    assert link._required_collections == frozenset()

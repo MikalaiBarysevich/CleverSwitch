@@ -1,6 +1,6 @@
 from ..errors.errors import HotplugError
 from ..topic.topics import Topics
-from ..util.util import SYSTEM_LINUX, SYSTEM_MACOS, get_system
+from ..util.util import SYSTEM_LINUX, SYSTEM_MACOS, SYSTEM_WINDOWS, get_system
 from .backend import HotplugBackend
 
 
@@ -14,4 +14,8 @@ def create_backend(topics: Topics) -> HotplugBackend:
         from .macos.iokit_backend import IOKitHotplugBackend
 
         return IOKitHotplugBackend(topics)
+    if system == SYSTEM_WINDOWS:
+        from .windows.cfgmgr_backend import CfgMgrHotplugBackend
+
+        return CfgMgrHotplugBackend(topics)
     raise HotplugError(f"Device hotplug is not supported on {system}")

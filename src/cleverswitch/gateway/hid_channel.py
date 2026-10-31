@@ -181,9 +181,9 @@ class HidChannel(Thread):
         self._open_path = None
         self._set_connected(False)
 
-    # A failed write alone doesn't mean the device left: on Windows a BT device can still be listed
-    # right after a host switch and fail writes, and reporting that as a disconnect made the link
-    # flap. The handle is reopened quietly; only a failed reopen, or a failed read, reports it gone.
+    # A failed write alone doesn't mean the device left: CHANGE_HOST makes the device leave mid-write,
+    # and the OS reports its removal separately. The handle is reopened quietly; only a failed reopen,
+    # or a failed read, reports it gone.
     def _reopen_after_write_failure(self) -> None:
         self._reopen_requested.clear()
         try:
