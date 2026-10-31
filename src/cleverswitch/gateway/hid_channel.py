@@ -189,7 +189,9 @@ class HidChannel(Thread):
         self._stop.set()
         if threading.current_thread() is self:
             return  # run()'s finally closes the handle on the way out
-        if self.is_alive():
+        # Started, not alive: the reader may exit between _stop.set() and here, and has then already
+        # closed its handle.
+        if self.ident is not None:
             self.join(timeout=_CLOSE_JOIN_TIMEOUT)
             if not self.is_alive():
                 return

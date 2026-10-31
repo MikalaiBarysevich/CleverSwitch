@@ -256,6 +256,29 @@ def test_close_from_foreign_thread_lets_reader_close_its_own_handle(make_fake_tr
     assert transport.closed_by == gw.name, "the reader thread must be the one that closes"
 
 
+def test_close_after_the_reader_exited_does_not_close_again(make_fake_transport):
+    transport = make_fake_transport()
+    gw = HidChannel(_device_info(), MagicMock(spec=EventListener), MagicMock())
+    gw._transport = transport
+    gw._stop.set()
+    gw.start()
+    gw.join(timeout=2.0)
+
+    gw.close()
+
+    assert transport.close_count == 1
+
+
+def test_close_before_start_closes_the_handle(make_fake_transport):
+    transport = make_fake_transport()
+    gw = HidChannel(_device_info(), MagicMock(spec=EventListener), MagicMock())
+    gw._transport = transport
+
+    gw.close()
+
+    assert transport.close_count == 1
+
+
 def test_close_on_own_thread_does_not_deadlock(make_fake_transport, mocker):
     transport = make_fake_transport()
     gw = HidChannel(_device_info(), MagicMock(spec=EventListener), MagicMock())
