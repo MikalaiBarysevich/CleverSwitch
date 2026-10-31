@@ -113,7 +113,8 @@ def test_keeps_step_pending_on_error_response():
     assert Task.Name.GET_DEVICE_TYPE in device.pending_steps
 
 
-def test_error_response_keeps_keyboard_steps_pending():
+def test_error_response_keeps_keyboard_steps_pending(mocker):
+    mocker.patch("src.cleverswitch.subscriber.task.info_task.ERROR_RETRY_DELAY", 0)
     device = _make_device(
         pending={Task.Name.GET_DEVICE_TYPE, Task.Feature.Name.CID_REPORTING, Task.Name.FIND_ES_CIDS_FLAGS},
     )

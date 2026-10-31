@@ -17,6 +17,7 @@ from ...topic.topics import Topics
 log = logging.getLogger(__name__)
 
 RESPONSE_TIMEOUT = 2.0
+ERROR_RETRY_DELAY = RESPONSE_TIMEOUT
 
 
 class InfoTask(ABC, Subscriber, Thread):
@@ -42,6 +43,7 @@ class InfoTask(ABC, Subscriber, Thread):
         self._request_id = (request_id & 0xFFF0) | self._sw_id
         self._expected = self._call_of(self._request_id)
         self._aborted = Event()
+        self._error_replied = False
         self._subscription = topics.hid_event.subscribe(self)
 
     def notify(self, event) -> None:
@@ -70,6 +72,8 @@ class InfoTask(ABC, Subscriber, Thread):
                 except Exception:
                     log.exception(f"Unhandled error in task {self._step_name} for wpid=0x{self._device.wpid:04X}")
             success = already_done or self._step_name not in self._device.pending_steps
+            if not success and self._error_replied:
+                self._aborted.wait(ERROR_RETRY_DELAY)
             if success:
                 self._fire_dependent_steps()
             if self._aborted.is_set() and not success:
@@ -113,9 +117,12 @@ class InfoTask(ABC, Subscriber, Thread):
         if self._aborted.is_set():
             return None
         try:
-            return self._response_queue.get(timeout=timeout)
+            response = self._response_queue.get(timeout=timeout)
         except queue.Empty:
             return None
+        if isinstance(response, HidppErrorEvent):
+            self._error_replied = True
+        return response
 
     def _drain_responses(self) -> None:
         while True:
