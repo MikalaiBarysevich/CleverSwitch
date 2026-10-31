@@ -106,6 +106,7 @@ class HidChannel(Thread):
 
     def _step(self) -> None:
         with self._command_lock:
+            self._wake.clear()
             desired, generation = self._desired_path, self._generation
 
         if self._connected:
