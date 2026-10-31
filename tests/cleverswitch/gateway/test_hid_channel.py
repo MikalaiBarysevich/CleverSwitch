@@ -525,6 +525,17 @@ def test_open_failure_retries_with_growing_delays_then_waits(mocker, caplog):
     on_state_changed.assert_not_called()
 
 
+def test_first_retry_waits_despite_the_wake_left_by_attach(mocker):
+    gw, _, _, _ = _commanded_channel(mocker, open_error=OSError("not permitted"))
+    wake_at_sleep = []
+    gw._sleep.side_effect = lambda _timeout: wake_at_sleep.append(gw._wake.is_set())
+    gw.attach(PATH)
+
+    gw._step()
+
+    assert wake_at_sleep == [False]
+
+
 def test_new_attach_after_giving_up_tries_again_with_a_fresh_budget(mocker):
     gw, transport_cls, _, sleeps = _commanded_channel(mocker, open_error=OSError("busy"))
     gw.attach(PATH)

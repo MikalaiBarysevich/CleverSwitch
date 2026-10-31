@@ -70,7 +70,12 @@ discovery.discover()
   ├── hotplug/backend_factory.create_backend() → HotplugBackend, one per platform (nothing polls):
   │     Linux: NetlinkHotplugBackend — udevd's netlink group (2, after rules ran, so the uaccess ACL
   │     is already applied), root-sent messages only, hidraw add/remove → pid from DEVPATH; ENOBUFS →
-  │     HotplugResyncEvent. No backend for the platform, or one that cannot start → HotplugError →
+  │     HotplugResyncEvent.
+  │     macOS: IOKitHotplugBackend — an IOHIDManager matching Logitech's vendor id, scheduled on its
+  │     own CFRunLoop thread; matching/removal callbacks read only ProductID (the IORegistry entry is
+  │     already gone on removal; IOHIDDeviceRef values are reused, so never key by the ref). The
+  │     manager is never opened, so it needs no Input Monitoring permission.
+  │     No backend for the platform, or one that cannot start → HotplugError →
   │     exit 1. Publishes HidNode{Added,Removed}Event(pid) on the hotplug topic
   ├── one HotplugResyncEvent after the backend is registered (startup sweep)
   ├── LinkManager (hotplug subscriber, single drain thread): every event re-enumerates its pid with
@@ -218,5 +223,5 @@ The parser detects ES CID presses (fn=0 diverted, fn=2 analytics press-only) and
 - `conftest.py` in the root `tests/` directory provides `FakeTransport`, `fake_transport`, and `make_fake_transport` fixtures.
 - Subscriber tests construct `Topics` with `MagicMock(spec=Topic)` for all channels and assert `publish.assert_called_once()` / `assert_not_called()`. See skill: `@write-subscriber-test`.
 - `InfoTask` tests must feed responses with `tests/task_helpers.py:deliver_on_request(task, topics, [...])`, which delivers one response per published request. Pre-loading `task._response_queue` no longer works — `_send_request` drains it, because that ordering cannot happen on real hardware.
-- `transport.py`, `__main__.py` and `hotplug/linux/netlink_backend.py` are excluded from coverage (hardware I/O, entry point, OS notification glue). Keep parsing out of backends (e.g. `hotplug/linux/udev_message.py`) so it stays tested.
+- `transport.py`, `__main__.py`, `hotplug/linux/netlink_backend.py` and `hotplug/macos/iokit.py` are excluded from coverage (hardware I/O, entry point, OS notification glue). Keep parsing and threading out of the OS glue (e.g. `hotplug/linux/udev_message.py`; `hotplug/macos/iokit_backend.py` takes an injectable `iokit_factory`) so it stays tested.
 - Coverage threshold: **90%** (enforced in `pyproject.toml`).
