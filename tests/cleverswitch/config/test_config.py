@@ -154,6 +154,26 @@ def test_parse_hooks_parses_path_entry_with_custom_timeout():
     assert result["h"].types == frozenset({HookType.SWITCH})
 
 
+@pytest.mark.parametrize("timeout", ["abc", None, 0, -3, True, [5]])
+def test_parse_hooks_skips_entry_with_invalid_timeout_and_keeps_the_rest(timeout, caplog):
+    with caplog.at_level("ERROR"):
+        result = _parse_hooks(
+            {
+                "bad": {"command": "echo hi", "type": "SWITCH", "timeout": timeout},
+                "good": {"command": "echo ok", "type": "SWITCH"},
+            }
+        )
+    assert set(result) == {"good"}
+    assert "Hook 'bad' has invalid 'timeout'" in caplog.text
+
+
+def test_load_keeps_running_when_a_hook_has_an_invalid_timeout(tmp_path):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("hooks:\n  bad:\n    command: echo hi\n    type: SWITCH\n    timeout:\n")
+    cfg = load(argparse.Namespace(config=str(cfg_file), verbose_extra=False))
+    assert cfg.hooks.hooks == {}
+
+
 def test_parse_hooks_type_is_case_insensitive():
     result = _parse_hooks({"h": {"path": "/a.sh", "type": "connect"}})
     assert result["h"].types == frozenset({HookType.CONNECT})
