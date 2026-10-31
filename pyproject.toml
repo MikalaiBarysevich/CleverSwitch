@@ -45,6 +45,7 @@ omit = [
     "src/cleverswitch/__main__.py",          # entry-point runner — not unit-testable
     "src/cleverswitch/hotplug/linux/netlink_backend.py",  # OS notification glue — hardware-tested
     "src/cleverswitch/hotplug/macos/iokit.py",            # ctypes bindings — hardware-tested
+    "src/cleverswitch/hotplug/windows/cfgmgr32.py",       # ctypes bindings — hardware-tested
 ]
 
 [tool.ruff]

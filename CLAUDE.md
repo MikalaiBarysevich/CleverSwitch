@@ -75,6 +75,11 @@ discovery.discover()
   │     own CFRunLoop thread; matching/removal callbacks read only ProductID (the IORegistry entry is
   │     already gone on removal; IOHIDDeviceRef values are reused, so never key by the ref). The
   │     manager is never opened, so it needs no Input Monitoring permission.
+  │     Windows: CfgMgrHotplugBackend — CM_Register_Notification for GUID_DEVINTERFACE_HID; the
+  │     callback runs on a system thread pool, parses the pid from the interface's symbolic link
+  │     (USB `VID_046D&PID_xxxx`, BLE `VID&02046D_PID&xxxx`) and publishes. A switched-away BT
+  │     device's interfaces are removed, so no extra Bluetooth signal is needed. stop() must never
+  │     run on a callback: CM_Unregister_Notification waits for callbacks in flight.
   │     No backend for the platform, or one that cannot start → HotplugError →
   │     exit 1. Publishes HidNode{Added,Removed}Event(pid) on the hotplug topic
   ├── one HotplugResyncEvent after the backend is registered (startup sweep)
@@ -96,7 +101,9 @@ discovery.discover()
       ├── the only write-topic subscriber for that pid: GATT first when subscribed, otherwise the
       │     HID collection its WriteRouter picks (ReportIdWriteRouter on Windows, where short/long
       │     reports are separate collections; first channel elsewhere) via HidChannel.submit()
-      └── owns presence: the device is present while EVERY collection is open, and only changes
+      └── owns presence: the device is present while EVERY collection is open (and, for a Windows
+            receiver, both its short and long HID++ collections have been listed — they arrive as
+            separate events, so an early enumeration can see just one), and only changes
             are emitted (through EventListener.emit, in order with raw reports), so a
             multi-collection device connects and disconnects once:
             ├── TransportConnectedEvent(pid, "receiver") → ReceiverArmingSubscriber enables
@@ -223,5 +230,5 @@ The parser detects ES CID presses (fn=0 diverted, fn=2 analytics press-only) and
 - `conftest.py` in the root `tests/` directory provides `FakeTransport`, `fake_transport`, and `make_fake_transport` fixtures.
 - Subscriber tests construct `Topics` with `MagicMock(spec=Topic)` for all channels and assert `publish.assert_called_once()` / `assert_not_called()`. See skill: `@write-subscriber-test`.
 - `InfoTask` tests must feed responses with `tests/task_helpers.py:deliver_on_request(task, topics, [...])`, which delivers one response per published request. Pre-loading `task._response_queue` no longer works — `_send_request` drains it, because that ordering cannot happen on real hardware.
-- `transport.py`, `__main__.py`, `hotplug/linux/netlink_backend.py` and `hotplug/macos/iokit.py` are excluded from coverage (hardware I/O, entry point, OS notification glue). Keep parsing and threading out of the OS glue (e.g. `hotplug/linux/udev_message.py`; `hotplug/macos/iokit_backend.py` takes an injectable `iokit_factory`) so it stays tested.
+- `transport.py`, `__main__.py`, `hotplug/linux/netlink_backend.py`, `hotplug/macos/iokit.py` and `hotplug/windows/cfgmgr32.py` are excluded from coverage (hardware I/O, entry point, OS notification glue). Keep parsing and threading out of the OS glue (e.g. `hotplug/linux/udev_message.py`, `hotplug/windows/interface_name.py`; the IOKit and CfgMgr backends take an injectable factory) so it stays tested.
 - Coverage threshold: **90%** (enforced in `pyproject.toml`).
