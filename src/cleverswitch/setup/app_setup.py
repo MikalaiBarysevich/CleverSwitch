@@ -105,4 +105,4 @@ def _init_subscribers(topics: Topics, device_registry: LogiDeviceRegistry, confi
     ReceiverArmingSubscriber(topics)
     DirectDeviceConnectionSubscriber(topics)
     ChannelRearmSubscriber(device_registry, topics)
-    EventHookSubscriber(config.hooks, device_registry, topics)
+    EventHookSubscriber(config.hooks, device_registry, topics, cache)
