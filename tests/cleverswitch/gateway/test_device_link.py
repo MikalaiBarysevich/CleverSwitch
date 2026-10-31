@@ -15,6 +15,7 @@ from cleverswitch.gateway.gatt_channel import GattChannel
 from cleverswitch.gateway.hid_channel import HidChannel
 from cleverswitch.gateway.write_router import WriteRouter
 from cleverswitch.hidpp.constants import BOLT_PID, CONNECTION_BLUETOOTH, CONNECTION_RECEIVER, REPORT_LONG
+from cleverswitch.hidpp.transport import HidDeviceInfo
 from cleverswitch.listener.event_listener import EventListener
 from cleverswitch.topic.topic import Topic
 from cleverswitch.topic.topics import Topics
@@ -39,12 +40,29 @@ def _hid_channel(connected=False):
     return hid_channel
 
 
+def _collection(usage, path=None):
+    return HidDeviceInfo(
+        path=path or f"/dev/hidraw{usage}".encode(),
+        vid=0x046D,
+        pid=BOLT_PID,
+        usage_page=0xFF00,
+        usage=usage,
+        connection_type=CONNECTION_RECEIVER,
+    )
+
+
+def _factory(hid_channels):
+    pending = list(hid_channels)
+    return MagicMock(side_effect=lambda _info: pending.pop(0))
+
+
 def _make_link(hid_channels=None, router=None, gatt=None, pid=BOLT_PID, connection_type=CONNECTION_RECEIVER):
     topics = _make_topics()
     listener = MagicMock(spec=EventListener)
     hid_channels = hid_channels if hid_channels is not None else [_hid_channel()]
     link = DeviceLink(pid, connection_type, topics, listener, router or WriteRouter())
-    link.attach(hid_channels, gatt)
+    link.attach(_factory(hid_channels), gatt)
+    link.update([_collection(i + 1) for i in range(len(hid_channels))])
     return link, topics, listener, hid_channels
 
 
@@ -274,3 +292,93 @@ def test_start_and_close_without_gatt():
     link.close()
     hid_channels[0].start.assert_called_once()
     hid_channels[0].close.assert_called_once()
+
+
+# ── update ───────────────────────────────────────────────────────────────────
+
+
+def _bare_link(hid_channels):
+    link = DeviceLink(BOLT_PID, CONNECTION_RECEIVER, _make_topics(), MagicMock(spec=EventListener), WriteRouter())
+    factory = _factory(hid_channels)
+    link.attach(factory)
+    return link, factory
+
+
+def test_update_attaches_each_listed_collection_to_its_path():
+    short, long = _hid_channel(), _hid_channel()
+    link, _ = _bare_link([short, long])
+
+    link.update([_collection(1, b"/a"), _collection(2, b"/b")])
+
+    short.attach.assert_called_once_with(b"/a")
+    long.attach.assert_called_once_with(b"/b")
+
+
+def test_update_creates_a_channel_once_per_collection():
+    hid_channel = _hid_channel()
+    link, factory = _bare_link([hid_channel])
+
+    link.update([_collection(2, b"/a")])
+    link.update([_collection(2, b"/b")])
+
+    factory.assert_called_once()
+    assert [c.args[0] for c in hid_channel.attach.call_args_list] == [b"/a", b"/b"]
+
+
+def test_update_detaches_collections_no_longer_listed():
+    short, long = _hid_channel(), _hid_channel()
+    link, _ = _bare_link([short, long])
+    link.update([_collection(1), _collection(2)])
+
+    link.update([_collection(2)])
+
+    short.detach.assert_called_once_with()
+    long.detach.assert_not_called()
+
+
+def test_update_with_nothing_listed_parks_every_channel():
+    short, long = _hid_channel(), _hid_channel()
+    link, _ = _bare_link([short, long])
+    link.update([_collection(1), _collection(2)])
+
+    link.update([])
+
+    short.detach.assert_called_once_with()
+    long.detach.assert_called_once_with()
+
+
+def test_channel_added_before_start_is_started_by_start():
+    hid_channel = _hid_channel()
+    link, _ = _bare_link([hid_channel])
+    link.update([_collection(2)])
+    hid_channel.start.assert_not_called()
+
+    link.start()
+
+    hid_channel.start.assert_called_once_with()
+
+
+def test_channel_added_after_start_is_started_at_once():
+    first, late = _hid_channel(), _hid_channel()
+    link, _ = _bare_link([first, late])
+    link.update([_collection(1)])
+    link.start()
+
+    link.update([_collection(1), _collection(2)])
+
+    late.start.assert_called_once_with()
+    first.start.assert_called_once_with()
+
+
+def test_late_collection_is_offered_to_the_write_router():
+    first, late = _hid_channel(connected=True), _hid_channel()
+    router = MagicMock(spec=WriteRouter)
+    router.select.return_value = None
+    link, _ = _bare_link([first, late])
+    link._router = router
+    link.update([_collection(1)])
+
+    link.update([_collection(1), _collection(2)])
+    link.notify(WriteEvent(slot=1, pid=BOLT_PID, hid_message=MSG))
+
+    router.select.assert_called_once_with(MSG, [first, late])

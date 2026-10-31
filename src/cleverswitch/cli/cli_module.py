@@ -36,19 +36,29 @@ def main() -> None:
 
     app_context = setup_context(args)
 
+    failures: list[CleverSwitchError] = []
     try:
         discovery_thread = threading.Thread(
-            target=discover,
-            args=(app_context,),
+            target=_run_discovery,
+            args=(app_context, failures),
         )
 
         discovery_thread.start()
         discovery_thread.join()
     except CleverSwitchError as e:
-        log.error(f"{e}")
+        failures.append(e)
+    if failures:
+        log.error(f"{failures[0]}")
         sys.exit(1)
 
     log.info("CleverSwitch stopped")
+
+
+def _run_discovery(app_context, failures: list[CleverSwitchError]) -> None:
+    try:
+        discover(app_context)
+    except CleverSwitchError as e:
+        failures.append(e)
 
 
 def _parse_args() -> argparse.Namespace:

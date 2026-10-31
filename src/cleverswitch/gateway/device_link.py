@@ -1,5 +1,6 @@
 import logging
 import threading
+from collections.abc import Callable
 
 from ..event.link_channel_changed_event import CHANNEL_GATT, LinkChannelChangedEvent
 from ..event.transport_connected_event import TransportConnectedEvent
@@ -8,6 +9,7 @@ from ..event.write_event import WriteEvent
 from ..gateway.gatt_channel import GattChannel
 from ..gateway.hid_channel import HidChannel
 from ..gateway.write_router import WriteRouter
+from ..hidpp.transport import HidDeviceInfo
 from ..listener.event_listener import EventListener
 from ..subscriber.subscriber import Subscriber
 from ..topic.topics import Topics
@@ -19,7 +21,9 @@ class DeviceLink(Subscriber):
     """Everything CleverSwitch holds open for one HID product id.
 
     Owns the device's HID collection channels, the optional macOS GATT channel and their shared
-    EventListener, and is the only write-topic subscriber for that pid.
+    EventListener, and is the only write-topic subscriber for that pid. update() tells it which
+    collections the OS currently lists; it creates a channel the first time a collection is seen
+    and never removes one, so a device that leaves is parked rather than torn down.
 
     The device is present while every HID collection is open. Only changes in presence are
     emitted, so a device with several collections connects and disconnects once. The GATT
@@ -42,15 +46,36 @@ class DeviceLink(Subscriber):
         self._connection_type = connection_type
         self._listener = listener
         self._router = router
-        self._hid_channels: list[HidChannel] = []
+        self._channel_factory: Callable[[HidDeviceInfo], HidChannel] | None = None
+        self._channels_by_collection: dict[tuple[int, int], HidChannel] = {}
+        self._hid_channels: tuple[HidChannel, ...] = ()
         self._gatt: GattChannel | None = None
         self._present = False
+        self._started = False
         self._lock = threading.Lock()
         topics.write.subscribe(self)
 
-    def attach(self, hid_channels: list[HidChannel], gatt: GattChannel | None = None) -> None:
-        self._hid_channels = hid_channels
+    def attach(self, channel_factory: Callable[[HidDeviceInfo], HidChannel], gatt: GattChannel | None = None) -> None:
+        self._channel_factory = channel_factory
         self._gatt = gatt
+
+    def update(self, collections: list[HidDeviceInfo]) -> None:
+        with self._lock:
+            listed = set()
+            for info in collections:
+                key = (info.usage_page, info.usage)
+                listed.add(key)
+                hid_channel = self._channels_by_collection.get(key)
+                if hid_channel is None:
+                    hid_channel = self._channel_factory(info)
+                    self._channels_by_collection[key] = hid_channel
+                    self._hid_channels = tuple(self._channels_by_collection.values())
+                    if self._started:
+                        hid_channel.start()
+                hid_channel.attach(info.path)
+            for key, hid_channel in self._channels_by_collection.items():
+                if key not in listed:
+                    hid_channel.detach()
 
     # Runs on an HID channel's reader thread, so it must never block.
     def on_hid_state_changed(self) -> None:
@@ -80,16 +105,19 @@ class DeviceLink(Subscriber):
         msg = event.hid_message
         if self._gatt is not None and self._gatt.write(msg):
             return
-        hid_channel = self._router.select(msg, self._hid_channels)
+        hid_channel = self._router.select(msg, list(self._hid_channels))
         if hid_channel is None:
             log.debug(f"No collection accepts report 0x{msg[0]:02X} for pid=0x{self._pid:04X}")
             return
         hid_channel.submit(msg)
 
     def start(self) -> None:
+        with self._lock:
+            self._started = True
+            hid_channels = self._hid_channels
         if self._gatt is not None:
             self._gatt.start()
-        for hid_channel in self._hid_channels:
+        for hid_channel in hid_channels:
             hid_channel.start()
         self._listener.start()
 
