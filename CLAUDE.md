@@ -141,7 +141,7 @@ InfoTaskOrchestrator.notify(InfoTaskProgressEvent)
         is retried at the pace of a timeout, not in a hot loop.
         The step stays in pending_steps, so the device is never cached and gets a fresh budget
         when DeviceInfoRequestEvent arrives (the orchestrator's second subscription, on
-        device_info) — this makes it the only two-topic subscriber, hence the lock on _attempts.
+        device_info) — two subscriptions mean two drain threads, hence the lock on _attempts.
 ```
 
 ### InfoTask design
@@ -206,7 +206,7 @@ Design:
 - **Path**: `config.cache_path`, from config key `cache.path`; defaults to `~/.config/cleverswitch/device_cache.json`. `--clear-cache` deletes the file and exits without starting the daemon.
 - **Never crashes startup**: `load()` degrades to empty on any read failure (missing/corrupt file, wrong `version`, malformed `devices`), and skips individual malformed entries.
 - **Repairs a cached keyboard without 0x1B04**: `load()` re-adds `CID_REPORTING` + `FIND_ES_CIDS_FLAGS` to its `pending_steps`, so the reconnection path rediscovers them. `DeviceConnectionSubscriber` and `ChannelRearmSubscriber` log a WARNING if they still find a keyboard without 0x1B04 and no pending CID step.
-- **Fits the existing architecture — no new event or topic.** `setup_context()` builds the cache (loaded once) and injects it into `DeviceConnectionSubscriber`, `InfoTaskOrchestrator`, and `AnalyticsRejectionSubscriber`.
+- **Fits the existing architecture — no new event or topic.** `setup_context()` builds the cache (loaded once) and injects it into `DeviceConnectionSubscriber`, `InfoTaskOrchestrator`, `AnalyticsRejectionSubscriber`, and `EventHookSubscriber`.
   - Read on connect: `DeviceConnectionSubscriber` registers a cache-hit device and runs the reconnection path — arming flags and requesting info only for still-pending steps (so a partially-cached device fetches just the gaps).
   - Written by `InfoTaskOrchestrator.save` on full discovery, and by `AnalyticsRejectionSubscriber` when it drops `KEY_FLAG_ANALYTICS`.
 - `save()` writes the whole file atomically (temp file + `os.replace`) and swallows write errors (logs a warning; in-memory entry still updates).
@@ -219,7 +219,7 @@ Active subscribers: `DeviceConnectionSubscriber`, `DeviceInfoSubscriber`, `InfoT
 
 The parser detects ES CID presses (fn=0 diverted, fn=2 analytics press-only) and emits `HostChangeEvent` instead of generic `HidppNotificationEvent`. `HostChangeSubscriber` reacts to `HostChangeEvent` and sends CHANGE_HOST to all registered devices.
 
-`EventHookSubscriber` listens on `hid_event` for `HostChangeEvent` and `DeviceConnectedEvent`, and fires user-configured hooks asynchronously via `hooks.py`. Hooks are a named mapping in config (`HooksConfig.hooks: dict[str, HookEntry]`); each entry declares an explicit `path` (run directly, no shell) **or** `command` (run via shell) — never both — plus one or more `type`s (`CONNECT`/`SWITCH`/`DISCONNECT`, scalar or list) and a `timeout`. `HooksConfig.for_type(HookType)` selects the entries an event fires. By default hooks only fire for keyboard events; set `hooks.fire_for_all_devices: true` in config to include mouse events. This global default is overridable per hook via the nullable `HookEntry.fire_for_all_devices` (`None` inherits the global; `True`/`False` widens/narrows just that hook), resolved in `hooks.fire()`. Tracks per-wpid last connection state internally to avoid double-firing hooks from duplicate connection events (e.g. Windows multi-collection re-enumeration).
+`EventHookSubscriber` listens on `hid_event` for `HostChangeEvent` and `DeviceConnectedEvent`, and fires user-configured hooks asynchronously via `hooks.py`. Hooks are a named mapping in config (`HooksConfig.hooks: dict[str, HookEntry]`); each entry declares an explicit `path` (run directly, no shell) **or** `command` (run via shell) — never both — plus one or more `type`s (`CONNECT`/`SWITCH`/`DISCONNECT`, scalar or list) and a `timeout`. `HooksConfig.for_type(HookType)` selects the entries an event fires. By default hooks only fire for keyboard events; set `hooks.fire_for_all_devices: true` in config to include mouse events. This global default is overridable per hook via the nullable `HookEntry.fire_for_all_devices` (`None` inherits the global; `True`/`False` widens/narrows just that hook), resolved in `hooks.fire()`. Tracks per-wpid last connection state internally (under a lock) to avoid double-firing hooks from duplicate connection events (e.g. Windows multi-collection re-enumeration). CONNECT needs the device's name and role, which a connect event does not always have yet: the device is looked up in the cache as well as the registry (at startup `DeviceConnectionSubscriber` may not have registered the cached device yet — they drain on separate threads), and the subscriber also listens on `info_progress`, firing CONNECT once a connected device's discovery gives it a name and role.
 
 `TransportDisconnectionSubscriber` listens on `hid_event` for `TransportDisconnectedEvent`; for each registered device whose pid matches the dropped transport, it publishes `DeviceConnectedEvent(link_established=False)` so per-device subscribers react as if each device sent a normal disconnect.
 
