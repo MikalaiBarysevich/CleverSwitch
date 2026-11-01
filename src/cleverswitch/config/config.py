@@ -113,16 +113,31 @@ def _parse_hooks(raw_hooks: dict[str, Any]) -> dict[str, HookEntry]:
             log.error(f"Hook '{name}' has no valid 'type'; skipping")
             continue
 
+        timeout = _parse_hook_timeout(name, spec.get("timeout", 5))
+        if timeout is None:
+            continue
+
         override = spec.get("fire_for_all_devices")
         result[name] = HookEntry(
             name=name,
             types=types,
             path=str(path) if path else None,
             command=str(command) if command else None,
-            timeout=int(spec.get("timeout", 5)),
+            timeout=timeout,
             fire_for_all_devices=None if override is None else bool(override),
         )
     return result
+
+
+def _parse_hook_timeout(name: str, raw_timeout: Any) -> int | None:
+    try:
+        timeout = int(raw_timeout)
+    except (TypeError, ValueError):
+        timeout = 0
+    if isinstance(raw_timeout, bool) or timeout <= 0:
+        log.error(f"Hook '{name}' has invalid 'timeout' '{raw_timeout}'; skipping")
+        return None
+    return timeout
 
 
 def _parse_hook_types(name: str, raw_type: Any) -> frozenset[HookType]:
