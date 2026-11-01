@@ -136,6 +136,9 @@ InfoTaskOrchestrator.notify(InfoTaskProgressEvent)
   └── failure + device.connected → retries the task immediately, up to MAX_DISCOVERY_ATTEMPTS (5)
         for the steps in _CAPPED_STEPS (CHANGE_HOST, CID_REPORTING, FIND_ES_CIDS_FLAGS, GET_DEVICE_TYPE);
         on exhaustion logs once at CRITICAL and keeps running. Cosmetic steps retry unbounded.
+        A task that failed after an error reply reports it only after ERROR_RETRY_DELAY (2s), so a
+        device that answers everything with an error (a receiver's 0x09 for an unreachable device)
+        is retried at the pace of a timeout, not in a hot loop.
         The step stays in pending_steps, so the device is never cached and gets a fresh budget
         when DeviceInfoRequestEvent arrives (the orchestrator's second subscription, on
         device_info) — this makes it the only two-topic subscriber, hence the lock on _attempts.
@@ -148,7 +151,7 @@ InfoTaskOrchestrator.notify(InfoTaskProgressEvent)
 - `_send_request(*params)` drains the response queue, then builds a long-format HID++ message and publishes a `WriteEvent`. The drain matters: anything already queued predates the request, so without it a late reply would be handed to the *next* `_wait_response`, and the chunked name reads and the `getCidInfo` sweep would splice it in at the wrong offset and silently record wrong data. A clean timeout is the honest outcome. Tests must therefore deliver responses **on publish** (`tests/task_helpers.py:deliver_on_request`), not by pre-loading `_response_queue`
 - `_wait_response(timeout=2.0)` blocks on the private queue; returns `None` on timeout
 - **Aborts on its own device's disconnect** (`DeviceConnectedEvent(link_established=False)` for its wpid, or `TransportDisconnectedEvent` for its pid): the wait returns `None` at once, later replies are ignored and no more requests are sent. Without it a task still waiting across a quick drop/reconnect takes the reply meant for the copy the reconnection starts — two `getDeviceName` reads spliced the name into `MX Keys WirelessMX Keys W`. The progress event carries `aborted=True` and the orchestrator does not retry it; the reconnection path restarts the still-pending step
-- `run()` checks `step_name in device.pending_steps`; skips `doTask()` if already complete; always publishes `InfoTaskProgressEvent`; releases the `hid_event` subscription in a `finally` — a subclass overriding `run()` must preserve that
+- `run()` checks `step_name in device.pending_steps`; skips `doTask()` if already complete; always publishes `InfoTaskProgressEvent` — after waiting `ERROR_RETRY_DELAY` when it failed and `_wait_response` returned an error reply (a disconnect ends the wait and marks it aborted); releases the `hid_event` subscription in a `finally` — a subclass overriding `run()` must preserve that
 
 Task dependency chain:
 - `CidReportingFeatureTask` → fires `FindESCidsFlagsTask`

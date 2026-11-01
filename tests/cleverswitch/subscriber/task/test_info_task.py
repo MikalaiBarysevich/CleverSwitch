@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -477,3 +479,76 @@ def test_run_does_not_mark_disconnected_device_connected(pending):
 
     assert device.connected is False
     assert topics.info_progress.publish.call_args[0][0].success is True
+
+
+# ── pacing after an error reply ───────────────────────────────────────────────
+
+
+def _error_reply():
+    return HidppErrorEvent(slot=SLOT, pid=PID, feature_index=0, function=0, sw_id=SW_ID, error_code=0x09)
+
+
+def _task_receiving(topics, device, response, discard_step=False):
+    def do_task():
+        task._send_request()
+        task._wait_response(timeout=0.05)
+        if discard_step:
+            device.pending_steps.discard("test_step")
+
+    task = _ConcreteTask(device, topics, do_task_fn=do_task)
+    topics.write.publish.side_effect = lambda *_a, **_k: response is not None and task._response_queue.put(response)
+    return task
+
+
+def test_failure_after_an_error_reply_is_reported_after_the_retry_delay(mocker):
+    mocker.patch("cleverswitch.subscriber.task.info_task.ERROR_RETRY_DELAY", 0.3)
+    topics = _make_topics()
+    task = _task_receiving(topics, _make_device(pending={"test_step"}), _error_reply())
+
+    started = time.monotonic()
+    task.run()
+
+    assert time.monotonic() - started >= 0.3
+    event = topics.info_progress.publish.call_args.args[0]
+    assert event.success is False
+    assert event.aborted is False
+
+
+def test_disconnect_cuts_the_retry_delay_short_and_marks_the_task_aborted(mocker):
+    mocker.patch("cleverswitch.subscriber.task.info_task.ERROR_RETRY_DELAY", 10)
+    topics = _make_topics()
+    device = _make_device(pending={"test_step"})
+    task = _task_receiving(topics, device, _error_reply())
+
+    runner = threading.Thread(target=task.run)
+    runner.start()
+    time.sleep(0.1)
+    task.notify(TransportDisconnectedEvent(slot=0, pid=PID))
+    runner.join(timeout=1)
+
+    assert not runner.is_alive()
+    assert topics.info_progress.publish.call_args.args[0].aborted is True
+
+
+def test_failure_after_a_timeout_is_reported_without_the_retry_delay(mocker):
+    mocker.patch("cleverswitch.subscriber.task.info_task.ERROR_RETRY_DELAY", 10)
+    topics = _make_topics()
+    task = _task_receiving(topics, _make_device(pending={"test_step"}), None)
+
+    started = time.monotonic()
+    task.run()
+
+    assert time.monotonic() - started < 1
+    assert topics.info_progress.publish.call_args.args[0].success is False
+
+
+def test_success_after_an_error_reply_is_reported_without_the_retry_delay(mocker):
+    mocker.patch("cleverswitch.subscriber.task.info_task.ERROR_RETRY_DELAY", 10)
+    topics = _make_topics()
+    task = _task_receiving(topics, _make_device(pending={"test_step"}), _error_reply(), discard_step=True)
+
+    started = time.monotonic()
+    task.run()
+
+    assert time.monotonic() - started < 1
+    assert topics.info_progress.publish.call_args.args[0].success is True
