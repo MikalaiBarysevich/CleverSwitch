@@ -14,7 +14,6 @@ from cleverswitch.hidpp.constants import (
     ANALYTICS_AVALID,
     ANALYTICS_KEY_EVT,
     BOLT_PID,
-    HOST_SWITCH_CIDS,
     MAP_FLAG_DIVERTED,
     REPORT_LONG,
     REPORT_SHORT,
@@ -179,27 +178,18 @@ def test_parse_disconnect_poller_ping_creates_response_event():
     assert event.sw_id == SW_ID
 
 
-# ── Host Change (HostChangeEvent from sw_id == 0 notifications) ─────────────
+# ── Host Change (ES presses are left to EasySwitchKeySubscriber) ────────────
 
 
-def test_parse_host_change_diverted_key():
-    # fn=0, sw_id=0 → fn_sw=0x00; CID=0x00D1 → host 0
+def test_parse_easy_switch_press_is_a_plain_notification():
+    # fn=0, sw_id=0 → fn_sw=0x00; CID=0x00D1 → HidppNotificationEvent, host switch is decided by the subscriber
     data = bytes([0x00, 0xD1]) + bytes(14)
     raw = _long_msg(slot=1, feature_id=5, fn_sw=0x00, data=data)
     event = parse(PID, raw)
-    assert isinstance(event, HostChangeEvent)
-    assert event.slot == 1
-    assert event.pid == PID
-    assert event.target_host == HOST_SWITCH_CIDS[0x00D1]
-
-
-def test_parse_host_change_analytics_press():
-    # fn=2, sw_id=0 → fn_sw=0x20; CID=0x00D2, payload[2]=0x01 (press) → HostChangeEvent
-    data = bytes([0x00, 0xD2, 0x01]) + bytes(13)
-    raw = _long_msg(slot=1, feature_id=5, fn_sw=0x20, data=data)
-    event = parse(PID, raw)
-    assert isinstance(event, HostChangeEvent)
-    assert event.target_host == HOST_SWITCH_CIDS[0x00D2]
+    assert isinstance(event, HidppNotificationEvent)
+    assert event.feature_index == 5
+    assert event.function == 0
+    assert event.payload[:2] == bytes([0x00, 0xD1])
 
 
 def test_parse_host_change_analytics_release_returns_notification():
