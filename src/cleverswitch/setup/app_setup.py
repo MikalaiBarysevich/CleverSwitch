@@ -19,6 +19,7 @@ from ..subscriber.channel_rearm_subscriber import ChannelRearmSubscriber
 from ..subscriber.device_connected_subscriber import DeviceConnectionSubscriber
 from ..subscriber.device_info_subscriber import DeviceInfoSubscriber
 from ..subscriber.direct_device_connection_subscriber import DirectDeviceConnectionSubscriber
+from ..subscriber.easy_switch_key_subscriber import EasySwitchKeySubscriber
 from ..subscriber.event_hook_subscriber import EventHookSubscriber
 from ..subscriber.external_unset_flag_subscriber import ExternalUnsetFlagSubscriber
 from ..subscriber.host_change_subscriber import HostChangeSubscriber
@@ -105,6 +106,7 @@ def _init_subscribers(topics: Topics, device_registry: LogiDeviceRegistry, confi
     ExternalUnsetFlagSubscriber(device_registry, topics)
     AnalyticsRejectionSubscriber(device_registry, topics, cache)
     HostChangeSubscriber(device_registry, topics)
+    EasySwitchKeySubscriber(device_registry, topics)
     ChangeHostNotificationSubscriber(device_registry, topics)
     WirelessStatusSubscriber(device_registry, topics)
     TransportDisconnectionSubscriber(device_registry, topics)
