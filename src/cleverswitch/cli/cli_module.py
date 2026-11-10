@@ -13,6 +13,8 @@ from ..config import config as cfg_module
 from ..discovery.discovery import discover
 from ..errors.errors import CleverSwitchError, ConfigError
 from ..hidpp.transport import hidapi_version
+from ..log.log_setup import bootstrap_logging, configure_logging
+from ..model.config.logging_config import LoggingConfig
 from ..setup.app_setup import setup_context
 from ..util.util import get_system
 
@@ -22,15 +24,18 @@ _SYSTEM = get_system()
 def main() -> None:
     args = _parse_args()
 
-    _setup_logging(args.verbose or args.verbose_extra)
+    verbose = args.verbose or args.verbose_extra
+    bootstrap_logging(verbose)
     log = logging.getLogger(__name__)
 
     if args.clear_cache:
         try:
             config = cfg_module.load(args)
         except ConfigError as e:
+            configure_logging(LoggingConfig(), verbose, file_allowed=False)
             log.error(f"{e}")
             sys.exit(1)
+        configure_logging(config.logging, verbose, file_allowed=False)
         DeviceCache(config.cache_path).clear()
         return
 
@@ -76,17 +81,3 @@ def _parse_args() -> argparse.Namespace:
         version=f"%(prog)s {__version__} (hidapi {hidapi_version()}, {_SYSTEM})",
     )
     return p.parse_args()
-
-
-def _setup_logging(verbose: bool) -> None:
-    if verbose:
-        level = "DEBUG"
-    else:
-        level = "INFO"
-    logging.basicConfig(
-        level=getattr(logging, level, logging.INFO),
-        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
-    # Quiet down the hid library's own logger
-    logging.getLogger("hid").setLevel(logging.WARNING)

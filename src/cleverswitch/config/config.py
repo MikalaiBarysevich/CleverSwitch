@@ -16,11 +16,21 @@ from ..model.config.config import Config
 from ..model.config.hook_entry import HookEntry
 from ..model.config.hook_type import HookType
 from ..model.config.hooks_config import HooksConfig
+from ..model.config.logging_config import DEFAULT_BACKUP_COUNT, DEFAULT_MAX_BYTES, LoggingConfig
 
 log = logging.getLogger(__name__)
 
 _DEFAULT_CONFIG_PATH = Path("~/.config/cleverswitch/config.yaml").expanduser()
 _DEFAULT_CACHE_PATH = Path("~/.config/cleverswitch/device_cache.json").expanduser()
+_LOG_LEVELS = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
+_MAX_SIZE_MB_RANGE = (1, 1024)
+_BACKUP_COUNT_RANGE = (1, 50)
 
 # ── Default config ────────────────────────────────────────────────────────────
 
@@ -74,7 +84,12 @@ def _parse(raw: dict[str, Any], cli_args: argparse.Namespace) -> Config:
     c = _section(raw, "cache")
     cache_path = Path(os.path.expanduser(str(c["path"]))) if c.get("path") else _DEFAULT_CACHE_PATH
 
-    config = Config(hooks=hooks, arguments_settings=arguments_settings, cache_path=cache_path)
+    config = Config(
+        hooks=hooks,
+        arguments_settings=arguments_settings,
+        cache_path=cache_path,
+        logging=_parse_logging(raw),
+    )
     _validate(config)
     return config
 
@@ -85,6 +100,45 @@ def _section(raw: dict[str, Any], key: str) -> dict[str, Any]:
         return {}
     if not isinstance(value, dict):
         raise TypeError(f"'{key}' must be a mapping")
+    return value
+
+
+def _parse_logging(raw: dict[str, Any]) -> LoggingConfig:
+    section = _section(raw, "logging")
+    file_section = _section(section, "file")
+    defaults = LoggingConfig()
+
+    level = defaults.level
+    if "level" in section:
+        name = str(section["level"]).strip().upper()
+        if name in _LOG_LEVELS:
+            level = _LOG_LEVELS[name]
+        else:
+            log.error(f"Invalid logging 'level' '{section['level']}'; using INFO")
+
+    raw_path = file_section.get("path")
+    file_path = Path(os.path.expanduser(os.path.expandvars(str(raw_path)))) if raw_path else defaults.file_path
+
+    max_size_mb = _parse_bounded_int("max_size_mb", file_section, _MAX_SIZE_MB_RANGE, DEFAULT_MAX_BYTES // 2**20)
+    backup_count = _parse_bounded_int("backup_count", file_section, _BACKUP_COUNT_RANGE, DEFAULT_BACKUP_COUNT)
+
+    return LoggingConfig(
+        level=level,
+        file_enabled=bool(file_section.get("enabled", True)),
+        file_path=file_path,
+        max_bytes=max_size_mb * 2**20,
+        backup_count=backup_count,
+    )
+
+
+def _parse_bounded_int(key: str, section: dict[str, Any], bounds: tuple[int, int], default: int) -> int:
+    if key not in section:
+        return default
+    value = section[key]
+    low, high = bounds
+    if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+        log.error(f"Invalid logging 'file.{key}' '{value}' (expected an integer {low}..{high}); using {default}")
+        return default
     return value
 
 

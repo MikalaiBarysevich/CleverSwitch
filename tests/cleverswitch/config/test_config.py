@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import textwrap
 from pathlib import Path
 
@@ -251,4 +252,74 @@ def test_load_raises_config_error_for_non_mapping_sections(tmp_path, body):
     cfg_file.write_text(body)
 
     with pytest.raises(ConfigError):
+        load(_cli_args(config=str(cfg_file)))
+
+
+# ── logging ───────────────────────────────────────────────────────────────────
+
+
+def test_parse_logging_defaults_when_section_missing():
+    from src.cleverswitch.model.config.logging_config import LoggingConfig
+
+    cfg = _parse({}, _cli_args())
+    assert cfg.logging == LoggingConfig()
+    assert cfg.logging.level == logging.INFO
+    assert cfg.logging.file_enabled is True
+    assert cfg.logging.max_bytes == 5 * 1024 * 1024
+    assert cfg.logging.backup_count == 3
+
+
+def test_parse_logging_reads_all_keys():
+    raw = {
+        "logging": {
+            "level": "debug",
+            "file": {"enabled": False, "path": "/var/log/cs.log", "max_size_mb": 2, "backup_count": 7},
+        }
+    }
+    lc = _parse(raw, _cli_args()).logging
+    assert lc.level == logging.DEBUG
+    assert lc.file_enabled is False
+    assert lc.file_path == Path("/var/log/cs.log")
+    assert lc.max_bytes == 2 * 1024 * 1024
+    assert lc.backup_count == 7
+
+
+def test_parse_logging_expands_tilde_and_env_vars_in_path(monkeypatch):
+    monkeypatch.setenv("CS_LOG_DIR", "/srv/logs")
+    lc = _parse({"logging": {"file": {"path": "$CS_LOG_DIR/cs.log"}}}, _cli_args()).logging
+    assert lc.file_path == Path("/srv/logs/cs.log")
+    lc = _parse({"logging": {"file": {"path": "~/cs.log"}}}, _cli_args()).logging
+    assert lc.file_path == Path("~/cs.log").expanduser()
+
+
+def test_parse_logging_invalid_level_falls_back_to_info(caplog):
+    lc = _parse({"logging": {"level": "LOUD"}}, _cli_args()).logging
+    assert lc.level == logging.INFO
+    assert "LOUD" in caplog.text
+
+
+@pytest.mark.parametrize("value", [0, 1025, True, "5", 2.5, None])
+def test_parse_logging_invalid_max_size_falls_back_to_default(value, caplog):
+    lc = _parse({"logging": {"file": {"max_size_mb": value}}}, _cli_args()).logging
+    assert lc.max_bytes == 5 * 1024 * 1024
+    assert "max_size_mb" in caplog.text
+
+
+@pytest.mark.parametrize("value", [0, 51, False, "3"])
+def test_parse_logging_invalid_backup_count_falls_back_to_default(value, caplog):
+    lc = _parse({"logging": {"file": {"backup_count": value}}}, _cli_args()).logging
+    assert lc.backup_count == 3
+    assert "backup_count" in caplog.text
+
+
+@pytest.mark.parametrize("raw", [{"logging": "loud"}, {"logging": {"file": ["x"]}}])
+def test_parse_logging_rejects_non_mapping_sections(raw):
+    with pytest.raises(TypeError):
+        _parse(raw, _cli_args())
+
+
+def test_load_wraps_non_mapping_logging_section_in_config_error(tmp_path):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("logging: 3\n")
+    with pytest.raises(ConfigError, match="'logging' must be a mapping"):
         load(_cli_args(config=str(cfg_file)))

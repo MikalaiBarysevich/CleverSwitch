@@ -26,7 +26,9 @@ class Topic:
         q: queue.Queue = queue.Queue()
         with self._lock:
             self._subscriber_queues.append(q)
-        Thread(target=self._notify, args=(subscriber, q), daemon=True).start()
+        Thread(
+            target=self._notify, args=(subscriber, q), name=f"topic-{type(subscriber).__name__}", daemon=True
+        ).start()
         return q
 
     def unsubscribe(self, subscription: queue.Queue) -> None:
