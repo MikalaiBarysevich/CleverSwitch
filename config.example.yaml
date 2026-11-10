@@ -32,3 +32,18 @@ hooks:
     fire_for_all_devices: true   # this hook also fires for the mouse
     timeout: 10
 
+
+# Logging (all optional)
+# CleverSwitch writes a size-rotated log file by default, in the OS-native log directory:
+#   Linux:   $XDG_STATE_HOME/cleverswitch/cleverswitch.log (default ~/.local/state/cleverswitch/)
+#   macOS:   ~/Library/Logs/CleverSwitch/cleverswitch.log
+#   Windows: %LOCALAPPDATA%\CleverSwitch\Logs\cleverswitch.log
+# -v / -vv on the command line force DEBUG regardless of 'level'.
+#
+# logging:
+#   level: INFO            # DEBUG | INFO | WARNING | ERROR | CRITICAL
+#   file:
+#     enabled: true
+#     path: ~/cleverswitch.log
+#     max_size_mb: 5       # 1..1024, size of one file before it rotates
+#     backup_count: 3      # 1..50, rotated files kept (cleverswitch.log.1, .2, ...)

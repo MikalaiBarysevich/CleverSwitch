@@ -55,5 +55,6 @@ echo.
 :: 5. Launch it now so user doesn't have to restart
 start wscript.exe "%STARTUP_FOLDER%\%VBS_NAME%"
 echo Application launched in background.
+echo Logs can be found at: %LOCALAPPDATA%\CleverSwitch\Logs\cleverswitch.log
 
 pause

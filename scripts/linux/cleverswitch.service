@@ -7,6 +7,8 @@ Type=simple
 # %h expands to the user's home. setup_startup.sh rewrites this line to the
 # resolved binary path so installs outside ~/.local/bin still work.
 ExecStart=%h/.local/bin/cleverswitch
+# Output goes to the journal (journalctl --user -u cleverswitch); CleverSwitch also writes a
+# rotated log to ~/.local/state/cleverswitch/cleverswitch.log (see "logging:" in config.yaml).
 Restart=on-failure
 RestartSec=5
 

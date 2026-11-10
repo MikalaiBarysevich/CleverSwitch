@@ -9,6 +9,8 @@ from ..cache.device_cache import DeviceCache
 from ..config import config as cfg_module
 from ..config.config import Config
 from ..errors.errors import ConfigError
+from ..log.log_setup import configure_logging
+from ..model.config.logging_config import LoggingConfig
 from ..model.context.app_context import AppContext
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.analytics_rejection_subscriber import AnalyticsRejectionSubscriber
@@ -45,11 +47,15 @@ def setup_context(args: argparse.Namespace) -> AppContext:
 
 
 def _load_config(args: argparse.Namespace) -> Config:
+    verbose = bool(args.verbose or args.verbose_extra)
     try:
-        return cfg_module.load(args)
+        config = cfg_module.load(args)
     except ConfigError as e:
-        print(f"ERROR: {e}", file=sys.stderr)
+        configure_logging(LoggingConfig(), verbose)
+        log.error(f"{e}")
         sys.exit(1)
+    configure_logging(config.logging, verbose)
+    return config
 
 
 def _setup_shutdown() -> threading.Event:

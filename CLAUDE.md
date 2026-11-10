@@ -189,6 +189,15 @@ Design:
 - **GATT changes re-arm reporting**: the channel calls `on_state(True)` once subscribed and `on_state(False)` when it drops *on its own* (drop callback, or `client.is_connected` turning false — the callback does not fire when Bluetooth is powered off). `DeviceLink.on_gatt_state` emits each as `LinkChannelChangedEvent(channel="gatt")`, and `ChannelRearmSubscriber` re-publishes `SetReportFlagEvent` for connected reprog devices on that pid, moving reporting onto a channel we read. A session ended by deactivation or shutdown reports nothing: a re-arm during shutdown would re-divert keys that `_undivert_all` just un-diverted.
 - **Bounded teardown**: bleak's `disconnect()` awaits a CoreBluetooth confirmation that never comes when Bluetooth is powered off mid-session, which hung the channel's loop for good. `GattChannel._disconnect` bounds it with `_DISCONNECT_TIMEOUT` (5s); the probe client uses the same path.
 
+### Logging
+
+`log/log_setup.py` owns every root handler; nothing else calls `basicConfig` or adds root handlers.
+- `bootstrap_logging(verbose)` runs first in `cli_module.main`: a bounded `StartupBuffer` (1000 records) catches everything logged before the config is read (config parse errors included), plus a stderr handler when stderr is a tty or `JOURNAL_STREAM` is set. It installs `sys.excepthook` / `threading.excepthook`, which log uncaught exceptions at CRITICAL.
+- `configure_logging(cfg.logging, verbose)` runs in `app_setup._load_config`, **before any topic, subscriber or discovery thread starts** (on `ConfigError` it runs with a default `LoggingConfig` and then logs the error). It opens a `SafeRotatingFileHandler` at `LoggingConfig.file_path` (OS-native default from `log/log_paths.py`), guarded by a non-blocking `<logfile>.lock` (`log/instance_lock.py`) so a second instance falls back to console only. Any `OSError` falls back to console; logging never crashes the daemon. Buffered records are replayed into the file, then the file is fed through a `QueueHandler` + `QueueListener` so disk I/O stays off the HID reader threads. The console stays on only for a tty, the journal, or when there is no file (launchd and the hidden Windows start get the file alone). `--clear-cache` passes `file_allowed=False`.
+- `SafeRotatingFileHandler` keeps appending when rollover's rename fails (a Windows viewer/AV holding the file), warns once on stderr and retries after 60 s.
+- `-v`/`-vv` force DEBUG over `logging.level`. Topic drain threads are named `topic-<SubscriberClass>`, which shows up as `[threadName]` in the file format.
+- Tests in `tests/cleverswitch/log/` rely on an autouse fixture that calls `stop_logging()` and restores root handlers and both excepthooks.
+
 ### LogiDevice state
 
 `model/logi_device.py` — mutable dataclass tracking:

@@ -191,3 +191,9 @@ def test_unsubscribe_leaves_other_subscribers_unaffected():
 
     assert len(staying.received) == 1
     assert leaving.received == []
+
+
+def test_subscribe_names_the_drain_thread_after_the_subscriber():
+    topic = Topic()
+    topic.subscribe(_FakeSubscriber())
+    assert any(t.name == "topic-_FakeSubscriber" for t in threading.enumerate())

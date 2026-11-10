@@ -15,6 +15,11 @@ def _cli_args(**overrides):
     return argparse.Namespace(**defaults)
 
 
+@pytest.fixture(autouse=True)
+def mock_configure_logging(mocker):
+    return mocker.patch("cleverswitch.setup.app_setup.configure_logging")
+
+
 def test_setup_context_returns_app_context(mocker):
     mocker.patch("cleverswitch.setup.app_setup.check")
     mocker.patch("cleverswitch.setup.app_setup.cfg_module.load")
@@ -43,6 +48,39 @@ def test_setup_context_exits_on_config_error(mocker):
     with pytest.raises(SystemExit) as exc:
         setup_context(_cli_args())
     assert exc.value.code == 1
+
+
+def test_config_error_configures_default_logging_before_logging_it(mocker, mock_configure_logging, caplog):
+    from cleverswitch.errors.errors import ConfigError
+    from cleverswitch.model.config.logging_config import LoggingConfig
+
+    mocker.patch("cleverswitch.setup.app_setup.check")
+    mocker.patch("cleverswitch.setup.app_setup.cfg_module.load", side_effect=ConfigError("bad yaml"))
+
+    from cleverswitch.setup.app_setup import _load_config
+
+    with caplog.at_level("ERROR"), pytest.raises(SystemExit):
+        _load_config(_cli_args(verbose=True))
+
+    mock_configure_logging.assert_called_once_with(LoggingConfig(), True)
+    assert "bad yaml" in caplog.text
+
+
+def test_load_config_configures_logging_from_config_before_subscribers(mocker, mock_configure_logging):
+    mocker.patch("cleverswitch.setup.app_setup.check")
+    mock_load = mocker.patch("cleverswitch.setup.app_setup.cfg_module.load")
+    mocker.patch("cleverswitch.setup.app_setup.signal.signal")
+    calls = []
+    mock_configure_logging.side_effect = lambda *a: calls.append("logging")
+    mocker.patch("cleverswitch.setup.app_setup._init_subscribers", side_effect=lambda *a: calls.append("subscribers"))
+    mocker.patch("cleverswitch.setup.app_setup._setup_topics", side_effect=lambda: calls.append("topics"))
+
+    from cleverswitch.setup.app_setup import setup_context
+
+    setup_context(_cli_args(verbose_extra=True))
+
+    mock_configure_logging.assert_called_once_with(mock_load.return_value.logging, True)
+    assert calls == ["logging", "topics", "subscribers"]
 
 
 def test_setup_context_initializes_subscribers(mocker):
