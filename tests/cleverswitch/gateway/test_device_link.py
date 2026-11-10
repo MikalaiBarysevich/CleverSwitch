@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -413,3 +414,45 @@ def test_late_collection_is_offered_to_the_write_router():
     link.notify(WriteEvent(slot=1, pid=BOLT_PID, hid_message=MSG))
 
     router.select.assert_called_once_with(MSG, [first, late])
+
+
+# ── Duplicate product ids ────────────────────────────────────────────────────
+
+
+def _warnings(caplog):
+    return [r for r in caplog.records if r.levelno == logging.WARNING]
+
+
+def test_warns_once_when_a_second_device_with_the_same_pid_is_listed(caplog):
+    caplog.set_level(logging.WARNING)
+    link, _ = _bare_link([_hid_channel()])
+    duplicate = [_collection(1, b"/dev/hidraw1"), _collection(1, b"/dev/hidraw5")]
+
+    link.update(duplicate)
+    link.update(duplicate)
+
+    warnings = _warnings(caplog)
+    assert len(warnings) == 1
+    assert f"0x{BOLT_PID:04X}" in warnings[0].getMessage()
+    assert "/dev/hidraw1" in warnings[0].getMessage()
+
+
+def test_no_warning_for_distinct_collections_of_one_device(caplog):
+    caplog.set_level(logging.WARNING)
+    link, _ = _bare_link([_hid_channel(), _hid_channel()])
+
+    link.update([_collection(1), _collection(2)])
+
+    assert _warnings(caplog) == []
+
+
+def test_warns_again_after_the_duplicate_went_away_and_came_back(caplog):
+    caplog.set_level(logging.WARNING)
+    link, _ = _bare_link([_hid_channel()])
+    duplicate = [_collection(1, b"/dev/hidraw1"), _collection(1, b"/dev/hidraw5")]
+
+    link.update(duplicate)
+    link.update([_collection(1, b"/dev/hidraw1")])
+    link.update(duplicate)
+
+    assert len(_warnings(caplog)) == 2

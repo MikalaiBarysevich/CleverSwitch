@@ -55,6 +55,7 @@ class DeviceLink(Subscriber):
         self._gatt: GattChannel | None = None
         self._present = False
         self._started = False
+        self._duplicates_warned = False
         self._lock = threading.Lock()
         topics.write.subscribe(self)
 
@@ -64,10 +65,13 @@ class DeviceLink(Subscriber):
 
     def update(self, collections: list[HidDeviceInfo]) -> None:
         with self._lock:
-            listed = set()
+            listed: dict[tuple[int, int], bytes] = {}
+            ignored = []
             for info in collections:
                 key = (info.usage_page, info.usage)
-                listed.add(key)
+                if key in listed:
+                    ignored.append(listed[key])
+                listed[key] = info.path
                 hid_channel = self._channels_by_collection.get(key)
                 if hid_channel is None:
                     hid_channel = self._channel_factory(info)
@@ -79,6 +83,13 @@ class DeviceLink(Subscriber):
             for key, hid_channel in self._channels_by_collection.items():
                 if key not in listed:
                     hid_channel.detach()
+            if ignored and not self._duplicates_warned:
+                log.warning(
+                    f"More than one device with pid=0x{self._pid:04X} is connected; CleverSwitch supports one per "
+                    f"product id and uses only the last one listed. Ignored: "
+                    f"{', '.join(p.decode(errors='replace') for p in ignored)}"
+                )
+            self._duplicates_warned = bool(ignored)
 
     # Runs on an HID channel's reader thread, so it must never block.
     def on_hid_state_changed(self) -> None:
