@@ -27,7 +27,7 @@ brew services start cleverswitch
 
 `brew trust` is required once because this is a personal tap rather than a core Homebrew formula — without it, Homebrew refuses to load the formula.
 
-`brew services start` runs CleverSwitch immediately and again at every login. Logs are written to `$(brew --prefix)/var/log/cleverswitch.log`.
+`brew services start` runs CleverSwitch immediately and again at every login. Logs are written to `~/Library/Logs/CleverSwitch/cleverswitch.log` (also visible in Console.app).
 
 On first run, macOS will prompt for **Input Monitoring** permission.
 If no prompt appears, grant it manually:
