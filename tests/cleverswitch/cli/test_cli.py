@@ -199,3 +199,28 @@ def test_main_returns_normally_when_discovery_ends(mocker, monkeypatch):
     main()
 
     discover.assert_called_once()
+
+
+def test_main_exits_with_code_1_when_discovery_crashes_unexpectedly(mocker, monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["cleverswitch"])
+    mocker.patch("src.cleverswitch.cli.cli_module.setup_context", return_value=mocker.MagicMock())
+    mocker.patch("src.cleverswitch.cli.cli_module.discover", side_effect=RuntimeError("bug"))
+
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 1
+
+
+def test_unexpected_discovery_crash_is_logged_once_with_traceback(mocker, monkeypatch, caplog):
+    monkeypatch.setattr(sys, "argv", ["cleverswitch"])
+    mocker.patch("src.cleverswitch.cli.cli_module.setup_context", return_value=mocker.MagicMock())
+    mocker.patch("src.cleverswitch.cli.cli_module.discover", side_effect=RuntimeError("bug"))
+    excepthook = mocker.patch("threading.excepthook")
+
+    with caplog.at_level(logging.ERROR), pytest.raises(SystemExit):
+        main()
+
+    errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(errors) == 1
+    assert errors[0].exc_info is not None
+    excepthook.assert_not_called()
