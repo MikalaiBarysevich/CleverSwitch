@@ -51,7 +51,7 @@ class EventHookSubscriber(Subscriber):
         if device.name is None or device.role is None:
             return
         with self._lock:
-            if self._last_state.get(device.wpid) == connected:
+            if self._last_state.get(device.wpid, False) == connected:
                 return
             self._last_state[device.wpid] = connected
         if connected:

@@ -104,9 +104,34 @@ def test_disconnect_fires_for_known_device(mock_hooks):
     registry.register(WPID, device)
 
     sub = EventHookSubscriber(_hooks_cfg(), registry, _make_topics(), _empty_cache())
+    sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID))
     sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=False, wpid=WPID))
 
     mock_hooks.fire_disconnect.assert_called_once_with(_hooks_cfg(), "MX Keys", ROLE_KEYBOARD)
+
+
+@patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
+def test_disconnect_skipped_for_device_never_connected_this_session(mock_hooks):
+    cache = MagicMock()
+    cache.find_by_wpid.return_value = _make_device()
+
+    sub = EventHookSubscriber(_hooks_cfg(), LogiDeviceRegistry(), _make_topics(), cache)
+    sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=False, wpid=WPID))
+
+    mock_hooks.fire_disconnect.assert_not_called()
+
+
+@patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
+def test_connect_fires_after_startup_disconnect_of_never_connected_device(mock_hooks):
+    registry = LogiDeviceRegistry()
+    registry.register(WPID, _make_device())
+
+    sub = EventHookSubscriber(_hooks_cfg(), registry, _make_topics(), _empty_cache())
+    sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=False, wpid=WPID))
+    sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID))
+
+    mock_hooks.fire_disconnect.assert_not_called()
+    mock_hooks.fire_connect.assert_called_once_with(_hooks_cfg(), "MX Keys", ROLE_KEYBOARD)
 
 
 @patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
