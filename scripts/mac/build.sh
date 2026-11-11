@@ -19,6 +19,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT_DIR"
 
+export MACOSX_DEPLOYMENT_TARGET=14.0
+
 # ── Step 1: Runtime dependencies ─────────────────────────────────────
 # PyInstaller only bundles what is importable at build time — it does NOT
 # read pyproject.toml. A missing runtime dep is silently dropped (build-log

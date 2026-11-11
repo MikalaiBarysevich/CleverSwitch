@@ -55,7 +55,7 @@ jobs:
             archive: cleverswitch_linux.tar.gz
             binary: cleverswitch
           - name: macos
-            os: macos-14
+            os: macos-15
             archive: cleverswitch_macOS.tar.gz
             binary: cleverswitch
           - name: windows
