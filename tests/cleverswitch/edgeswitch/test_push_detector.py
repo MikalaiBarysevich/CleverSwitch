@@ -106,3 +106,11 @@ def test_unmapped_direction_never_fires(clock):
 def test_horizontal_wins_when_both_axes_cross(clock):
     d = _held(clock)
     assert d.on_motion(150, 150) == Edge.RIGHT
+
+
+def test_button_press_does_not_release_the_latch(clock):
+    d = _held(clock, cooldown_s=0)
+    assert d.on_motion(200, 0) == Edge.RIGHT
+    d.on_state(Modifier.CTRL, True)
+    d.on_state(Modifier.CTRL, False)
+    assert d.on_motion(200, 0) is None

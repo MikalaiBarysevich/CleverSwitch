@@ -12,7 +12,7 @@ class PushDetector:
 
     While exactly the configured modifiers are held (and no mouse button), motion is summed per axis;
     a sum past the threshold counts as touching that edge. Reversing direction restarts the axis, so
-    wiggling does not add up. After firing it stays latched until the gesture ends.
+    wiggling does not add up. After firing it stays latched until the modifiers stop matching.
     """
 
     def __init__(
@@ -42,7 +42,7 @@ class PushDetector:
         self._state = state
         self._ax = self._ay = 0
         self._active = modifiers == self._modifiers and not buttons_held
-        if not self._active:
+        if modifiers != self._modifiers:
             self._latched = False
 
     def on_motion(self, dx: int, dy: int) -> Edge | None:
