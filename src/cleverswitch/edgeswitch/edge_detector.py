@@ -6,7 +6,6 @@ from collections.abc import Callable
 from ..model.config.edge import EDGE_PRIORITY, Edge
 from ..model.config.modifier import Modifier
 from .geometry import EDGE_TOLERANCE_PX, Rect, edges_at
-from .sample import PointerSample
 
 
 class EdgeDetector:
@@ -70,9 +69,3 @@ class EdgeDetector:
         self._cooldown_until = now + self._cooldown_s
         self._latched = True
         return edge
-
-    def feed(self, sample: PointerSample | None) -> Edge | None:
-        if sample is None:
-            return None
-        self.on_state(sample.modifiers, sample.buttons_held)
-        return self.on_pointer(sample.x, sample.y, sample.bounds)

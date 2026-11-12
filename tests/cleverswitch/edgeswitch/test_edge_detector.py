@@ -2,7 +2,6 @@ import pytest
 
 from cleverswitch.edgeswitch.edge_detector import EdgeDetector
 from cleverswitch.edgeswitch.geometry import Rect
-from cleverswitch.edgeswitch.sample import PointerSample
 from cleverswitch.model.config.edge import Edge
 from cleverswitch.model.config.modifier import Modifier
 
@@ -152,13 +151,3 @@ def test_cooldown_suppresses_and_suppressed_touch_does_not_fire_on_expiry(clock)
     clock.now += 1.0
     assert _at(d, RIGHT) == [None]
     assert _at(d, MIDDLE, RIGHT) == [None, Edge.RIGHT]
-
-
-def test_feed_adapter(clock):
-    d = _detector(clock)
-
-    def sample(pos, modifiers=CTRL):
-        return PointerSample(x=pos[0], y=pos[1], modifiers=modifiers, buttons_held=False, bounds=SCREEN)
-
-    assert d.feed(None) is None
-    assert [d.feed(sample(MIDDLE)), d.feed(sample(LEFT))] == [None, Edge.LEFT]

@@ -106,16 +106,17 @@ edge_switch:
 - Only the outer edges of all your monitors together count; the border between two monitors does not.
 - The cursor has to move **onto** the edge while the modifier is held. Pressing the modifier while the cursor already sits at an edge does nothing, so arriving on the other host with the key still down does not bounce you back.
 - The modifiers must match exactly (Ctrl+Shift does not fire a `ctrl` edge), and a held mouse button blocks it, so Ctrl-drag and Ctrl-click near an edge are safe.
+- If edge switch cannot start (for example the permission is missing), CleverSwitch keeps running and tries again whenever a device connects.
 - The switch is sent while the modifier is still down, so the host you leave may not see it released. If it seems stuck there, tap it once when you come back.
 
 | Platform | Needs |
 |----------|-------|
 | Windows | Nothing extra. |
-| macOS | Nothing extra expected. If edges never fire, grant CleverSwitch *Input Monitoring* in System Settings → Privacy & Security. |
-| Linux X11 | Nothing extra. |
-| Linux Wayland | Wayland does not let programs read the cursor position, so CleverSwitch reads the keyboard and mouse from `/dev/input` instead, and **pushing** the mouse `push_threshold` counts (default `800`) in one direction while the modifier is held counts as touching that edge. Reading `/dev/input` needs either membership in the `input` group (`sudo usermod -aG input $USER`, then log in again) or the opt-in udev rule [`rules.d/43-cleverswitch-input.rules`](rules.d/43-cleverswitch-input.rules), which covers Logitech devices only. Either way, programs you run can read your keystrokes from those devices, which Wayland would otherwise prevent. |
+| macOS | *Input Monitoring* in System Settings → Privacy & Security, which CleverSwitch already needs. |
+| Linux X11 | The XInput 2 library `libxcb-xinput`, installed with almost every desktop. Without it CleverSwitch uses the Wayland method below. |
+| Linux Wayland | Wayland does not let programs read the cursor position, so CleverSwitch reads the keyboard and mouse from `/dev/input` instead, and **pushing** the mouse `push_threshold` counts (default `800`) in one direction while the modifier is held counts as touching that edge. Reading `/dev/input` needs either membership in the `input` group (`sudo usermod -aG input $USER`, then log in again) or the opt-in udev rule [`rules.d/43-cleverswitch-input.rules`](rules.d/43-cleverswitch-input.rules), which covers Logitech devices only. After installing the rule, `sudo udevadm control --reload` and `sudo udevadm trigger` let a running CleverSwitch pick the devices up without a restart. Either way, programs you run can read your keystrokes from those devices, which Wayland would otherwise prevent. |
 
-On Wayland, a remapper that grabs your keyboard or mouse exclusively (OpenLogi, input-remapper, keyd, kanata...) leaves the real device silent for everyone else and re-sends its input through a virtual device. CleverSwitch logs a warning naming each device it finds grabbed. The opt-in rule also covers virtual devices that carry Logitech's vendor id, which is what OpenLogi creates; for other remappers use the `input` group.
+On Wayland, a remapper that grabs your keyboard or mouse exclusively (OpenLogi, input-remapper, keyd, kanata...) leaves the real device silent for everyone else and re-sends its input through a virtual device. If you hold the modifier on such a keyboard and move the mouse, CleverSwitch notices the keyboard is grabbed and logs a warning naming it. The opt-in rule also covers virtual devices that carry Logitech's vendor id, which is what OpenLogi creates; for other remappers use the `input` group.
 
 ## Logs
 
