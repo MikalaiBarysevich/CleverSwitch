@@ -5,15 +5,26 @@ import logging
 from ..errors.errors import EdgeSwitchError
 from ..model.config.edge_switch_config import EdgeSwitchConfig
 from ..topic.topics import Topics
-from ..util.util import get_system
+from ..util.util import SYSTEM_WINDOWS, get_system
 from .backend import EdgeBackend
+from .edge_detector import EdgeDetector
+from .polling_backend import PollingEdgeBackend
 
 log = logging.getLogger(__name__)
 
 
 def create_backend(cfg: EdgeSwitchConfig, topics: Topics) -> EdgeBackend | None:
-    log.warning(f"Edge switch is not supported on {get_system()} yet")
+    system = get_system()
+    if system == SYSTEM_WINDOWS:
+        from .windows.user32_sampler import User32Sampler
+
+        return PollingEdgeBackend(User32Sampler, _edge_detector(cfg), topics, "edge-windows")
+    log.warning(f"Edge switch is not supported on {system} yet")
     return None
+
+
+def _edge_detector(cfg: EdgeSwitchConfig) -> EdgeDetector:
+    return EdgeDetector(frozenset(cfg.edges), cfg.modifiers, cfg.cooldown_ms / 1000)
 
 
 def start_edge_switch(cfg: EdgeSwitchConfig, topics: Topics) -> EdgeBackend | None:

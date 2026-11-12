@@ -41,6 +41,17 @@ def test_unexpected_error_is_a_warning(mocker, caplog):
     assert "unexpected error" in caplog.text
 
 
-def test_create_backend_warns_platform_not_supported_yet(caplog):
+def test_create_backend_warns_platform_not_supported_yet(mocker, caplog):
+    mocker.patch.object(backend_factory, "get_system", return_value="Plan9")
     assert create_backend(ENABLED, MagicMock()) is None
     assert "not supported" in caplog.text
+
+
+def test_windows_gets_a_polling_backend(mocker):
+    from cleverswitch.edgeswitch.polling_backend import PollingEdgeBackend
+    from cleverswitch.edgeswitch.windows.user32_sampler import User32Sampler
+
+    mocker.patch.object(backend_factory, "get_system", return_value="Windows")
+    backend = create_backend(ENABLED, MagicMock())
+    assert isinstance(backend, PollingEdgeBackend)
+    assert backend._sampler_factory is User32Sampler
