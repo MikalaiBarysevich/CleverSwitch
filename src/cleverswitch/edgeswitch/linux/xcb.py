@@ -1,7 +1,15 @@
 import ctypes
 import ctypes.util
+import struct
 
 _KEYMAP_BYTES = 32
+_EVENT_BYTES = 32
+_XI_ALL_MASTER_DEVICES = 1
+_XI_RAW_EVENTS_MASK = sum(
+    1 << t for t in (13, 14, 15, 16, 17)
+)  # RawKeyPress/Release, RawButtonPress/Release, RawMotion
+_CW_EVENT_MASK = 1 << 11
+_EVENT_MASK_STRUCTURE_NOTIFY = 1 << 17
 
 
 class _Cookie(ctypes.Structure):
@@ -90,6 +98,30 @@ class _GetKeyboardMappingReply(ctypes.Structure):
     ]
 
 
+class _QueryExtensionReply(ctypes.Structure):
+    _fields_ = [
+        ("response_type", ctypes.c_uint8),
+        ("pad0", ctypes.c_uint8),
+        ("sequence", ctypes.c_uint16),
+        ("length", ctypes.c_uint32),
+        ("present", ctypes.c_uint8),
+        ("major_opcode", ctypes.c_uint8),
+        ("first_event", ctypes.c_uint8),
+        ("first_error", ctypes.c_uint8),
+    ]
+
+
+class _XIQueryVersionReply(ctypes.Structure):
+    _fields_ = [
+        ("response_type", ctypes.c_uint8),
+        ("pad0", ctypes.c_uint8),
+        ("sequence", ctypes.c_uint16),
+        ("length", ctypes.c_uint32),
+        ("major_version", ctypes.c_uint16),
+        ("minor_version", ctypes.c_uint16),
+    ]
+
+
 class Xcb:
     """libxcb rather than Xlib: Xlib's default I/O error handler calls exit() when the X server goes
     away, which would take the daemon with it. xcb reports a lost connection through has_error()."""
@@ -131,6 +163,18 @@ class Xcb:
         xcb.xcb_get_keyboard_mapping_keysyms.restype = ctypes.POINTER(ctypes.c_uint32)
         xcb.xcb_get_keyboard_mapping_keysyms_length.argtypes = [ctypes.POINTER(_GetKeyboardMappingReply)]
         xcb.xcb_get_keyboard_mapping_keysyms_length.restype = ctypes.c_int
+        xcb.xcb_get_file_descriptor.argtypes = [p]
+        xcb.xcb_get_file_descriptor.restype = ctypes.c_int
+        xcb.xcb_poll_for_event.argtypes = [p]
+        xcb.xcb_poll_for_event.restype = p
+        xcb.xcb_flush.argtypes = [p]
+        xcb.xcb_flush.restype = ctypes.c_int
+        xcb.xcb_get_extension_data.argtypes = [p, p]
+        xcb.xcb_get_extension_data.restype = ctypes.POINTER(_QueryExtensionReply)
+        xcb.xcb_request_check.argtypes = [p, _Cookie]
+        xcb.xcb_request_check.restype = p
+        xcb.xcb_change_window_attributes_checked.argtypes = [p, ctypes.c_uint32, ctypes.c_uint32, p]
+        xcb.xcb_change_window_attributes_checked.restype = _Cookie
         libc.free.argtypes = [p]
         libc.free.restype = None
         self._xcb = xcb
@@ -151,6 +195,72 @@ class Xcb:
         self._root = ctypes.c_uint32.from_address(iterator.data).value  # xcb_screen_t starts with root
         self._min_keycode = setup.contents.min_keycode
         self._max_keycode = setup.contents.max_keycode
+
+    @property
+    def root(self) -> int:
+        return self._root
+
+    def fd(self) -> int:
+        return self._xcb.xcb_get_file_descriptor(self._conn)
+
+    def flush(self) -> None:
+        self._xcb.xcb_flush(self._conn)
+
+    # The next queued event as its first 32 bytes, or None.
+    def next_event(self) -> bytes | None:
+        event = self._xcb.xcb_poll_for_event(self._conn)
+        if not event:
+            return None
+        try:
+            return ctypes.string_at(event, _EVENT_BYTES)
+        finally:
+            self._libc.free(event)
+
+    # XInput 2.2 raw key, button and motion events from every master device, plus ConfigureNotify on the
+    # root (a RandR change resizes it). Returns the XInput major opcode that tags those generic events.
+    def enable_raw_events(self) -> int:
+        name = ctypes.util.find_library("xcb-xinput") or "libxcb-xinput.so.0"
+        xinput = ctypes.CDLL(name)
+        p = ctypes.c_void_p
+        xinput.xcb_input_xi_query_version.argtypes = [p, ctypes.c_uint16, ctypes.c_uint16]
+        xinput.xcb_input_xi_query_version.restype = _Cookie
+        xinput.xcb_input_xi_query_version_reply.argtypes = [p, _Cookie, p]
+        xinput.xcb_input_xi_query_version_reply.restype = ctypes.POINTER(_XIQueryVersionReply)
+        xinput.xcb_input_xi_select_events_checked.argtypes = [p, ctypes.c_uint32, ctypes.c_uint16, p]
+        xinput.xcb_input_xi_select_events_checked.restype = _Cookie
+        self._xinput = xinput
+
+        extension = self._xcb.xcb_get_extension_data(
+            self._conn, ctypes.addressof(ctypes.c_char.in_dll(xinput, "xcb_input_id"))
+        )
+        if not extension or not extension.contents.present:
+            raise OSError("the X server has no XInput extension")
+        opcode = extension.contents.major_opcode
+
+        reply = xinput.xcb_input_xi_query_version_reply(
+            self._conn, xinput.xcb_input_xi_query_version(self._conn, 2, 2), None
+        )
+        if not reply:
+            raise OSError("the X server did not answer the XInput version query")
+        try:
+            version = (reply.contents.major_version, reply.contents.minor_version)
+        finally:
+            self._libc.free(reply)
+        if version < (2, 1):
+            raise OSError(f"XInput {version[0]}.{version[1]} has no raw events (needs 2.1)")
+
+        mask = struct.pack("=HHI", _XI_ALL_MASTER_DEVICES, 1, _XI_RAW_EVENTS_MASK)
+        self._check(xinput.xcb_input_xi_select_events_checked(self._conn, self._root, 1, mask), "select raw events")
+        values = (ctypes.c_uint32 * 1)(_EVENT_MASK_STRUCTURE_NOTIFY)
+        cookie = self._xcb.xcb_change_window_attributes_checked(self._conn, self._root, _CW_EVENT_MASK, values)
+        self._check(cookie, "watch the root window")
+        return opcode
+
+    def _check(self, cookie, what: str) -> None:
+        error = self._xcb.xcb_request_check(self._conn, cookie)
+        if error:
+            self._libc.free(error)
+            raise OSError(f"cannot {what}")
 
     def has_error(self) -> bool:
         return bool(self._xcb.xcb_connection_has_error(self._conn))

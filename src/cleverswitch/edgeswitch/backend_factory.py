@@ -11,7 +11,6 @@ from .backend import EdgeBackend
 from .edge_detector import EdgeDetector
 from .fallback_backend import FallbackEdgeBackend
 from .loop_backend import LoopEdgeBackend
-from .polling_backend import PollingEdgeBackend
 from .push_detector import PushDetector
 from .session import LinuxSession, detect_linux_session
 
@@ -37,9 +36,12 @@ def create_backend(cfg: EdgeSwitchConfig, topics: Topics) -> EdgeBackend | None:
             return EvdevEdgeBackend(_push_detector(cfg), topics)
 
         if detect_linux_session(os.environ) == LinuxSession.X11:
-            from .linux.xcb_sampler import XcbSampler
+            from .linux.xcb import Xcb
+            from .linux.xinput_loop import XInputLoop
 
-            return FallbackEdgeBackend(PollingEdgeBackend(XcbSampler, _edge_detector(cfg), topics, "edge-x11"), evdev)
+            return FallbackEdgeBackend(
+                LoopEdgeBackend("edge-x11", XInputLoop.factory(Xcb, _edge_detector(cfg)), topics), evdev
+            )
         return evdev()
     log.warning(f"Edge switch is not supported on {system} yet")
     return None

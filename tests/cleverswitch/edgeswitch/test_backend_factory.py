@@ -77,13 +77,14 @@ def test_macos_gets_an_event_tap_backend(mocker):
 def test_linux_x11_tries_xcb_then_evdev(mocker):
     from cleverswitch.edgeswitch.fallback_backend import FallbackEdgeBackend
     from cleverswitch.edgeswitch.linux.evdev_backend import EvdevEdgeBackend
-    from cleverswitch.edgeswitch.linux.xcb_sampler import XcbSampler
+    from cleverswitch.edgeswitch.loop_backend import LoopEdgeBackend
 
     mocker.patch.object(backend_factory, "get_system", return_value="Linux")
     mocker.patch.dict(backend_factory.os.environ, {"DISPLAY": ":0"}, clear=True)
     backend = create_backend(ENABLED, MagicMock())
     assert isinstance(backend, FallbackEdgeBackend)
-    assert backend._primary._sampler_factory is XcbSampler
+    assert isinstance(backend._primary, LoopEdgeBackend)
+    assert backend._primary._name == "edge-x11"
     assert isinstance(backend._fallback_factory(), EvdevEdgeBackend)
 
 
