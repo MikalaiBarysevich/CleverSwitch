@@ -48,6 +48,7 @@ omit = [
     "src/cleverswitch/hotplug/windows/cfgmgr32.py",       # ctypes bindings — hardware-tested
     "src/cleverswitch/edgeswitch/windows/user32.py",      # ctypes bindings — hardware-tested
     "src/cleverswitch/edgeswitch/macos/quartz.py",        # ctypes bindings — hardware-tested
+    "src/cleverswitch/edgeswitch/linux/xcb.py",           # ctypes bindings — hardware-tested
 ]
 
 [tool.ruff]
