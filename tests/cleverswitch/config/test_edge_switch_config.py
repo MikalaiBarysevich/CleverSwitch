@@ -7,7 +7,6 @@ import argparse
 import pytest
 
 from src.cleverswitch.config.config import _parse
-from src.cleverswitch.errors.errors import ConfigError
 from src.cleverswitch.model.config.edge import Edge
 from src.cleverswitch.model.config.edge_switch_config import EdgeSwitchConfig
 from src.cleverswitch.model.config.modifier import Modifier
@@ -29,13 +28,17 @@ def test_null_section_is_disabled():
     assert _edge(None).enabled is False
 
 
-def test_section_that_is_not_a_mapping_is_a_config_error(tmp_path):
+@pytest.mark.parametrize("text", ["edge_switch: yes\n", "edge_switch: [left]\n", "edge_switch:\n  edges: [left]\n"])
+def test_malformed_section_disables_edge_switch_but_loads_the_rest(tmp_path, caplog, text):
     from src.cleverswitch.config.config import load
 
     path = tmp_path / "c.yaml"
-    path.write_text("edge_switch: yes\n")
-    with pytest.raises(ConfigError):
-        load(argparse.Namespace(config=str(path), verbose_extra=None))
+    path.write_text(text + "logging:\n  level: DEBUG\n")
+    cfg = load(argparse.Namespace(config=str(path), verbose_extra=None))
+
+    assert cfg.edge_switch.enabled is False
+    assert cfg.logging.level == 10
+    assert "edge_switch" in caplog.text
 
 
 def test_full_section():
@@ -116,13 +119,10 @@ def test_missing_edges_disables():
     assert _edge({"modifier": "ctrl"}).enabled is False
 
 
-def test_edges_that_are_not_a_mapping_is_a_config_error(tmp_path):
-    from src.cleverswitch.config.config import load
-
-    path = tmp_path / "c.yaml"
-    path.write_text("edge_switch:\n  edges: [left]\n")
-    with pytest.raises(ConfigError):
-        load(argparse.Namespace(config=str(path), verbose_extra=None))
+@pytest.mark.parametrize("value", ["no", "false", 0, None])
+def test_non_boolean_enabled_disables(value, caplog):
+    assert _edge({"enabled": value, "edges": {"left": 1}}).enabled is False
+    assert "'enabled' must be true or false" in caplog.text
 
 
 @pytest.mark.parametrize(

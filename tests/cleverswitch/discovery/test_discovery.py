@@ -109,6 +109,20 @@ def test_discover_starts_edge_switch_from_config(mocker):
     start_edge.assert_called_once_with(ctx.config.edge_switch, ctx.topics)
 
 
+def test_discover_finishes_teardown_when_a_step_fails(mocker, caplog):
+    manager_cls, create_backend, undivert, _ = _patch_wiring(mocker)
+    edge = mocker.patch("cleverswitch.discovery.discovery.start_edge_switch").return_value
+    edge.stop.side_effect = OSError("bad fd")
+    create_backend.return_value.stop.side_effect = RuntimeError("netlink")
+
+    discover(_stopped_context())
+
+    undivert.assert_called_once()
+    manager_cls.return_value.close_all.assert_called_once()
+    assert "stop edge switch" in caplog.text
+    assert "stop hotplug" in caplog.text
+
+
 def test_discover_tolerates_edge_switch_not_started(mocker):
     _, create_backend, undivert, _ = _patch_wiring(mocker)
     mocker.patch("cleverswitch.discovery.discovery.start_edge_switch", return_value=None)

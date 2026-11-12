@@ -30,3 +30,8 @@ def test_classifies_keyboard_and_mouse():
 
 def test_pointer_needs_both_axes():
     assert not is_pointer(MOUSE_KEYS, "1")
+
+
+def test_has_bit_with_32_bit_words():
+    assert has_bit("1 0", 32, word_bits=32)
+    assert not has_bit("1 0", 64, word_bits=32)

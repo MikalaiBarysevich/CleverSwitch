@@ -37,12 +37,20 @@ def discover(app_context: AppContext) -> None:
         topics.hotplug.publish(HotplugResyncEvent(slot=0, pid=0))
         app_context.shutdown.wait()
     finally:
-        # First, so no switch can fire while keys are being un-diverted.
+        # Edge switch first, so no switch can fire while keys are being un-diverted. Each step is isolated so
+        # one failure cannot leave keys diverted or links open.
         if edge_backend is not None:
-            edge_backend.stop()
-        backend.stop()
-        _undivert_all(app_context.device_registry, topics)
+            _run_quietly("stop edge switch", edge_backend.stop)
+        _run_quietly("stop hotplug", backend.stop)
+        _run_quietly("un-divert keys", lambda: _undivert_all(app_context.device_registry, topics))
         manager.close_all()
+
+
+def _run_quietly(step: str, action) -> None:
+    try:
+        action()
+    except Exception:
+        log.exception(f"Shutdown step failed: {step}")
 
 
 def _undivert_all(device_registry: LogiDeviceRegistry, topics: Topics) -> None:

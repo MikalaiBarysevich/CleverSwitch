@@ -73,8 +73,8 @@ class EventHookSubscriber(Subscriber):
             self._hooks_config, device.display_name, device.role, event.target_host, source=event.source.value
         )
 
-    # An edge switch has no originating device; the hook reports a connected keyboard when there is one.
+    # An edge switch has no originating device. A keyboard is preferred so keyboard-only hooks still fire.
     def _representative_device(self) -> LogiDevice | None:
         named = [d for d in self._device_registry.all_entries() if d.name is not None and d.role is not None]
-        keyboard = next((d for d in named if d.connected and d.role == ROLE_KEYBOARD), None)
-        return keyboard or next(iter(named), None)
+        ranked = sorted(named, key=lambda d: (d.role != ROLE_KEYBOARD, not d.connected))
+        return next(iter(ranked), None)

@@ -154,15 +154,26 @@ def _parse_bounded_int(label: str, key: str, section: dict[str, Any], bounds: tu
     return value
 
 
+# Edge switch is optional: a malformed section turns it off instead of stopping the daemon.
 def _parse_edge_switch(raw: dict[str, Any]) -> EdgeSwitchConfig:
-    section = _section(raw, "edge_switch")
+    section = raw.get("edge_switch")
     if not section:
+        return EdgeSwitchConfig()
+    if not isinstance(section, dict):
+        log.error("'edge_switch' must be a mapping; edge switch disabled")
         return EdgeSwitchConfig()
     defaults = EdgeSwitchConfig()
 
-    enabled = bool(section.get("enabled", True))
+    enabled = section.get("enabled", True)
+    if not isinstance(enabled, bool):
+        log.error(f"edge_switch 'enabled' must be true or false, not '{enabled}'; edge switch disabled")
+        enabled = False
     modifiers = _parse_modifiers(section.get("modifier", "ctrl"))
-    edges = _parse_edges(_section(section, "edges"))
+    raw_edges = section.get("edges") or {}
+    if not isinstance(raw_edges, dict):
+        log.error("edge_switch 'edges' must be a mapping of edge to host")
+        raw_edges = {}
+    edges = _parse_edges(raw_edges)
     cooldown_ms = _parse_bounded_int(
         "edge_switch 'cooldown_ms'", "cooldown_ms", section, _COOLDOWN_MS_RANGE, defaults.cooldown_ms
     )

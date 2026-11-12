@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import struct
+
 from .input_event import BTN_LEFT, KEY_LEFTCTRL, REL_X, REL_Y
 
-# sysfs capability bitmaps are space-separated hex words, most significant first.
-_WORD_BITS = 64
+# sysfs capability bitmaps are space-separated hex words of the kernel's long, most significant first.
+_WORD_BITS = struct.calcsize("l") * 8
 
 
 def has_bit(bitmap: str, bit: int, word_bits: int = _WORD_BITS) -> bool:

@@ -348,12 +348,25 @@ def test_edge_switch_reports_the_connected_keyboard(mock_hooks):
 
 
 @patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
-def test_edge_switch_falls_back_to_any_named_device(mock_hooks):
+def test_edge_switch_prefers_a_disconnected_keyboard_over_the_mouse(mock_hooks):
     registry = LogiDeviceRegistry()
     keyboard = _make_device()
     keyboard.connected = False
     registry.register(0x4082, _make_device(wpid=0x4082, slot=2, role=ROLE_MOUSE, name="MX Master"))
     registry.register(WPID, keyboard)
+
+    EventHookSubscriber(_hooks_cfg(), registry, _make_topics(), _empty_cache()).notify(_edge_switch())
+
+    mock_hooks.fire_switch.assert_called_once_with(_hooks_cfg(), "MX Keys", ROLE_KEYBOARD, 1, source="edge")
+
+
+@patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
+def test_edge_switch_prefers_a_connected_device_among_non_keyboards(mock_hooks):
+    registry = LogiDeviceRegistry()
+    away = _make_device(wpid=0x4083, slot=3, role=ROLE_MOUSE, name="MX Anywhere")
+    away.connected = False
+    registry.register(0x4083, away)
+    registry.register(0x4082, _make_device(wpid=0x4082, slot=2, role=ROLE_MOUSE, name="MX Master"))
 
     EventHookSubscriber(_hooks_cfg(), registry, _make_topics(), _empty_cache()).notify(_edge_switch())
 
