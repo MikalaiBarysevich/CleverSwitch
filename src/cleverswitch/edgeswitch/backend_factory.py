@@ -26,9 +26,10 @@ def create_backend(cfg: EdgeSwitchConfig, topics: Topics) -> EdgeBackend | None:
 
         return LoopEdgeBackend("edge-windows", RawInputLoop.factory(User32, _edge_detector(cfg)), topics)
     if system == SYSTEM_MACOS:
-        from .macos.quartz_sampler import QuartzSampler
+        from .macos.event_tap_loop import EventTapLoop
+        from .macos.quartz import Quartz
 
-        return PollingEdgeBackend(QuartzSampler, _edge_detector(cfg), topics, "edge-macos")
+        return LoopEdgeBackend("edge-macos", EventTapLoop.factory(Quartz, _edge_detector(cfg)), topics)
     if system == SYSTEM_LINUX:
         from .linux.evdev_backend import EvdevEdgeBackend
 

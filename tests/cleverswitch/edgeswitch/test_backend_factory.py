@@ -65,14 +65,13 @@ def test_windows_gets_a_raw_input_backend(mocker):
     assert backend._name == "edge-windows"
 
 
-def test_macos_gets_a_polling_backend(mocker):
-    from cleverswitch.edgeswitch.macos.quartz_sampler import QuartzSampler
-    from cleverswitch.edgeswitch.polling_backend import PollingEdgeBackend
+def test_macos_gets_an_event_tap_backend(mocker):
+    from cleverswitch.edgeswitch.loop_backend import LoopEdgeBackend
 
     mocker.patch.object(backend_factory, "get_system", return_value="Darwin")
     backend = create_backend(ENABLED, MagicMock())
-    assert isinstance(backend, PollingEdgeBackend)
-    assert backend._sampler_factory is QuartzSampler
+    assert isinstance(backend, LoopEdgeBackend)
+    assert backend._name == "edge-macos"
 
 
 def test_linux_x11_tries_xcb_then_evdev(mocker):
