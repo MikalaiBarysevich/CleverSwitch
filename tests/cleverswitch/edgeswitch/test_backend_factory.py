@@ -76,7 +76,6 @@ def test_macos_gets_an_event_tap_backend(mocker):
 
 def test_linux_x11_tries_xcb_then_evdev(mocker):
     from cleverswitch.edgeswitch.fallback_backend import FallbackEdgeBackend
-    from cleverswitch.edgeswitch.linux.evdev_backend import EvdevEdgeBackend
     from cleverswitch.edgeswitch.loop_backend import LoopEdgeBackend
 
     mocker.patch.object(backend_factory, "get_system", return_value="Linux")
@@ -85,14 +84,17 @@ def test_linux_x11_tries_xcb_then_evdev(mocker):
     assert isinstance(backend, FallbackEdgeBackend)
     assert isinstance(backend._primary, LoopEdgeBackend)
     assert backend._primary._name == "edge-x11"
-    assert isinstance(backend._fallback_factory(), EvdevEdgeBackend)
+    assert backend._fallback_factory()._name == "edge-evdev"
 
 
 def test_linux_wayland_gets_evdev(mocker):
-    from cleverswitch.edgeswitch.linux.evdev_backend import EvdevEdgeBackend
+    from cleverswitch.edgeswitch.linux.evdev_loop import EvdevInputLoop
+    from cleverswitch.edgeswitch.loop_backend import LoopEdgeBackend
 
+    factory = mocker.spy(EvdevInputLoop, "factory")
     mocker.patch.object(backend_factory, "get_system", return_value="Linux")
     mocker.patch.dict(backend_factory.os.environ, {"WAYLAND_DISPLAY": "wayland-1"}, clear=True)
     backend = create_backend(EdgeSwitchConfig(enabled=True, edges={Edge.LEFT: 0}, push_threshold=321), MagicMock())
-    assert isinstance(backend, EvdevEdgeBackend)
-    assert backend._detector._threshold == 321
+    assert isinstance(backend, LoopEdgeBackend)
+    assert backend._name == "edge-evdev"
+    assert factory.call_args.args[0]._threshold == 321

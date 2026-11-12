@@ -4,12 +4,14 @@ import struct
 
 ACTION_ADD = "add"
 ACTION_REMOVE = "remove"
+ACTION_CHANGE = "change"
 
 _PREFIX = b"libudev\x00"
 _MAGIC = 0xFEEDCAFE
 _HEADER = struct.Struct("=III")
 _UCRED = struct.Struct("=iII")
 
+_INPUT_DEVNAME = re.compile(r"(?:^|/)input/(event\d+)$")
 _HIDRAW_DEVPATH = re.compile(r"/[0-9A-F]{4}:046D:([0-9A-F]{4})\.[0-9A-F]+/hidraw/hidraw\d+$", re.IGNORECASE)
 
 
@@ -41,6 +43,18 @@ def hidraw_event(data: bytes) -> tuple[str, int] | None:
         return None
     pid = hidraw_pid(properties.get("DEVPATH", ""))
     return None if pid is None else (action, pid)
+
+
+# A change event covers `udevadm trigger` after a rule is installed: the node's ACL may now let us in.
+def input_node_event(data: bytes) -> tuple[str, str] | None:
+    properties = parse_udev_message(data)
+    if properties is None or properties.get("SUBSYSTEM") != "input":
+        return None
+    action = properties.get("ACTION")
+    if action not in (ACTION_ADD, ACTION_CHANGE, ACTION_REMOVE):
+        return None
+    match = _INPUT_DEVNAME.search(properties.get("DEVNAME", ""))
+    return None if match is None else (action, f"/dev/input/{match.group(1)}")
 
 
 def sender_uid(ancdata: list[tuple[int, int, bytes]]) -> int | None:

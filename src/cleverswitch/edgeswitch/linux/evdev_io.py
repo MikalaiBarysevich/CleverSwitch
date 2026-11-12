@@ -3,8 +3,9 @@ import glob
 import os
 import select
 
+from ...hotplug.linux.udev_socket import open_udev_socket, receive
+
 _KEY_STATE_BYTES = 96  # KEY_MAX (0x2ff) / 8 + 1
-_EVIOCGRAB = 0x40044590  # _IOW('E', 0x90, int)
 _READ_EVENTS = 64
 
 
@@ -14,6 +15,27 @@ def _eviocgkey(length: int) -> int:
 
 class EvdevIO:
     """Listen-only access to /dev/input: no EVIOCGRAB, so every other reader still gets every event."""
+
+    def __init__(self) -> None:
+        self._udev = None
+
+    # udevd's add/change/remove messages; the fd to poll.
+    def open_udev(self) -> int:
+        self._udev = open_udev_socket()
+        self._udev.setblocking(False)
+        return self._udev.fileno()
+
+    # (message, credentials), None when nothing is pending; OSError ENOBUFS when messages were lost.
+    def receive_udev(self) -> tuple[bytes, list] | None:
+        try:
+            return receive(self._udev)
+        except BlockingIOError:
+            return None
+
+    def close_udev(self) -> None:
+        if self._udev is not None:
+            self._udev.close()
+            self._udev = None
 
     def list_nodes(self) -> list[str]:
         return sorted(glob.glob("/dev/input/event*"))
@@ -35,18 +57,6 @@ class EvdevIO:
         buffer = bytearray(_KEY_STATE_BYTES)
         fcntl.ioctl(fd, _eviocgkey(_KEY_STATE_BYTES), buffer)
         return bytes(buffer)
-
-    # Another reader's exclusive grab makes EVIOCGRAB fail with EBUSY. A free device is grabbed and
-    # released at once, so its other readers miss at most the events of that instant.
-    def is_grabbed(self, fd: int) -> bool:
-        import fcntl
-
-        try:
-            fcntl.ioctl(fd, _EVIOCGRAB, 1)
-        except OSError as e:
-            return e.errno == errno.EBUSY
-        fcntl.ioctl(fd, _EVIOCGRAB, 0)
-        return False
 
     # b"" when nothing is pending; OSError (ENODEV) once the device is gone.
     def read(self, fd: int, event_size: int) -> bytes:

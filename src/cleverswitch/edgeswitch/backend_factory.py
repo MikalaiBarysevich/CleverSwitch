@@ -30,10 +30,10 @@ def create_backend(cfg: EdgeSwitchConfig, topics: Topics) -> EdgeBackend | None:
 
         return LoopEdgeBackend("edge-macos", EventTapLoop.factory(Quartz, _edge_detector(cfg)), topics)
     if system == SYSTEM_LINUX:
-        from .linux.evdev_backend import EvdevEdgeBackend
+        from .linux.evdev_loop import EvdevInputLoop
 
         def evdev() -> EdgeBackend:
-            return EvdevEdgeBackend(_push_detector(cfg), topics)
+            return LoopEdgeBackend("edge-evdev", EvdevInputLoop.factory(_push_detector(cfg)), topics)
 
         if detect_linux_session(os.environ) == LinuxSession.X11:
             from .linux.xcb import Xcb

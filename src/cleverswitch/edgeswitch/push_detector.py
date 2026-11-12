@@ -35,6 +35,10 @@ class PushDetector:
         self._ay = 0
         self._cooldown_until = float("-inf")
 
+    @property
+    def active(self) -> bool:
+        return self._active
+
     def on_state(self, modifiers: Modifier, buttons_held: bool) -> None:
         state = (modifiers, buttons_held)
         if state == self._state:

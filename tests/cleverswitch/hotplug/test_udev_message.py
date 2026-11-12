@@ -9,9 +9,11 @@ import pytest
 
 from cleverswitch.hotplug.linux.udev_message import (
     ACTION_ADD,
+    ACTION_CHANGE,
     ACTION_REMOVE,
     hidraw_event,
     hidraw_pid,
+    input_node_event,
     parse_udev_message,
     sender_uid,
 )
@@ -83,6 +85,36 @@ def test_hidraw_event_for_logitech_add_and_remove(action, expected):
 )
 def test_hidraw_event_ignores_everything_else(data):
     assert hidraw_event(data) is None
+
+
+def _input(action, devname="/dev/input/event7", subsystem="input"):
+    return _udev_message(ACTION=action, SUBSYSTEM=subsystem, DEVNAME=devname, SEQNUM="4243")
+
+
+@pytest.mark.parametrize(
+    ("action", "expected"), [("add", ACTION_ADD), ("change", ACTION_CHANGE), ("remove", ACTION_REMOVE)]
+)
+def test_input_node_event_for_an_event_node(action, expected):
+    assert input_node_event(_input(action)) == (expected, "/dev/input/event7")
+
+
+def test_input_node_event_accepts_a_devname_without_dev_prefix():
+    assert input_node_event(_input("add", devname="input/event12")) == (ACTION_ADD, "/dev/input/event12")
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        _input("bind"),
+        _input("add", devname="/dev/input/mouse0"),
+        _input("add", devname="/dev/input/js0"),
+        _input("add", subsystem="hidraw"),
+        _udev_message(ACTION="add", SUBSYSTEM="input"),  # the inputN parent has no DEVNAME
+        b"garbage",
+    ],
+)
+def test_input_node_event_ignores_everything_else(data):
+    assert input_node_event(data) is None
 
 
 def _credentials(uid):
