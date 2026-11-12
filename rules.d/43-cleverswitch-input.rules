@@ -1,0 +1,26 @@
+# This rule was added by CleverSwitch. It is OPT-IN and only needed for edge switch on Wayland.
+#
+# Lets the logged-in user read Logitech keyboards and mice from /dev/input, so edge switch can see the
+# held modifier and the mouse motion where the cursor position cannot be read (Wayland).
+#
+# Security trade-off: any program run by the seated user can then read keystrokes from these devices,
+# which bypasses the input isolation Wayland otherwise provides. Adding yourself to the "input" group
+# instead (sudo usermod -aG input $USER, then log out and in) grants the same for every input device.
+#
+# Install:
+#   sudo cp 43-cleverswitch-input.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger
+#   Restart CleverSwitch.
+
+ACTION == "remove", GOTO="cleverswitch_input_end"
+SUBSYSTEM != "input", GOTO="cleverswitch_input_end"
+KERNEL != "event*", GOTO="cleverswitch_input_end"
+
+# USB-connected Logitech receivers and devices
+ATTRS{idVendor}=="046d", TAG+="uaccess", GOTO="cleverswitch_input_end"
+
+# Bluetooth-connected Logitech devices (bus 0005 = BT, vendor 046D)
+KERNELS=="0005:046D:*", TAG+="uaccess"
+
+LABEL="cleverswitch_input_end"

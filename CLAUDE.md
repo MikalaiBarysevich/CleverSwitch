@@ -51,13 +51,14 @@ git update-index --chmod=+x scripts/mac/<file>.command
 
 The core of the architecture is a typed pub-sub system with one daemon thread per subscriber.
 
-**`Topics`** (`topic/topics.py`) is a typed dataclass with six channels:
+**`Topics`** (`topic/topics.py`) is a typed dataclass with seven channels:
 - `hid_event` — all inbound HID++ events (DeviceConnectedEvent, HidppResponseEvent, HidppNotificationEvent, HidppErrorEvent, TransportDisconnectedEvent, etc.)
 - `write` — outbound HID messages (WriteEvent)
 - `device_info` — triggers device setup (DeviceInfoRequestEvent)
 - `flags` — apply/re-apply key reporting flags (SetReportFlagEvent); `SetReportFlagSubscriber` selects analytics mode (byte 9) or divert mode (byte 6) based on `device.supported_flags`
 - `info_progress` — task completion feedback (InfoTaskProgressEvent)
 - `hotplug` — OS device notifications (HidNodeAddedEvent, HidNodeRemovedEvent, HotplugResyncEvent); only LinkManager subscribes. Defaults to a fresh `Topic`, so tests that build `Topics` field by field need not pass it
+- `edge` — `EdgeTouchedEvent` from the edge-switch backend; only `EdgeSwitchSubscriber` subscribes. Defaults to a fresh `Topic`, like `hotplug`
 
 **`Topic`** (`topic/topic.py`) — each `subscribe(subscriber)` call creates a private `queue.Queue` and a daemon thread that drains it by calling `subscriber.notify(event)`, and returns that queue as a handle. `publish(event)` enqueues on all subscriber queues simultaneously. `unsubscribe(subscription)` takes the handle back, removes the queue, and stops its drain thread via an internal sentinel — short-lived subscribers (`InfoTask`) must call it or they leak a thread and a queue for the life of the process.
 
@@ -189,6 +190,26 @@ Design:
 - **GATT changes re-arm reporting**: the channel calls `on_state(True)` once subscribed and `on_state(False)` when it drops *on its own* (drop callback, or `client.is_connected` turning false — the callback does not fire when Bluetooth is powered off). `DeviceLink.on_gatt_state` emits each as `LinkChannelChangedEvent(channel="gatt")`, and `ChannelRearmSubscriber` re-publishes `SetReportFlagEvent` for connected reprog devices on that pid, moving reporting onto a channel we read. A session ended by deactivation or shutdown reports nothing: a re-arm during shutdown would re-divert keys that `_undivert_all` just un-diverted.
 - **Bounded teardown**: bleak's `disconnect()` awaits a CoreBluetooth confirmation that never comes when Bluetooth is powered off mid-session, which hung the channel's loop for good. `GattChannel._disconnect` bounds it with `_DISCONNECT_TIMEOUT` (5s); the probe client uses the same path.
 
+### Edge switch
+
+Optional second way to start a switch (`edge_switch` config section, off unless present): with exactly the configured modifiers held (`Modifier` flag; left/right merged) and no mouse button down, the cursor moving onto a mapped outer edge of the desktop switches every device to that edge's host.
+
+```
+EdgeBackend thread ──EdgeTouchedEvent(slot=0, pid=0, edge)──▶ topics.edge
+EdgeSwitchSubscriber ── edge → host (0-based) ──▶ topics.hid_event: HostChangeEvent(0, 0, host, source=EDGE)
+HostChangeSubscriber (unchanged, the only CHANGE_HOST sender) ──▶ every device with 0x1814
+```
+
+- **Lifecycle**: `discovery.discover()` calls `edgeswitch/backend_factory.start_edge_switch()` after the hotplug backend starts, and stops the edge backend first in its `finally`, before `_undivert_all`, so no switch fires during teardown. Any failure is a warning and the feature stays off; it never stops the daemon.
+- **Backends** (`edgeswitch/`, built by `create_backend`, branching on `util.get_system()`):
+  - Windows / macOS / Linux X11: `PollingEdgeBackend` samples every 25 ms on its own thread (the sampler is built there, so its OS connection belongs to that thread) and feeds `EdgeDetector`. Polling, not hooks: Windows silently removes a low-level hook whose Python callback is slow, and a macOS event tap gets disabled. 50 failed reads in a row end the thread. Samplers: `windows/user32_sampler.py` (GetCursorPos, GetAsyncKeyState, virtual-screen metrics, per-monitor DPI), `macos/quartz_sampler.py` (CGEvent location, HID-system flags and buttons, union of display bounds), `linux/xcb_sampler.py` (libxcb, **not Xlib** — Xlib's default I/O error handler calls `exit()`; modifiers from the keymap via the keyboard mapping, since Mod1..5 depend on the modmap). Bounds are re-read once a second (`BoundsCache`).
+  - Linux Wayland (or no session info — a systemd user unit often lacks `DISPLAY`/`WAYLAND_DISPLAY`; see `session.py`): `linux/evdev_backend.py` reads keyboards and mice from `/dev/input` (listen-only, no grab; rescans every 2 s; classified from sysfs capabilities) and feeds `PushDetector`: motion summed while the gesture is held, past `push_threshold` counts as that edge. Needs the `input` group or the opt-in `rules.d/43-cleverswitch-input.rules`; when every candidate is refused, start fails with that hint.
+  - Linux X11 is wrapped in `FallbackEdgeBackend`: if xcb cannot connect, it uses evdev.
+- **Detector rules** (`edge_detector.py`): an edge is armed only once the cursor has been seen off it during the current held period, and fires on entry. That stops a bounce back — the keyboard arrives on the other host with the modifier still down while that host's cursor may sit on the edge leading back. A touch inside the cooldown disarms that edge until the cursor leaves it.
+- **Hooks**: `HostChangeEvent.source` (`SwitchSource.DEVICE` default / `EDGE`). For an edge switch `EventHookSubscriber` reports a representative device (a connected named keyboard, else any named device); `fire_switch` sets `CLEVERSWITCH_SWITCH_SOURCE`.
+- **Echo guard**: `SwitchEchoGuard` (`model/switch_echo_guard.py`) is shared by `EdgeSwitchSubscriber` (records the target) and `ChangeHostNotificationSubscriber`, which drops an x1814 announcement of the same target within 2 s. Whether devices announce a switch they were told to make is unconfirmed; the guard keeps it from causing a second switch burst and a second SWITCH hook.
+- **Known risk**: the switch is sent while the modifier is held, so the departing host may never see it released (the user accepted this).
+
 ### Logging
 
 `log/log_setup.py` owns every root handler; nothing else calls `basicConfig` or adds root handlers.
@@ -222,9 +243,9 @@ Design:
 
 ### Wiring
 
-`setup/app_setup.py:setup_context()` creates Topics, LogiDeviceRegistry, the DeviceCache (see [Device cache](#device-cache)), and all subscribers. It is the single place where components are connected. The one exception is the I/O side: `discovery.discover()` builds the `HotplugBackend` and `LinkManager`, and `discovery/link_factory.py:create_link()` builds each `DeviceLink` with its HID channels, optional `GattChannel`, `EventListener` and `WriteRouter`, and holds all platform / connection-type branching.
+`setup/app_setup.py:setup_context()` creates Topics, LogiDeviceRegistry, the DeviceCache (see [Device cache](#device-cache)), and all subscribers. It is the single place where components are connected. The one exception is the I/O side: `discovery.discover()` builds the `HotplugBackend`, the optional edge-switch backend and `LinkManager`, and `discovery/link_factory.py:create_link()` builds each `DeviceLink` with its HID channels, optional `GattChannel`, `EventListener` and `WriteRouter`, and holds all platform / connection-type branching.
 
-Active subscribers: `DeviceConnectionSubscriber`, `DeviceInfoSubscriber`, `InfoTaskOrchestrator`, `SetReportFlagSubscriber`, `ExternalUnsetFlagSubscriber`, `AnalyticsRejectionSubscriber`, `HostChangeSubscriber`, `EasySwitchKeySubscriber`, `ChangeHostNotificationSubscriber`, `EventHookSubscriber`, `WirelessStatusSubscriber`, `TransportDisconnectionSubscriber`, `ReceiverArmingSubscriber`, `DirectDeviceConnectionSubscriber`, `ChannelRearmSubscriber`.
+Active subscribers: `DeviceConnectionSubscriber`, `DeviceInfoSubscriber`, `InfoTaskOrchestrator`, `SetReportFlagSubscriber`, `ExternalUnsetFlagSubscriber`, `AnalyticsRejectionSubscriber`, `HostChangeSubscriber`, `EasySwitchKeySubscriber`, `ChangeHostNotificationSubscriber`, `EventHookSubscriber`, `WirelessStatusSubscriber`, `TransportDisconnectionSubscriber`, `ReceiverArmingSubscriber`, `DirectDeviceConnectionSubscriber`, `ChannelRearmSubscriber`, and `EdgeSwitchSubscriber` (only when `edge_switch.enabled`).
 
 The parser leaves ES CID presses as plain `HidppNotificationEvent`s; `EasySwitchKeySubscriber` turns one into a `HostChangeEvent` (fn=0 diverted, fn=2 analytics press-only) only when its feature index is the device's resolved 0x1B04 index, so another feature's event with the same leading bytes cannot switch hosts. `HostChangeSubscriber` reacts to `HostChangeEvent` and sends CHANGE_HOST to all registered devices.
 
@@ -242,5 +263,5 @@ The parser leaves ES CID presses as plain `HidppNotificationEvent`s; `EasySwitch
 - `conftest.py` in the root `tests/` directory provides `FakeTransport`, `fake_transport`, and `make_fake_transport` fixtures.
 - Subscriber tests construct `Topics` with `MagicMock(spec=Topic)` for all channels and assert `publish.assert_called_once()` / `assert_not_called()`. See skill: `@write-subscriber-test`.
 - `InfoTask` tests must feed responses with `tests/task_helpers.py:deliver_on_request(task, topics, [...])`, which delivers one response per published request. Pre-loading `task._response_queue` no longer works — `_send_request` drains it, because that ordering cannot happen on real hardware.
-- `transport.py`, `__main__.py`, `hotplug/linux/netlink_backend.py`, `hotplug/macos/iokit.py` and `hotplug/windows/cfgmgr32.py` are excluded from coverage (hardware I/O, entry point, OS notification glue). Keep parsing and threading out of the OS glue (e.g. `hotplug/linux/udev_message.py`, `hotplug/windows/interface_name.py`; the IOKit and CfgMgr backends take an injectable factory) so it stays tested.
+- `transport.py`, `__main__.py`, `hotplug/linux/netlink_backend.py`, `hotplug/macos/iokit.py`, `hotplug/windows/cfgmgr32.py` and the edge-switch bindings `edgeswitch/windows/user32.py`, `edgeswitch/macos/quartz.py`, `edgeswitch/linux/xcb.py`, `edgeswitch/linux/evdev_io.py` are excluded from coverage (hardware I/O, entry point, OS glue). Keep parsing and threading out of the OS glue (e.g. `hotplug/linux/udev_message.py`, `hotplug/windows/interface_name.py`; the IOKit and CfgMgr backends take an injectable factory) so it stays tested.
 - Coverage threshold: **90%** (enforced in `pyproject.toml`).

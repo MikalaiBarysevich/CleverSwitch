@@ -67,19 +67,24 @@ def test_macos_gets_a_polling_backend(mocker):
     assert backend._sampler_factory is QuartzSampler
 
 
-def test_linux_x11_gets_a_polling_backend(mocker):
+def test_linux_x11_tries_xcb_then_evdev(mocker):
+    from cleverswitch.edgeswitch.fallback_backend import FallbackEdgeBackend
+    from cleverswitch.edgeswitch.linux.evdev_backend import EvdevEdgeBackend
     from cleverswitch.edgeswitch.linux.xcb_sampler import XcbSampler
-    from cleverswitch.edgeswitch.polling_backend import PollingEdgeBackend
 
     mocker.patch.object(backend_factory, "get_system", return_value="Linux")
     mocker.patch.dict(backend_factory.os.environ, {"DISPLAY": ":0"}, clear=True)
     backend = create_backend(ENABLED, MagicMock())
-    assert isinstance(backend, PollingEdgeBackend)
-    assert backend._sampler_factory is XcbSampler
+    assert isinstance(backend, FallbackEdgeBackend)
+    assert backend._primary._sampler_factory is XcbSampler
+    assert isinstance(backend._fallback_factory(), EvdevEdgeBackend)
 
 
-def test_linux_without_x11_is_not_supported_yet(mocker, caplog):
+def test_linux_wayland_gets_evdev(mocker):
+    from cleverswitch.edgeswitch.linux.evdev_backend import EvdevEdgeBackend
+
     mocker.patch.object(backend_factory, "get_system", return_value="Linux")
     mocker.patch.dict(backend_factory.os.environ, {"WAYLAND_DISPLAY": "wayland-1"}, clear=True)
-    assert create_backend(ENABLED, MagicMock()) is None
-    assert "wayland" in caplog.text
+    backend = create_backend(EdgeSwitchConfig(enabled=True, edges={Edge.LEFT: 0}, push_threshold=321), MagicMock())
+    assert isinstance(backend, EvdevEdgeBackend)
+    assert backend._detector._threshold == 321

@@ -9,6 +9,7 @@
 #   CLEVERSWITCH_DEVICE        keyboard | mouse
 #   CLEVERSWITCH_DEVICE_NAME   e.g. MX Keys, MX Master 3
 #   CLEVERSWITCH_TARGET_HOST   1 | 2 | 3     (switch events only, 1-based)
+#   CLEVERSWITCH_SWITCH_SOURCE device | edge (switch events only)
 #
 # Each hook is a named entry with:
 #   path                   a script to run directly (no shell)      -- mutually exclusive
@@ -47,3 +48,20 @@ hooks:
 #     path: ~/cleverswitch.log
 #     max_size_mb: 5       # 1..1024, size of one file before it rotates
 #     backup_count: 3      # 1..50, rotated files kept (cleverswitch.log.1, .2, ...)
+
+
+# Edge switch (optional)
+# Hold the modifier and move the cursor onto an outer edge of the desktop to switch every device to the
+# host mapped to that edge. Only the outer edges of all monitors together count, the cursor must move
+# onto the edge while the modifier is held, and a held mouse button blocks it.
+# On Wayland the cursor position cannot be read: there, pushing the mouse push_threshold counts in one
+# direction while the modifier is held counts as touching that edge (needs /dev/input access, see README).
+#
+# edge_switch:
+#   enabled: true
+#   modifier: ctrl         # ctrl | alt | shift | meta (Cmd / Win / Super), or a list: [ctrl, alt]
+#   cooldown_ms: 1000      # 0..60000, ignore repeats for this long after a switch
+#   edges:                 # left | right | top | bottom -> host 1..3
+#     left: 1
+#     right: 2
+#   push_threshold: 800    # Wayland only, 1..100000 raw mouse counts (about 2 cm at 1000 DPI)

@@ -9,7 +9,9 @@ from ..topic.topics import Topics
 from ..util.util import SYSTEM_LINUX, SYSTEM_MACOS, SYSTEM_WINDOWS, get_system
 from .backend import EdgeBackend
 from .edge_detector import EdgeDetector
+from .fallback_backend import FallbackEdgeBackend
 from .polling_backend import PollingEdgeBackend
+from .push_detector import PushDetector
 from .session import LinuxSession, detect_linux_session
 
 log = logging.getLogger(__name__)
@@ -26,19 +28,26 @@ def create_backend(cfg: EdgeSwitchConfig, topics: Topics) -> EdgeBackend | None:
 
         return PollingEdgeBackend(QuartzSampler, _edge_detector(cfg), topics, "edge-macos")
     if system == SYSTEM_LINUX:
-        session = detect_linux_session(os.environ)
-        if session == LinuxSession.X11:
+        from .linux.evdev_backend import EvdevEdgeBackend
+
+        def evdev() -> EdgeBackend:
+            return EvdevEdgeBackend(_push_detector(cfg), topics)
+
+        if detect_linux_session(os.environ) == LinuxSession.X11:
             from .linux.xcb_sampler import XcbSampler
 
-            return PollingEdgeBackend(XcbSampler, _edge_detector(cfg), topics, "edge-x11")
-        log.warning(f"Edge switch is not supported on a {session} Linux session yet")
-        return None
+            return FallbackEdgeBackend(PollingEdgeBackend(XcbSampler, _edge_detector(cfg), topics, "edge-x11"), evdev)
+        return evdev()
     log.warning(f"Edge switch is not supported on {system} yet")
     return None
 
 
 def _edge_detector(cfg: EdgeSwitchConfig) -> EdgeDetector:
     return EdgeDetector(frozenset(cfg.edges), cfg.modifiers, cfg.cooldown_ms / 1000)
+
+
+def _push_detector(cfg: EdgeSwitchConfig) -> PushDetector:
+    return PushDetector(frozenset(cfg.edges), cfg.modifiers, cfg.cooldown_ms / 1000, cfg.push_threshold)
 
 
 def start_edge_switch(cfg: EdgeSwitchConfig, topics: Topics) -> EdgeBackend | None:
