@@ -25,7 +25,7 @@ def fire(hooks: tuple[HookEntry, ...], env_vars: dict[str, str], *, fire_for_all
         _executor.submit(_run, hook, env_vars)
 
 
-def fire_switch(hooks_cfg: HooksConfig, device_name: str, role: str, target_host: int) -> None:
+def fire_switch(hooks_cfg: HooksConfig, device_name: str, role: str, target_host: int, source: str = "device") -> None:
     fire(
         hooks_cfg.for_type(HookType.SWITCH),
         {
@@ -33,6 +33,7 @@ def fire_switch(hooks_cfg: HooksConfig, device_name: str, role: str, target_host
             "CLEVERSWITCH_DEVICE": role,
             "CLEVERSWITCH_DEVICE_NAME": device_name,
             "CLEVERSWITCH_TARGET_HOST": str(target_host + 1),  # 1-based for humans
+            "CLEVERSWITCH_SWITCH_SOURCE": source,
         },
         fire_for_all_devices=hooks_cfg.fire_for_all_devices,
     )

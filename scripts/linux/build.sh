@@ -31,13 +31,14 @@ pip install pyinstaller
 
 info "Sanity-checking imports..."
 python -c "import yaml; print('pyyaml ok')" || error "pyyaml not importable — aborting before a broken build."
+python -c "import jeepney; print('jeepney ok')" || error "jeepney not importable — aborting before a broken build."
 
 # ── Step 2: PyInstaller ──────────────────────────────────────────────
 # libhidapi is loaded at runtime via ctypes.CDLL, which PyInstaller cannot
 # detect — it must be bundled explicitly or the binary only works on distros
 # that already have libhidapi-hidraw installed. transport.py looks for it in _MEIPASS.
 # Its only deps are libudev and libc; build on the oldest distro you support.
-# --hidden-import yaml is a safety net against a missed auto-detect.
+# --hidden-import yaml / jeepney are a safety net against a missed auto-detect.
 
 HIDAPI_SO="$(ldconfig -p | awk '/libhidapi-hidraw\.so\.0 / && !found {print $NF; found = 1}')"
 if [ -z "$HIDAPI_SO" ] || [ ! -f "$HIDAPI_SO" ]; then
@@ -49,7 +50,7 @@ fi
 info "Bundling $HIDAPI_SO"
 
 info "Building binary with PyInstaller..."
-pyinstaller --onefile --name "$APP_NAME" --paths src --hidden-import yaml --copy-metadata cleverswitch \
+pyinstaller --onefile --name "$APP_NAME" --paths src --hidden-import yaml --hidden-import jeepney --copy-metadata cleverswitch \
     --add-binary "$HIDAPI_SO:." \
     src/cleverswitch/__main__.py
 
@@ -73,6 +74,7 @@ cp "dist/$APP_NAME" README.md LICENSE.txt docs/Installation.md config.example.ya
 cp scripts/linux/install.sh scripts/linux/uninstall.sh scripts/linux/setup_startup.sh "$stage/"
 cp scripts/linux/cleverswitch.service "$stage/"
 cp rules.d/42-cleverswitch.rules "$stage/"
+cp -r gnome-extension "$stage/"
 tar -czf "dist/$ARCHIVE.tar.gz" -C dist "$ARCHIVE"
 rm -rf "$stage"
 

@@ -75,7 +75,7 @@ The script installs Homebrew (if needed), Python, and CleverSwitch via pip. It a
 
 ### Option 2: From source
 
-_Requires Python >=3.10 on PATH._
+_Requires Python >=3.11 on PATH._
 
 1. Clone the repository.
 2. Install:
@@ -103,6 +103,8 @@ or
 paru -S cleverswitch
 ```
 
+Edge switch needs no setup on Windows or macOS (macOS's Input Monitoring requirement is the same one CleverSwitch already needs). On Linux it needs a per-desktop step; see [Edge Switch](https://github.com/MikalaiBarysevich/CleverSwitch#edge-switch) in the README.
+
 This installs the `cleverswitch` command, the udev rule for non-root HID access, and a systemd **user** service — all managed by pacman, so upgrades and removal are automatic. After installing:
 
 1. **Replug your Logitech receiver** once so the udev rule takes effect.
@@ -110,6 +112,8 @@ This installs the `cleverswitch` command, the udev rule for non-root HID access,
 ```bash
 systemctl --user enable --now cleverswitch.service
 ```
+
+The packaged rule also grants read access to Logitech keyboards and mice in `/dev/input`, which edge switch on Hyprland and KDE Plasma needs to see the held modifier. Any program you run can then read keystrokes from those devices, which Wayland otherwise prevents; see [Turning off `/dev/input` access](../README.md#turning-off-devinput-access) if you do not want that. Restart CleverSwitch after the rule changes.
 
 ### Option 2: Pre-built binary (other distros)
 
@@ -121,6 +125,8 @@ chmod +x install.sh && ./install.sh
 ```
 
 The installer copies the binary to `~/.local/bin/`, checks that the directory is on your PATH, installs udev rules for non-root HID access (with your confirmation), and offers to run CleverSwitch as a systemd user service on login.
+
+The rules it installs have two parts: HID++ access, which CleverSwitch always needs, and read access to Logitech keyboards and mice in `/dev/input`, which edge switch on Hyprland and KDE Plasma uses to see the held modifier. The installer asks before replacing rules that differ from the shipped ones, because that drops local edits. If you do not want the `/dev/input` half, see [Turning off `/dev/input` access](../README.md#turning-off-devinput-access). Restart CleverSwitch after the rules change.
 
 ### Option 3: From source
 
@@ -197,6 +203,8 @@ yay -R cleverswitch      # or: paru -R cleverswitch
 chmod +x scripts/linux/uninstall.sh
 ./scripts/linux/uninstall.sh
 ```
+
+The script also offers to remove the GNOME Shell extension (log out and back in afterwards). The KWin script used on KDE exists only while CleverSwitch runs, so nothing is left behind there. If you installed from the AUR, pacman removes the packaged extension from `/usr/share/gnome-shell/extensions/`; a copy you made under `~/.local/share/gnome-shell/extensions/` has to be removed by hand (`gnome-extensions disable cleverswitch@mikalaibarysevich.github.io`, then delete its directory).
 
 This stops and removes the systemd user service (and any XDG autostart entry), removes the binary from `~/.local/bin/`, uninstalls the CleverSwitch pip package if present, and optionally removes udev rules.
 

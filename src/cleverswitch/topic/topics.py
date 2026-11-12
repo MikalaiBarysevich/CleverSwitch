@@ -11,3 +11,4 @@ class Topics:
     flags: Topic
     info_progress: Topic
     hotplug: Topic = dataclasses.field(default_factory=Topic)
+    edge: Topic = dataclasses.field(default_factory=Topic)

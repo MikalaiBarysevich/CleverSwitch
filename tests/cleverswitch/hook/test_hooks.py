@@ -111,6 +111,7 @@ def test_fire_switch_selects_switch_hooks_and_sets_env(mocker):
             "CLEVERSWITCH_DEVICE": ROLE_KEYBOARD,
             "CLEVERSWITCH_DEVICE_NAME": "MX Keys",
             "CLEVERSWITCH_TARGET_HOST": "2",  # converted to 1-based
+            "CLEVERSWITCH_SWITCH_SOURCE": "device",
         },
         fire_for_all_devices=False,
     )
@@ -340,3 +341,9 @@ def test_run_command_logs_warning_on_unexpected_exception(mocker, caplog):
         _run(_command("broken-command"), {})
 
     assert "failed" in caplog.text
+
+
+def test_fire_switch_passes_edge_source(mocker):
+    mock_fire = mocker.patch("cleverswitch.hook.hooks.fire")
+    fire_switch(HooksConfig(), device_name="MX Keys", role=ROLE_KEYBOARD, target_host=0, source="edge")
+    assert mock_fire.call_args.args[1]["CLEVERSWITCH_SWITCH_SOURCE"] == "edge"

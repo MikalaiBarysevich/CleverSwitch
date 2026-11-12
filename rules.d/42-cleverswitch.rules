@@ -1,16 +1,29 @@
 # This rule was added by CleverSwitch.
 #
-# Grants the logged-in user raw access to Logitech receiver hidraw devices
-# without requiring root privileges.
+# 1. Grants the logged-in user raw access to Logitech receiver and device hidraw nodes without requiring
+#    root privileges. CleverSwitch needs this to talk HID++.
+# 2. Lets the logged-in user read Logitech keyboards and mice from /dev/input, so edge switch on Hyprland
+#    and KDE Plasma can see the held modifier, which CleverSwitch reads directly through libinput.
+#
+# Security trade-off of part 2: any program run by the seated user can read keystrokes from these devices,
+# which bypasses the input isolation Wayland otherwise provides. If you do not use edge switch on Hyprland or
+# KDE Plasma, turn part 2 off by commenting out the line that starts with SUBSYSTEM == "input" below.
 #
 # Install:
 #   sudo cp 42-cleverswitch.rules /etc/udev/rules.d/
 #   sudo udevadm control --reload-rules
 #   sudo udevadm trigger
-#   Unplug and replug the receiver.
+#   Unplug and replug the receiver, then restart CleverSwitch.
 
 ACTION == "remove", GOTO="cleverswitch_end"
-SUBSYSTEM != "hidraw", GOTO="cleverswitch_end"
+SUBSYSTEM == "hidraw", GOTO="cleverswitch_hidraw"
+# Part 2 switch: comment out the next line to stop granting /dev/input access.
+SUBSYSTEM == "input", KERNEL == "event*", GOTO="cleverswitch_input"
+GOTO="cleverswitch_end"
+
+# ── Part 1: HID++ over hidraw ─────────────────────────────────────────
+
+LABEL="cleverswitch_hidraw"
 
 # USB-connected Logitech receivers and devices
 ATTRS{idVendor}=="046d", GOTO="cleverswitch_apply"
@@ -20,14 +33,30 @@ KERNELS=="0005:046D:*", GOTO="cleverswitch_apply"
 
 GOTO="cleverswitch_end"
 
+# ── Part 2: keyboards and mice in /dev/input, for edge switch ─────────
+
+LABEL="cleverswitch_input"
+
+# USB-connected Logitech receivers and devices
+ATTRS{idVendor}=="046d", GOTO="cleverswitch_apply"
+
+# Bluetooth-connected Logitech devices (bus 0005 = BT, vendor 046D)
+KERNELS=="0005:046D:*", GOTO="cleverswitch_apply"
+
+# Virtual devices carrying a Logitech vendor id. Remappers such as OpenLogi grab the real device
+# exclusively and re-send its input through one of these, so the real device goes silent.
+ATTRS{id/vendor}=="046d", GOTO="cleverswitch_apply"
+
+GOTO="cleverswitch_end"
+
 LABEL="cleverswitch_apply"
 
-# Allow any seated user to access the receiver.
+# Allow any seated user to access the device.
 # uaccess: modern ACL-enabled udev
 TAG+="uaccess"
 
-# Grant members of the "plugdev" group access to receiver (useful for SSH users)
-#MODE="0660", GROUP="plugdev"
+# Grant members of the "plugdev" group access to hidraw nodes (useful for SSH users)
+#SUBSYSTEM=="hidraw", MODE="0660", GROUP="plugdev"
 
 LABEL="cleverswitch_end"
 # vim: ft=udevrules
