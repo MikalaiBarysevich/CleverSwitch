@@ -115,6 +115,8 @@ edge_switch:
 | Linux X11 | Nothing extra. |
 | Linux Wayland | Wayland does not let programs read the cursor position, so CleverSwitch reads the keyboard and mouse from `/dev/input` instead, and **pushing** the mouse `push_threshold` counts (default `800`) in one direction while the modifier is held counts as touching that edge. Reading `/dev/input` needs either membership in the `input` group (`sudo usermod -aG input $USER`, then log in again) or the opt-in udev rule [`rules.d/43-cleverswitch-input.rules`](rules.d/43-cleverswitch-input.rules), which covers Logitech devices only. Either way, programs you run can read your keystrokes from those devices, which Wayland would otherwise prevent. |
 
+On Wayland, a remapper that grabs your keyboard or mouse exclusively (OpenLogi, input-remapper, keyd, kanata...) leaves the real device silent for everyone else and re-sends its input through a virtual device. CleverSwitch logs a warning naming each device it finds grabbed. The opt-in rule also covers virtual devices that carry Logitech's vendor id, which is what OpenLogi creates; for other remappers use the `input` group.
+
 ## Logs
 
 CleverSwitch writes a size-rotated log file on every platform:

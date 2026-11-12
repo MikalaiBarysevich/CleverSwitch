@@ -40,6 +40,8 @@ class FakeIO:
         self.data = {}
         self.read_errors = {}
         self.states = {}
+        self.grabbed = set()
+        self.grab_check_fails = False
         self.closed = []
         self._next_fd = 10
 
@@ -58,6 +60,14 @@ class FakeIO:
         self._next_fd += 1
         self.fds[node] = fd
         return fd
+
+    def device_name(self, node):
+        return f"name of {node}"
+
+    def is_grabbed(self, fd):
+        if self.grab_check_fails:
+            raise OSError("ioctl failed")
+        return fd in self.grabbed
 
     def key_state(self, fd):
         state = self.states.get(fd)
@@ -255,3 +265,24 @@ def test_thread_reads_rescans_and_closes_everything_on_stop(mocker):
 
 def test_stop_without_start_is_a_no_op():
     _backend(FakeIO({})).stop()
+
+
+def test_grabbed_device_is_warned_about_and_kept_open(caplog):
+    io = FakeIO({"/dev/input/event4": KBD_CAPS, "/dev/input/event5": MOUSE_CAPS})
+    io.grabbed.add(10)
+    backend = _backend(io)
+
+    assert backend._scan() == (2, 0)
+
+    assert "cannot see 'name of /dev/input/event4' (/dev/input/event4)" in caplog.text
+    assert "event5" not in caplog.text
+    assert 10 in backend._devices
+
+
+def test_failed_grab_check_is_not_a_warning(caplog):
+    io = FakeIO({"/dev/input/event4": KBD_CAPS})
+    io.grab_check_fails = True
+    backend = _backend(io)
+
+    assert backend._scan() == (1, 0)
+    assert "cannot see" not in caplog.text

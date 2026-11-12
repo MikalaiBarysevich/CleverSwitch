@@ -21,6 +21,10 @@ KERNEL != "event*", GOTO="cleverswitch_input_end"
 ATTRS{idVendor}=="046d", TAG+="uaccess", GOTO="cleverswitch_input_end"
 
 # Bluetooth-connected Logitech devices (bus 0005 = BT, vendor 046D)
-KERNELS=="0005:046D:*", TAG+="uaccess"
+KERNELS=="0005:046D:*", TAG+="uaccess", GOTO="cleverswitch_input_end"
+
+# Virtual devices carrying a Logitech vendor id. Remappers such as OpenLogi grab the real device
+# exclusively and re-send its input through one of these, so the real device goes silent.
+ATTRS{id/vendor}=="046d", TAG+="uaccess"
 
 LABEL="cleverswitch_input_end"

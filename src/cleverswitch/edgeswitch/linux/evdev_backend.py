@@ -126,6 +126,7 @@ class EvdevEdgeBackend(EdgeBackend):
             except OSError as e:
                 log.debug(f"Cannot open {node}: {e}")
                 continue
+            self._warn_if_grabbed(node, fd)
             device = _Device(node=node, fd=fd)
             self._refresh_keys(device)
             self._devices[fd] = device
@@ -134,6 +135,18 @@ class EvdevEdgeBackend(EdgeBackend):
         if opened:
             self._update_state()
         return opened, denied
+
+    # The device stays open: the grab may end later (the other program quits).
+    def _warn_if_grabbed(self, node: str, fd: int) -> None:
+        try:
+            grabbed = self._io.is_grabbed(fd)
+        except OSError:
+            return
+        if grabbed:
+            log.warning(
+                f"Edge switch cannot see '{self._io.device_name(node)}' ({node}): another program "
+                f"(OpenLogi, input-remapper, keyd...) holds it exclusively and re-sends its input elsewhere"
+            )
 
     def _read(self, device: _Device) -> None:
         try:
