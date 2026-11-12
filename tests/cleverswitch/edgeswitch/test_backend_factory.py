@@ -56,14 +56,13 @@ def test_create_backend_warns_platform_not_supported_yet(mocker, caplog):
     assert "not supported" in caplog.text
 
 
-def test_windows_gets_a_polling_backend(mocker):
-    from cleverswitch.edgeswitch.polling_backend import PollingEdgeBackend
-    from cleverswitch.edgeswitch.windows.user32_sampler import User32Sampler
+def test_windows_gets_a_raw_input_backend(mocker):
+    from cleverswitch.edgeswitch.loop_backend import LoopEdgeBackend
 
     mocker.patch.object(backend_factory, "get_system", return_value="Windows")
     backend = create_backend(ENABLED, MagicMock())
-    assert isinstance(backend, PollingEdgeBackend)
-    assert backend._sampler_factory is User32Sampler
+    assert isinstance(backend, LoopEdgeBackend)
+    assert backend._name == "edge-windows"
 
 
 def test_macos_gets_a_polling_backend(mocker):

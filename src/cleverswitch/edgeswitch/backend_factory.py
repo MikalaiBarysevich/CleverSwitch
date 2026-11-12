@@ -10,6 +10,7 @@ from ..util.util import SYSTEM_LINUX, SYSTEM_MACOS, SYSTEM_WINDOWS, get_system
 from .backend import EdgeBackend
 from .edge_detector import EdgeDetector
 from .fallback_backend import FallbackEdgeBackend
+from .loop_backend import LoopEdgeBackend
 from .polling_backend import PollingEdgeBackend
 from .push_detector import PushDetector
 from .session import LinuxSession, detect_linux_session
@@ -20,9 +21,10 @@ log = logging.getLogger(__name__)
 def create_backend(cfg: EdgeSwitchConfig, topics: Topics) -> EdgeBackend | None:
     system = get_system()
     if system == SYSTEM_WINDOWS:
-        from .windows.user32_sampler import User32Sampler
+        from .windows.raw_input_loop import RawInputLoop
+        from .windows.user32 import User32
 
-        return PollingEdgeBackend(User32Sampler, _edge_detector(cfg), topics, "edge-windows")
+        return LoopEdgeBackend("edge-windows", RawInputLoop.factory(User32, _edge_detector(cfg)), topics)
     if system == SYSTEM_MACOS:
         from .macos.quartz_sampler import QuartzSampler
 
