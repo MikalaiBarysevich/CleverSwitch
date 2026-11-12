@@ -55,3 +55,13 @@ def test_windows_gets_a_polling_backend(mocker):
     backend = create_backend(ENABLED, MagicMock())
     assert isinstance(backend, PollingEdgeBackend)
     assert backend._sampler_factory is User32Sampler
+
+
+def test_macos_gets_a_polling_backend(mocker):
+    from cleverswitch.edgeswitch.macos.quartz_sampler import QuartzSampler
+    from cleverswitch.edgeswitch.polling_backend import PollingEdgeBackend
+
+    mocker.patch.object(backend_factory, "get_system", return_value="Darwin")
+    backend = create_backend(ENABLED, MagicMock())
+    assert isinstance(backend, PollingEdgeBackend)
+    assert backend._sampler_factory is QuartzSampler
