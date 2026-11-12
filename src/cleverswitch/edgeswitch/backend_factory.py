@@ -50,19 +50,25 @@ def _push_detector(cfg: EdgeSwitchConfig) -> PushDetector:
     return PushDetector(frozenset(cfg.edges), cfg.modifiers, cfg.cooldown_ms / 1000, cfg.push_threshold)
 
 
+# A backend that cannot start yet is still returned, so it can be revived when a device connects.
 def start_edge_switch(cfg: EdgeSwitchConfig, topics: Topics) -> EdgeBackend | None:
     if not cfg.enabled:
         return None
     try:
         backend = create_backend(cfg, topics)
-        if backend is None:
-            return None
-        backend.start()
-    except EdgeSwitchError as e:
-        log.warning(f"Edge switch disabled: {e}")
-        return None
     except Exception as e:
         log.warning(f"Edge switch disabled after an unexpected error: {e!r}")
+        return None
+    if backend is None:
+        return None
+    try:
+        backend.start()
+    except EdgeSwitchError as e:
+        log.warning(f"Edge switch is not running: {e}; it retries when a device connects")
+        return backend
+    except Exception as e:
+        log.warning(f"Edge switch disabled after an unexpected error: {e!r}")
+        backend.stop()
         return None
     log.info("Edge switch started")
     return backend

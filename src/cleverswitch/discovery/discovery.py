@@ -18,6 +18,7 @@ from ..hidpp.constants import FEATURE_REPROG_CONTROLS_V4, KEY_FLAG_ANALYTICS
 from ..hotplug.backend_factory import create_backend
 from ..model.context.app_context import AppContext
 from ..registry.logi_device_registry import LogiDeviceRegistry
+from ..subscriber.edge_backend_revive_subscriber import EdgeBackendReviveSubscriber
 from ..topic.topics import Topics
 from .link_manager import LinkManager
 
@@ -34,6 +35,8 @@ def discover(app_context: AppContext) -> None:
     edge_backend = None
     try:
         edge_backend = start_edge_switch(app_context.config.edge_switch, topics)
+        if edge_backend is not None:
+            EdgeBackendReviveSubscriber(edge_backend, topics)
         topics.hotplug.publish(HotplugResyncEvent(slot=0, pid=0))
         app_context.shutdown.wait()
     finally:

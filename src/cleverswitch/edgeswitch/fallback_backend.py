@@ -15,7 +15,9 @@ class FallbackEdgeBackend(EdgeBackend):
     def __init__(self, primary: EdgeBackend, fallback_factory: Callable[[], EdgeBackend]):
         self._primary = primary
         self._fallback_factory = fallback_factory
+        self._fallback: EdgeBackend | None = None
         self._active: EdgeBackend | None = None
+        self._closed = False
 
     def start(self) -> None:
         try:
@@ -24,11 +26,24 @@ class FallbackEdgeBackend(EdgeBackend):
             return
         except EdgeSwitchError as e:
             log.info(f"Edge switch falls back to evdev: {e}")
-        fallback = self._fallback_factory()
-        fallback.start()
-        self._active = fallback
+        if self._fallback is None:
+            self._fallback = self._fallback_factory()
+        self._fallback.start()
+        self._active = self._fallback
 
     def stop(self) -> None:
-        active, self._active = self._active, None
-        if active is not None:
-            active.stop()
+        self._closed = True
+        self._primary.stop()
+        if self._fallback is not None:
+            self._fallback.stop()
+
+    def revive(self) -> None:
+        if self._closed:
+            return
+        if self._active is not None:
+            self._active.revive()
+            return
+        try:
+            self.start()
+        except EdgeSwitchError as e:
+            log.debug(f"Edge switch still unavailable: {e}")

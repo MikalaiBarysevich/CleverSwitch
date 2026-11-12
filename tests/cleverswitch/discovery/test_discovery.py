@@ -240,3 +240,14 @@ def test_undivert_all_skips_device_with_analytics_flag(mocker):
     _undivert_all(registry, topics)
 
     divert_topic.publish.assert_not_called()
+
+
+def test_discover_revives_edge_switch_on_device_connection(mocker):
+    _patch_wiring(mocker)
+    edge = mocker.patch("cleverswitch.discovery.discovery.start_edge_switch").return_value
+    reviver = mocker.patch("cleverswitch.discovery.discovery.EdgeBackendReviveSubscriber")
+    ctx = _stopped_context()
+
+    discover(ctx)
+
+    reviver.assert_called_once_with(edge, ctx.topics)

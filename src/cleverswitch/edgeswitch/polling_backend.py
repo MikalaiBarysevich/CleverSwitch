@@ -63,6 +63,9 @@ class PollingEdgeBackend(EdgeBackend):
         self._stopping.set()
         thread.join(timeout=_STOP_JOIN_TIMEOUT)
 
+    def revive(self) -> None:
+        pass
+
     def _run(self) -> None:
         try:
             sampler = self._sampler_factory()

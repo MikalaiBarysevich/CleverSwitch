@@ -27,12 +27,21 @@ def test_no_backend_for_platform_returns_none(mocker):
     assert start_edge_switch(ENABLED, MagicMock()) is None
 
 
-def test_backend_that_cannot_start_is_a_warning(mocker, caplog):
+def test_backend_that_cannot_start_yet_is_kept_for_revival(mocker, caplog):
     backend = MagicMock()
     backend.start.side_effect = EdgeSwitchError("no permission")
     mocker.patch.object(backend_factory, "create_backend", return_value=backend)
+    assert start_edge_switch(ENABLED, MagicMock()) is backend
+    backend.stop.assert_not_called()
+    assert "not running: no permission" in caplog.text
+
+
+def test_backend_that_fails_unexpectedly_is_stopped(mocker, caplog):
+    backend = MagicMock()
+    backend.start.side_effect = RuntimeError("boom")
+    mocker.patch.object(backend_factory, "create_backend", return_value=backend)
     assert start_edge_switch(ENABLED, MagicMock()) is None
-    assert "Edge switch disabled: no permission" in caplog.text
+    backend.stop.assert_called_once()
 
 
 def test_unexpected_error_is_a_warning(mocker, caplog):

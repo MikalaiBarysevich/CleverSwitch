@@ -90,6 +90,9 @@ class EvdevEdgeBackend(EdgeBackend):
         self._io.wake(self._wake_w)
         thread.join(timeout=_STOP_JOIN_TIMEOUT)
 
+    def revive(self) -> None:
+        pass
+
     def _run(self) -> None:
         next_scan = self._clock() + RESCAN_INTERVAL_S
         try:
