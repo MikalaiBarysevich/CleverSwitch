@@ -46,8 +46,11 @@ def _patch_wiring(mocker):
     manager_cls = mocker.patch("cleverswitch.discovery.discovery.LinkManager")
     create_backend = mocker.patch("cleverswitch.discovery.discovery.create_backend")
     undivert = mocker.patch("cleverswitch.discovery.discovery._undivert_all")
+    start_edge = mocker.patch("cleverswitch.discovery.discovery.start_edge_switch")
     order = MagicMock()
     order.attach_mock(create_backend.return_value.start, "backend_start")
+    order.attach_mock(start_edge, "edge_start")
+    order.attach_mock(start_edge.return_value.stop, "edge_stop")
     order.attach_mock(create_backend.return_value.stop, "backend_stop")
     order.attach_mock(undivert, "undivert")
     order.attach_mock(manager_cls.return_value.close_all, "close_all")
@@ -86,7 +89,34 @@ def test_discover_tears_down_in_order_on_shutdown(mocker):
 
     discover(_stopped_context())
 
-    assert [c[0] for c in order.mock_calls] == ["backend_start", "backend_stop", "undivert", "close_all"]
+    assert [c[0] for c in order.mock_calls] == [
+        "backend_start",
+        "edge_start",
+        "edge_stop",
+        "backend_stop",
+        "undivert",
+        "close_all",
+    ]
+
+
+def test_discover_starts_edge_switch_from_config(mocker):
+    _patch_wiring(mocker)
+    start_edge = mocker.patch("cleverswitch.discovery.discovery.start_edge_switch")
+    ctx = _stopped_context()
+
+    discover(ctx)
+
+    start_edge.assert_called_once_with(ctx.config.edge_switch, ctx.topics)
+
+
+def test_discover_tolerates_edge_switch_not_started(mocker):
+    _, create_backend, undivert, _ = _patch_wiring(mocker)
+    mocker.patch("cleverswitch.discovery.discovery.start_edge_switch", return_value=None)
+
+    discover(_stopped_context())
+
+    create_backend.return_value.stop.assert_called_once()
+    undivert.assert_called_once()
 
 
 def test_discover_waits_for_shutdown(mocker):

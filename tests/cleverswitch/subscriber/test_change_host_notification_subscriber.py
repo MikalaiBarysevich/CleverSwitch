@@ -198,3 +198,24 @@ class TestChangeHostNotificationSubscriber:
         subscriber = ChangeHostNotificationSubscriber(registry, topics)
 
         topics.hid_event.subscribe.assert_called_once_with(subscriber)
+
+
+def test_announcement_of_a_switch_we_just_sent_is_ignored(registry, topics):
+    guard = MagicMock()
+    guard.is_echo.return_value = True
+    registry.register(WPID, _make_device())
+
+    ChangeHostNotificationSubscriber(registry, topics, guard).notify(_make_event(payload=b"\x00\x01"))
+
+    guard.is_echo.assert_called_once_with(1)
+    topics.hid_event.publish.assert_not_called()
+
+
+def test_announcement_not_matching_a_recent_switch_is_published(registry, topics):
+    guard = MagicMock()
+    guard.is_echo.return_value = False
+    registry.register(WPID, _make_device())
+
+    ChangeHostNotificationSubscriber(registry, topics, guard).notify(_make_event(payload=b"\x00\x01"))
+
+    topics.hid_event.publish.assert_called_once()

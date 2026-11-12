@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import time
 
+from ..edgeswitch.backend_factory import start_edge_switch
 from ..event.hotplug_resync_event import HotplugResyncEvent
 from ..event.set_report_flag_event import SetReportFlagEvent
 from ..hidpp.constants import FEATURE_REPROG_CONTROLS_V4, KEY_FLAG_ANALYTICS
@@ -30,10 +31,15 @@ def discover(app_context: AppContext) -> None:
     backend.start()
 
     log.info("Starting device discovery…")
+    edge_backend = None
     try:
+        edge_backend = start_edge_switch(app_context.config.edge_switch, topics)
         topics.hotplug.publish(HotplugResyncEvent(slot=0, pid=0))
         app_context.shutdown.wait()
     finally:
+        # First, so no switch can fire while keys are being un-diverted.
+        if edge_backend is not None:
+            edge_backend.stop()
         backend.stop()
         _undivert_all(app_context.device_registry, topics)
         manager.close_all()

@@ -3,11 +3,11 @@ import threading
 
 from ..cache.device_cache import DeviceCache
 from ..event.device_connected_event import DeviceConnectedEvent
-from ..event.host_change_event import HostChangeEvent
+from ..event.host_change_event import HostChangeEvent, SwitchSource
 from ..event.info_task_progress_event import InfoTaskProgressEvent
 from ..hook import hooks
 from ..model.config.hooks_config import HooksConfig
-from ..model.logi_device import LogiDevice
+from ..model.logi_device import ROLE_KEYBOARD, LogiDevice
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
 from ..topic.topics import Topics
@@ -60,10 +60,21 @@ class EventHookSubscriber(Subscriber):
             hooks.fire_disconnect(self._hooks_config, device.display_name, device.role)
 
     def _on_host_change(self, event: HostChangeEvent) -> None:
-        device = next(
-            (d for d in self._device_registry.all_entries() if d.pid == event.pid and d.slot == event.slot),
-            None,
-        )
+        if event.source == SwitchSource.EDGE:
+            device = self._representative_device()
+        else:
+            device = next(
+                (d for d in self._device_registry.all_entries() if d.pid == event.pid and d.slot == event.slot),
+                None,
+            )
         if device is None or device.name is None or device.role is None:
             return
-        hooks.fire_switch(self._hooks_config, device.display_name, device.role, event.target_host)
+        hooks.fire_switch(
+            self._hooks_config, device.display_name, device.role, event.target_host, source=event.source.value
+        )
+
+    # An edge switch has no originating device; the hook reports a connected keyboard when there is one.
+    def _representative_device(self) -> LogiDevice | None:
+        named = [d for d in self._device_registry.all_entries() if d.name is not None and d.role is not None]
+        keyboard = next((d for d in named if d.connected and d.role == ROLE_KEYBOARD), None)
+        return keyboard or next(iter(named), None)
