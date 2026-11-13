@@ -65,7 +65,7 @@ def test_present_section_defaults_to_enabled_with_ctrl():
     assert cfg.enabled is True
     assert cfg.modifiers == Modifier.CTRL
     assert cfg.cooldown_ms == 1000
-    assert cfg.push_threshold == 800
+    assert cfg.push_threshold == 200
 
 
 def test_explicitly_disabled():
@@ -127,7 +127,7 @@ def test_non_boolean_enabled_disables(value, caplog):
 
 @pytest.mark.parametrize(
     ("key", "value", "default"),
-    [("cooldown_ms", -1, 1000), ("cooldown_ms", 60001, 1000), ("push_threshold", 0, 800), ("push_threshold", "x", 800)],
+    [("cooldown_ms", -1, 1000), ("cooldown_ms", 60001, 1000), ("push_threshold", 0, 200), ("push_threshold", "x", 200)],
 )
 def test_out_of_range_numbers_fall_back(key, value, default, caplog):
     cfg = _edge({key: value, "edges": {"left": 1}})

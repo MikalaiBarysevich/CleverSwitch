@@ -4,7 +4,7 @@ from .edge import Edge
 from .modifier import Modifier
 
 DEFAULT_COOLDOWN_MS = 1000
-DEFAULT_PUSH_THRESHOLD = 800
+DEFAULT_PUSH_THRESHOLD = 200
 
 
 @dataclasses.dataclass(frozen=True)
