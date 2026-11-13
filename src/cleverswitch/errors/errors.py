@@ -35,3 +35,7 @@ class ConfigError(CleverSwitchError):
 
 class HotplugError(CleverSwitchError):
     pass
+
+
+class EdgeSwitchError(CleverSwitchError):
+    pass

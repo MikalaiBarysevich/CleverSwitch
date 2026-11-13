@@ -12,6 +12,7 @@ from ..errors.errors import ConfigError
 from ..log.log_setup import configure_logging
 from ..model.config.logging_config import LoggingConfig
 from ..model.context.app_context import AppContext
+from ..model.switch_echo_guard import SwitchEchoGuard
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.analytics_rejection_subscriber import AnalyticsRejectionSubscriber
 from ..subscriber.change_host_notification_subscriber import ChangeHostNotificationSubscriber
@@ -20,6 +21,7 @@ from ..subscriber.device_connected_subscriber import DeviceConnectionSubscriber
 from ..subscriber.device_info_subscriber import DeviceInfoSubscriber
 from ..subscriber.direct_device_connection_subscriber import DirectDeviceConnectionSubscriber
 from ..subscriber.easy_switch_key_subscriber import EasySwitchKeySubscriber
+from ..subscriber.edge_switch_subscriber import EdgeSwitchSubscriber
 from ..subscriber.event_hook_subscriber import EventHookSubscriber
 from ..subscriber.external_unset_flag_subscriber import ExternalUnsetFlagSubscriber
 from ..subscriber.host_change_subscriber import HostChangeSubscriber
@@ -85,6 +87,7 @@ def _setup_topics() -> Topics:
         flags=Topic(),
         info_progress=Topic(),
         hotplug=Topic(),
+        edge=Topic(),
     )
 
 
@@ -99,6 +102,7 @@ def _setup_device_cache(config: Config) -> DeviceCache:
 
 
 def _init_subscribers(topics: Topics, device_registry: LogiDeviceRegistry, config: Config, cache: DeviceCache) -> None:
+    echo_guard = SwitchEchoGuard()
     DeviceConnectionSubscriber(device_registry, topics, cache)
     DeviceInfoSubscriber(device_registry, topics)
     InfoTaskOrchestrator(device_registry, topics, cache)
@@ -107,10 +111,12 @@ def _init_subscribers(topics: Topics, device_registry: LogiDeviceRegistry, confi
     AnalyticsRejectionSubscriber(device_registry, topics, cache)
     HostChangeSubscriber(device_registry, topics)
     EasySwitchKeySubscriber(device_registry, topics)
-    ChangeHostNotificationSubscriber(device_registry, topics)
+    ChangeHostNotificationSubscriber(device_registry, topics, echo_guard)
     WirelessStatusSubscriber(device_registry, topics)
     TransportDisconnectionSubscriber(device_registry, topics)
     ReceiverArmingSubscriber(topics)
     DirectDeviceConnectionSubscriber(topics)
     ChannelRearmSubscriber(device_registry, topics)
     EventHookSubscriber(config.hooks, device_registry, topics, cache)
+    if config.edge_switch.enabled:
+        EdgeSwitchSubscriber(config.edge_switch, topics, echo_guard)

@@ -12,16 +12,10 @@ from ...event.hotplug_resync_event import HotplugResyncEvent
 from ...topic.topics import Topics
 from ..backend import HotplugBackend
 from .udev_message import ACTION_ADD, hidraw_event, sender_uid
+from .udev_socket import open_udev_socket, receive
 
 log = logging.getLogger(__name__)
 
-_NETLINK_KOBJECT_UEVENT = 15
-
-# udevd's group: sent after rules ran, so the uaccess ACL is already on the node
-_UDEV_GROUP = 2
-
-_RECEIVE_BUFFER = 1 << 20
-_MESSAGE_SIZE = 16384
 _STOP_JOIN_TIMEOUT = 2.0
 
 
@@ -35,13 +29,7 @@ class NetlinkHotplugBackend(HotplugBackend):
 
     def start(self) -> None:
         try:
-            sock = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW | socket.SOCK_CLOEXEC, _NETLINK_KOBJECT_UEVENT)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_PASSCRED, 1)
-            try:
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, _RECEIVE_BUFFER)
-            except OSError:
-                pass
-            sock.bind((0, _UDEV_GROUP))
+            sock = open_udev_socket()
         except OSError as e:
             raise HotplugError(f"Cannot listen for udev device events: {e}") from e
         self._sock = sock
@@ -66,7 +54,7 @@ class NetlinkHotplugBackend(HotplugBackend):
             if self._wake_read in readable:
                 return
             try:
-                data, ancdata, _flags, _address = self._sock.recvmsg(_MESSAGE_SIZE, socket.CMSG_SPACE(12))
+                data, ancdata = receive(self._sock)
             except OSError as e:
                 if e.errno == errno.ENOBUFS:
                     log.warning("udev events were lost; re-checking every device")

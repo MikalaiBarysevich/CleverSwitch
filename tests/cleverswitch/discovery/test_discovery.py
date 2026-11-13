@@ -46,8 +46,11 @@ def _patch_wiring(mocker):
     manager_cls = mocker.patch("cleverswitch.discovery.discovery.LinkManager")
     create_backend = mocker.patch("cleverswitch.discovery.discovery.create_backend")
     undivert = mocker.patch("cleverswitch.discovery.discovery._undivert_all")
+    start_edge = mocker.patch("cleverswitch.discovery.discovery.start_edge_switch")
     order = MagicMock()
     order.attach_mock(create_backend.return_value.start, "backend_start")
+    order.attach_mock(start_edge, "edge_start")
+    order.attach_mock(start_edge.return_value.stop, "edge_stop")
     order.attach_mock(create_backend.return_value.stop, "backend_stop")
     order.attach_mock(undivert, "undivert")
     order.attach_mock(manager_cls.return_value.close_all, "close_all")
@@ -86,7 +89,48 @@ def test_discover_tears_down_in_order_on_shutdown(mocker):
 
     discover(_stopped_context())
 
-    assert [c[0] for c in order.mock_calls] == ["backend_start", "backend_stop", "undivert", "close_all"]
+    assert [c[0] for c in order.mock_calls] == [
+        "backend_start",
+        "edge_start",
+        "edge_stop",
+        "backend_stop",
+        "undivert",
+        "close_all",
+    ]
+
+
+def test_discover_starts_edge_switch_from_config(mocker):
+    _patch_wiring(mocker)
+    start_edge = mocker.patch("cleverswitch.discovery.discovery.start_edge_switch")
+    ctx = _stopped_context()
+
+    discover(ctx)
+
+    start_edge.assert_called_once_with(ctx.config.edge_switch, ctx.topics)
+
+
+def test_discover_finishes_teardown_when_a_step_fails(mocker, caplog):
+    manager_cls, create_backend, undivert, _ = _patch_wiring(mocker)
+    edge = mocker.patch("cleverswitch.discovery.discovery.start_edge_switch").return_value
+    edge.stop.side_effect = OSError("bad fd")
+    create_backend.return_value.stop.side_effect = RuntimeError("netlink")
+
+    discover(_stopped_context())
+
+    undivert.assert_called_once()
+    manager_cls.return_value.close_all.assert_called_once()
+    assert "stop edge switch" in caplog.text
+    assert "stop hotplug" in caplog.text
+
+
+def test_discover_tolerates_edge_switch_not_started(mocker):
+    _, create_backend, undivert, _ = _patch_wiring(mocker)
+    mocker.patch("cleverswitch.discovery.discovery.start_edge_switch", return_value=None)
+
+    discover(_stopped_context())
+
+    create_backend.return_value.stop.assert_called_once()
+    undivert.assert_called_once()
 
 
 def test_discover_waits_for_shutdown(mocker):
@@ -196,3 +240,14 @@ def test_undivert_all_skips_device_with_analytics_flag(mocker):
     _undivert_all(registry, topics)
 
     divert_topic.publish.assert_not_called()
+
+
+def test_discover_revives_edge_switch_on_device_connection(mocker):
+    _patch_wiring(mocker)
+    edge = mocker.patch("cleverswitch.discovery.discovery.start_edge_switch").return_value
+    reviver = mocker.patch("cleverswitch.discovery.discovery.EdgeBackendReviveSubscriber")
+    ctx = _stopped_context()
+
+    discover(ctx)
+
+    reviver.assert_called_once_with(edge, ctx.topics)

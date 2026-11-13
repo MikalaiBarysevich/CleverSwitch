@@ -11,12 +11,16 @@ from typing import Any
 import yaml
 
 from ..errors.errors import ConfigError
+from ..hidpp.constants import HOST_SWITCH_CIDS
 from ..model.config.args_settings import ArgsSettings
 from ..model.config.config import Config
+from ..model.config.edge import Edge
+from ..model.config.edge_switch_config import EdgeSwitchConfig
 from ..model.config.hook_entry import HookEntry
 from ..model.config.hook_type import HookType
 from ..model.config.hooks_config import HooksConfig
 from ..model.config.logging_config import DEFAULT_BACKUP_COUNT, DEFAULT_MAX_BYTES, LoggingConfig
+from ..model.config.modifier import MODIFIER_NAMES, Modifier
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +35,9 @@ _LOG_LEVELS = {
 }
 _MAX_SIZE_MB_RANGE = (1, 1024)
 _BACKUP_COUNT_RANGE = (1, 50)
+_COOLDOWN_MS_RANGE = (0, 60000)
+_PUSH_THRESHOLD_RANGE = (1, 100000)
+_VALID_HOSTS = frozenset(HOST_SWITCH_CIDS.values())
 
 # ── Default config ────────────────────────────────────────────────────────────
 
@@ -89,6 +96,7 @@ def _parse(raw: dict[str, Any], cli_args: argparse.Namespace) -> Config:
         arguments_settings=arguments_settings,
         cache_path=cache_path,
         logging=_parse_logging(raw),
+        edge_switch=_parse_edge_switch(raw),
     )
     _validate(config)
     return config
@@ -119,8 +127,12 @@ def _parse_logging(raw: dict[str, Any]) -> LoggingConfig:
     raw_path = file_section.get("path")
     file_path = Path(os.path.expanduser(os.path.expandvars(str(raw_path)))) if raw_path else defaults.file_path
 
-    max_size_mb = _parse_bounded_int("max_size_mb", file_section, _MAX_SIZE_MB_RANGE, DEFAULT_MAX_BYTES // 2**20)
-    backup_count = _parse_bounded_int("backup_count", file_section, _BACKUP_COUNT_RANGE, DEFAULT_BACKUP_COUNT)
+    max_size_mb = _parse_bounded_int(
+        "logging 'file.max_size_mb'", "max_size_mb", file_section, _MAX_SIZE_MB_RANGE, DEFAULT_MAX_BYTES // 2**20
+    )
+    backup_count = _parse_bounded_int(
+        "logging 'file.backup_count'", "backup_count", file_section, _BACKUP_COUNT_RANGE, DEFAULT_BACKUP_COUNT
+    )
 
     return LoggingConfig(
         level=level,
@@ -131,15 +143,88 @@ def _parse_logging(raw: dict[str, Any]) -> LoggingConfig:
     )
 
 
-def _parse_bounded_int(key: str, section: dict[str, Any], bounds: tuple[int, int], default: int) -> int:
+def _parse_bounded_int(label: str, key: str, section: dict[str, Any], bounds: tuple[int, int], default: int) -> int:
     if key not in section:
         return default
     value = section[key]
     low, high = bounds
     if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
-        log.error(f"Invalid logging 'file.{key}' '{value}' (expected an integer {low}..{high}); using {default}")
+        log.error(f"Invalid {label} '{value}' (expected an integer {low}..{high}); using {default}")
         return default
     return value
+
+
+# Edge switch is optional: a malformed section turns it off instead of stopping the daemon.
+def _parse_edge_switch(raw: dict[str, Any]) -> EdgeSwitchConfig:
+    section = raw.get("edge_switch")
+    if not section:
+        return EdgeSwitchConfig()
+    if not isinstance(section, dict):
+        log.error("'edge_switch' must be a mapping; edge switch disabled")
+        return EdgeSwitchConfig()
+    defaults = EdgeSwitchConfig()
+
+    enabled = section.get("enabled", True)
+    if not isinstance(enabled, bool):
+        log.error(f"edge_switch 'enabled' must be true or false, not '{enabled}'; edge switch disabled")
+        enabled = False
+    modifiers = _parse_modifiers(section.get("modifier", "ctrl"))
+    raw_edges = section.get("edges") or {}
+    if not isinstance(raw_edges, dict):
+        log.error("edge_switch 'edges' must be a mapping of edge to host")
+        raw_edges = {}
+    edges = _parse_edges(raw_edges)
+    cooldown_ms = _parse_bounded_int(
+        "edge_switch 'cooldown_ms'", "cooldown_ms", section, _COOLDOWN_MS_RANGE, defaults.cooldown_ms
+    )
+    push_threshold = _parse_bounded_int(
+        "edge_switch 'push_threshold'", "push_threshold", section, _PUSH_THRESHOLD_RANGE, defaults.push_threshold
+    )
+
+    if enabled and modifiers is None:
+        log.error("edge_switch disabled: no valid 'modifier'")
+        enabled = False
+    if enabled and not edges:
+        log.warning("edge_switch enabled but no valid edges; disabled")
+        enabled = False
+
+    return EdgeSwitchConfig(
+        enabled=enabled,
+        modifiers=modifiers if modifiers is not None else defaults.modifiers,
+        cooldown_ms=cooldown_ms,
+        edges=edges,
+        push_threshold=push_threshold,
+    )
+
+
+def _parse_modifiers(raw_modifier: Any) -> Modifier | None:
+    values = raw_modifier if isinstance(raw_modifier, list) else [raw_modifier]
+    if not values:
+        log.error("edge_switch 'modifier' is an empty list")
+        return None
+    result = Modifier.NONE
+    for value in values:
+        modifier = MODIFIER_NAMES.get(str(value).strip().lower())
+        if modifier is None:
+            log.error(f"edge_switch has invalid modifier '{value}' (expected one of {', '.join(MODIFIER_NAMES)})")
+            return None
+        result |= modifier
+    return result
+
+
+def _parse_edges(raw_edges: dict[str, Any]) -> dict[Edge, int]:
+    result: dict[Edge, int] = {}
+    for name, host in raw_edges.items():
+        try:
+            edge = Edge(str(name).strip().lower())
+        except ValueError:
+            log.error(f"edge_switch has unknown edge '{name}'; skipping")
+            continue
+        if isinstance(host, bool) or not isinstance(host, int) or host - 1 not in _VALID_HOSTS:
+            log.error(f"edge_switch edge '{name}' has invalid host '{host}' (expected 1..3); skipping")
+            continue
+        result[edge] = host - 1
+    return result
 
 
 def _parse_hooks(raw_hooks: dict[str, Any]) -> dict[str, HookEntry]:

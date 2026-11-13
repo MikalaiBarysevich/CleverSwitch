@@ -35,7 +35,7 @@ By default, hooks only fire for keyboard events. Set `hooks.fire_for_all_devices
 
 | Event        | When it fires                                                 |
 |--------------|---------------------------------------------------------------|
-| `switch`     | The Easy-Switch button was pressed and a host change was sent |
+| `switch`     | The Easy-Switch button was pressed, or an edge switch fired, and a host change was sent |
 | `connect`    | A device connected (including wake from sleep)                |
 | `disconnect` | A device disconnected (including sleep)                       |
 
@@ -49,6 +49,7 @@ Each hook receives the following environment variables:
 | `CLEVERSWITCH_DEVICE`      | `keyboard` \| `mouse`                 | The device that triggered the event                |
 | `CLEVERSWITCH_DEVICE_NAME` | e.g. `MX Keys`                        | Human-readable device name                         |
 | `CLEVERSWITCH_TARGET_HOST` | `1`, `2`, or `3`                      | Target host number (1-based; `switch` events only) |
+| `CLEVERSWITCH_SWITCH_SOURCE` | `device` \| `edge`                  | What started the switch (`switch` events only); for `edge`, `CLEVERSWITCH_DEVICE` names a connected keyboard |
 
 ### Configuration
 
@@ -88,6 +89,34 @@ hooks:
     fire_for_all_devices: true   # this hook also fires for the mouse
     timeout: 10
 ```
+
+## Edge Switch
+
+Hold a modifier key (Ctrl by default) and move the cursor onto an edge of the screen to switch the keyboard and the mouse to the host you mapped to that edge — no Easy-Switch button needed. It is off until you add an `edge_switch` section to the config:
+
+```yaml
+edge_switch:
+  modifier: ctrl         # ctrl | alt | shift | meta (Cmd / Win / Super), or a list: [ctrl, alt]
+  cooldown_ms: 1000      # ignore repeats for this long after a switch
+  edges:                 # left | right | top | bottom -> host 1..3
+    left: 1
+    right: 2
+```
+
+- Only the outer edges of all your monitors together count; the border between two monitors does not.
+- The cursor has to move **onto** the edge while the modifier is held. Pressing the modifier while the cursor already sits at an edge does nothing, so arriving on the other host with the key still down does not bounce you back.
+- The modifiers must match exactly (Ctrl+Shift does not fire a `ctrl` edge), and a held mouse button blocks it, so Ctrl-drag and Ctrl-click near an edge are safe.
+- If edge switch cannot start (for example the permission is missing), CleverSwitch keeps running and tries again whenever a device connects.
+- The switch is sent while the modifier is still down, so the host you leave may not see it released. If it seems stuck there, tap it once when you come back.
+
+| Platform | Needs |
+|----------|-------|
+| Windows | Nothing extra. |
+| macOS | *Input Monitoring* in System Settings → Privacy & Security, which CleverSwitch already needs. |
+| Linux X11 | The XInput 2 library `libxcb-xinput`, installed with almost every desktop. Without it CleverSwitch uses the Wayland method below. |
+| Linux Wayland | Wayland does not let programs read the cursor position, so CleverSwitch reads the keyboard and mouse from `/dev/input` instead, and **pushing** the mouse `push_threshold` counts (default `200`) in one direction while the modifier is held counts as touching that edge. Reading `/dev/input` needs either membership in the `input` group (`sudo usermod -aG input $USER`, then log in again) or the opt-in udev rule [`rules.d/43-cleverswitch-input.rules`](rules.d/43-cleverswitch-input.rules), which covers Logitech devices only. After installing the rule, `sudo udevadm control --reload` and `sudo udevadm trigger` let a running CleverSwitch pick the devices up without a restart. Either way, programs you run can read your keystrokes from those devices, which Wayland would otherwise prevent. |
+
+On Wayland, a remapper that grabs your keyboard or mouse exclusively (OpenLogi, input-remapper, keyd, kanata...) leaves the real device silent for everyone else and re-sends its input through a virtual device. If you hold the modifier on such a keyboard and move the mouse, CleverSwitch notices the keyboard is grabbed and logs a warning naming it. The opt-in rule also covers virtual devices that carry Logitech's vendor id, which is what OpenLogi creates; for other remappers use the `input` group.
 
 ## Logs
 
