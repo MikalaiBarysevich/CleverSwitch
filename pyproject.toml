@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "cleverswitch"
 dynamic = ["version"]
 description = "Synchronize host switching between Logitech MX Keys and MX Master 3"
-requires-python = ">=3.10"
+requires-python = ">=3.11"  # StrEnum in model/config/edge.py and event/host_change_event.py
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE.txt"]
 dependencies = [
@@ -14,6 +14,7 @@ dependencies = [
     "pyyaml >= 6.0",
     "bleak >= 0.22, < 3; sys_platform == 'darwin'",  # 3.x uses the uv_build backend; can't build from sdist in Homebrew
     "pyobjc-framework-CoreBluetooth ; sys_platform == 'darwin'",
+    "jeepney >= 0.8 ; sys_platform == 'linux'",  # session bus for edge switch on KDE and GNOME
 ]
 
 [project.optional-dependencies]
@@ -46,6 +47,11 @@ omit = [
     "src/cleverswitch/hotplug/linux/netlink_backend.py",  # OS notification glue — hardware-tested
     "src/cleverswitch/hotplug/macos/iokit.py",            # ctypes bindings — hardware-tested
     "src/cleverswitch/hotplug/windows/cfgmgr32.py",       # ctypes bindings — hardware-tested
+    "src/cleverswitch/edgeswitch/windows/user32.py",      # ctypes bindings — hardware-tested
+    "src/cleverswitch/edgeswitch/macos/quartz.py",        # ctypes bindings — hardware-tested
+    "src/cleverswitch/edgeswitch/linux/xcb.py",           # ctypes bindings — hardware-tested
+    "src/cleverswitch/edgeswitch/linux/libinput.py",      # ctypes bindings — hardware-tested
+    "src/cleverswitch/edgeswitch/linux/session_bus.py",   # D-Bus connection glue — hardware-tested
 ]
 
 [tool.ruff]

@@ -5,11 +5,11 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from cleverswitch.event.device_connected_event import DeviceConnectedEvent
-from cleverswitch.event.host_change_event import HostChangeEvent
+from cleverswitch.event.host_change_event import HostChangeEvent, SwitchSource
 from cleverswitch.event.info_task_progress_event import InfoTaskProgressEvent
-from cleverswitch.hidpp.constants import BOLT_PID
+from cleverswitch.hidpp.constants import BOLT_PID, FEATURE_CHANGE_HOST
 from cleverswitch.model.config.hooks_config import HooksConfig
-from cleverswitch.model.logi_device import ROLE_KEYBOARD, LogiDevice
+from cleverswitch.model.logi_device import ROLE_KEYBOARD, ROLE_MOUSE, LogiDevice
 from cleverswitch.registry.logi_device_registry import LogiDeviceRegistry
 from cleverswitch.subscriber.event_hook_subscriber import EventHookSubscriber
 from cleverswitch.topic.topic import Topic
@@ -29,8 +29,9 @@ def _make_topics():
     )
 
 
-def _make_device(wpid=WPID, slot=1, role=ROLE_KEYBOARD, name="MX Keys"):
-    return LogiDevice(wpid=wpid, pid=PID, slot=slot, role=role, available_features={}, name=name)
+def _make_device(wpid=WPID, slot=1, role=ROLE_KEYBOARD, name="MX Keys", features=None):
+    features = {FEATURE_CHANGE_HOST: 5} if features is None else features
+    return LogiDevice(wpid=wpid, pid=PID, slot=slot, role=role, available_features=features, name=name)
 
 
 def _hooks_cfg():
@@ -154,7 +155,7 @@ def test_host_change_fires_for_known_device(mock_hooks):
     sub = EventHookSubscriber(_hooks_cfg(), registry, _make_topics(), _empty_cache())
     sub.notify(HostChangeEvent(slot=1, pid=PID, target_host=2))
 
-    mock_hooks.fire_switch.assert_called_once_with(_hooks_cfg(), "MX Keys", ROLE_KEYBOARD, 2)
+    mock_hooks.fire_switch.assert_called_once_with(_hooks_cfg(), "MX Keys", ROLE_KEYBOARD, 2, source="device")
 
 
 @patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
@@ -238,7 +239,7 @@ def test_host_change_passes_friendly_name_when_set(mock_hooks):
     sub = EventHookSubscriber(_hooks_cfg(), registry, _make_topics(), _empty_cache())
     sub.notify(HostChangeEvent(slot=1, pid=PID, target_host=2))
 
-    mock_hooks.fire_switch.assert_called_once_with(_hooks_cfg(), "MX Keys", ROLE_KEYBOARD, 2)
+    mock_hooks.fire_switch.assert_called_once_with(_hooks_cfg(), "MX Keys", ROLE_KEYBOARD, 2, source="device")
 
 
 @patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
@@ -327,3 +328,80 @@ def test_progress_skipped_while_role_is_unknown(mock_hooks):
     sub.notify(_progress(_make_device(role=None)))
 
     mock_hooks.fire_connect.assert_not_called()
+
+
+# ── Edge switch ──────────────────────────────────────────────────────────────
+
+
+def _edge_switch(target_host=1):
+    return HostChangeEvent(slot=0, pid=0, target_host=target_host, source=SwitchSource.EDGE)
+
+
+@patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
+def test_edge_switch_reports_the_connected_keyboard(mock_hooks):
+    registry = LogiDeviceRegistry()
+    registry.register(0x4082, _make_device(wpid=0x4082, slot=2, role=ROLE_MOUSE, name="MX Master"))
+    registry.register(WPID, _make_device())
+
+    EventHookSubscriber(_hooks_cfg(), registry, _make_topics(), _empty_cache()).notify(_edge_switch())
+
+    mock_hooks.fire_switch.assert_called_once_with(_hooks_cfg(), "MX Keys", ROLE_KEYBOARD, 1, source="edge")
+
+
+@patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
+def test_edge_switch_prefers_a_disconnected_keyboard_over_the_mouse(mock_hooks):
+    registry = LogiDeviceRegistry()
+    keyboard = _make_device()
+    keyboard.connected = False
+    registry.register(0x4082, _make_device(wpid=0x4082, slot=2, role=ROLE_MOUSE, name="MX Master"))
+    registry.register(WPID, keyboard)
+
+    EventHookSubscriber(_hooks_cfg(), registry, _make_topics(), _empty_cache()).notify(_edge_switch())
+
+    mock_hooks.fire_switch.assert_called_once_with(_hooks_cfg(), "MX Keys", ROLE_KEYBOARD, 1, source="edge")
+
+
+@patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
+def test_edge_switch_prefers_a_connected_device_among_non_keyboards(mock_hooks):
+    registry = LogiDeviceRegistry()
+    away = _make_device(wpid=0x4083, slot=3, role=ROLE_MOUSE, name="MX Anywhere")
+    away.connected = False
+    registry.register(0x4083, away)
+    registry.register(0x4082, _make_device(wpid=0x4082, slot=2, role=ROLE_MOUSE, name="MX Master"))
+
+    EventHookSubscriber(_hooks_cfg(), registry, _make_topics(), _empty_cache()).notify(_edge_switch())
+
+    mock_hooks.fire_switch.assert_called_once_with(_hooks_cfg(), "MX Master", ROLE_MOUSE, 1, source="edge")
+
+
+@patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
+def test_edge_switch_without_named_devices_fires_nothing(mock_hooks):
+    registry = LogiDeviceRegistry()
+    registry.register(WPID, _make_device(name=None))
+
+    EventHookSubscriber(_hooks_cfg(), registry, _make_topics(), _empty_cache()).notify(_edge_switch())
+
+    mock_hooks.fire_switch.assert_not_called()
+
+
+@patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
+def test_edge_switch_without_a_change_host_device_fires_nothing(mock_hooks):
+    """No device was switched, so a SWITCH hook would report something that did not happen."""
+    registry = LogiDeviceRegistry()
+    registry.register(WPID, _make_device(features={0x1B04: 9}))
+
+    EventHookSubscriber(_hooks_cfg(), registry, _make_topics(), _empty_cache()).notify(_edge_switch())
+
+    mock_hooks.fire_switch.assert_not_called()
+
+
+@patch("cleverswitch.subscriber.event_hook_subscriber.hooks")
+def test_device_switch_does_not_need_the_eligibility_check(mock_hooks):
+    registry = LogiDeviceRegistry()
+    registry.register(WPID, _make_device(features={}))
+
+    EventHookSubscriber(_hooks_cfg(), registry, _make_topics(), _empty_cache()).notify(
+        HostChangeEvent(slot=1, pid=PID, target_host=2)
+    )
+
+    mock_hooks.fire_switch.assert_called_once()

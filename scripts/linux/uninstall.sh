@@ -89,7 +89,24 @@ else
     info "CleverSwitch pip package is not installed — skipping."
 fi
 
-# ── Step 5: Remove udev rules (optional) ─────────────────────────────
+# ── Step 5: Remove the GNOME Shell extension (optional) ──────────────
+
+EXTENSION_UUID="cleverswitch@mikalaibarysevich.github.io"
+EXTENSION_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/gnome-shell/extensions/$EXTENSION_UUID"
+
+if [ -d "$EXTENSION_DIR" ]; then
+    if ask_yes_no "Remove the CleverSwitch GNOME Shell extension? (log out and back in afterwards)"; then
+        gnome-extensions disable "$EXTENSION_UUID" 2>/dev/null || true
+        rm -rf "$EXTENSION_DIR"
+        ok "GNOME Shell extension removed."
+    else
+        info "Keeping the GNOME Shell extension."
+    fi
+else
+    info "No GNOME Shell extension found — skipping."
+fi
+
+# ── Step 6: Remove udev rules (optional) ─────────────────────────────
 
 RULES_DST="/etc/udev/rules.d/$UDEV_RULE"
 

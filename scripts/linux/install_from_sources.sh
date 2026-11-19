@@ -63,20 +63,28 @@ ok "CleverSwitch installed at: $BINARY_PATH"
 RULES_SRC="$PROJECT_DIR/rules.d/$UDEV_RULE"
 RULES_DST="/etc/udev/rules.d/$UDEV_RULE"
 
-if [ -f "$RULES_DST" ]; then
+if [ ! -f "$RULES_SRC" ]; then
+    error "udev rules file not found at $RULES_SRC"
+fi
+
+if [ -f "$RULES_DST" ] && cmp -s "$RULES_SRC" "$RULES_DST"; then
     ok "udev rules already installed."
 else
-    info "udev rules are required for non-root HID access."
-    if [ ! -f "$RULES_SRC" ]; then
-        error "udev rules file not found at $RULES_SRC"
+    if [ -f "$RULES_DST" ]; then
+        info "The installed udev rules differ from this version's (which also let edge switch read Logitech"
+        info "keyboards in /dev/input). Replacing them drops any change you made to $RULES_DST."
+        prompt="Replace udev rules? (requires sudo)"
+    else
+        info "udev rules are required for non-root HID access."
+        prompt="Install udev rules? (requires sudo)"
     fi
-    if ask_yes_no "Install udev rules? (requires sudo)"; then
+    if ask_yes_no "$prompt"; then
         sudo cp "$RULES_SRC" "$RULES_DST"
         sudo udevadm control --reload-rules
         sudo udevadm trigger
         ok "udev rules installed. Unplug and replug your receiver."
     else
-        warn "Skipped. CleverSwitch will need root privileges without udev rules."
+        warn "Skipped. Without current udev rules CleverSwitch may need root, and edge switch on Hyprland/KDE may not see the keyboard."
     fi
 fi
 
@@ -87,6 +95,15 @@ if ask_yes_no "Start CleverSwitch automatically on login?"; then
 else
     info "Skipped. You can run CleverSwitch manually with: cleverswitch"
 fi
+
+# ── Step 5: Edge switch on GNOME (optional) ──────────────────────────
+
+case "$(printf '%s' "${XDG_CURRENT_DESKTOP:-}" | tr '[:upper:]' '[:lower:]')" in
+    *gnome*)
+        info "GNOME detected. Edge switch on GNOME needs the bundled GNOME Shell extension:"
+        info "see 'Enabling edge switch on KDE / GNOME' in README.md for the install steps."
+        ;;
+esac
 
 # ── Done ─────────────────────────────────────────────────────────────
 
