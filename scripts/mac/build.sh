@@ -73,6 +73,7 @@ rm -rf "$stage"
 mkdir -p "$stage"
 cp "dist/$APP_NAME" README.md LICENSE.txt docs/Installation.md config.example.yaml "$stage/"
 cp scripts/mac/install.command scripts/mac/uninstall.command scripts/mac/setup_startup.command "$stage/"
+cp scripts/edge_switch_setup.sh "$stage/"
 tar -czf "dist/$ARCHIVE.tar.gz" -C dist "$ARCHIVE"
 rm -rf "$stage"
 

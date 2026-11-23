@@ -87,14 +87,13 @@ else
     info "Skipped. You can run CleverSwitch manually with: $APP_NAME"
 fi
 
-# ── Step 5: Edge switch on GNOME (optional) ──────────────────────────
+# ── Step 5: Edge switch (optional) ───────────────────────────────────
 
-case "$(printf '%s' "${XDG_CURRENT_DESKTOP:-}" | tr '[:upper:]' '[:lower:]')" in
-    *gnome*)
-        info "GNOME detected. This archive ships the CleverSwitch GNOME Shell extension, which edge switch"
-        info "needs: see 'Enabling edge switch on KDE / GNOME' in README.md for the four install steps."
-        ;;
-esac
+if [ -f "$SCRIPT_DIR/edge_switch_setup.sh" ]; then
+    # shellcheck source=edge_switch_setup.sh
+    . "$SCRIPT_DIR/edge_switch_setup.sh"
+    es_configure_linux "$SCRIPT_DIR/gnome-extension"
+fi
 
 # ── Done ─────────────────────────────────────────────────────────────
 

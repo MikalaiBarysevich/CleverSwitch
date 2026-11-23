@@ -99,6 +99,15 @@ else
     info "Skipped. You can run CleverSwitch manually with: cleverswitch"
 fi
 
+# ── Step 6: Edge switch (optional) ───────────────────────────────────
+
+SETUP_HELPER="$PROJECT_DIR/scripts/edge_switch_setup.sh"
+if [ -f "$SETUP_HELPER" ]; then
+    # shellcheck source=edge_switch_setup.sh
+    . "$SETUP_HELPER"
+    es_configure_macos
+fi
+
 # ── Done ─────────────────────────────────────────────────────────────
 
 echo ""

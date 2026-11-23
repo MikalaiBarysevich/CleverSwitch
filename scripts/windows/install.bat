@@ -81,6 +81,15 @@ if /i "!STARTUP_CHOICE!"=="y" (
     echo [INFO] Skipped. You can run CleverSwitch manually with: %APP_NAME%
 )
 
+:: ── Step 4: Edge switch (optional) ───────────────────────────────────
+
+set "EDGE_SETUP=!SCRIPT_DIR!configure_edge_switch.ps1"
+if exist "!EDGE_SETUP!" (
+    powershell -NoProfile -ExecutionPolicy Bypass -File "!EDGE_SETUP!"
+) else (
+    echo [WARN] configure_edge_switch.ps1 not found alongside install.bat - skipping edge switch setup.
+)
+
 :: ── Done ─────────────────────────────────────────────────────────────
 
 echo.
