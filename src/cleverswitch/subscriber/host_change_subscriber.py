@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Callable
 
 from ..event.host_change_event import HostChangeEvent
 from ..event.write_event import WriteEvent
@@ -16,13 +17,17 @@ log = logging.getLogger(__name__)
 
 
 class HostChangeSubscriber(Subscriber):
-    def __init__(self, device_registry: LogiDeviceRegistry, topics: Topics):
+    def __init__(
+        self, device_registry: LogiDeviceRegistry, topics: Topics, stopping: Callable[[], bool] = lambda: False
+    ):
         self._device_registry = device_registry
         self._topics = topics
+        self._stopping = stopping
         topics.hid_event.subscribe(self)
 
     def notify(self, event) -> None:
-        if not isinstance(event, HostChangeEvent):
+        # Nothing may be sent once shutdown has begun: discovery un-divert keys right after the backend stops.
+        if not isinstance(event, HostChangeEvent) or self._stopping():
             return
 
         for device in self._device_registry.all_entries():

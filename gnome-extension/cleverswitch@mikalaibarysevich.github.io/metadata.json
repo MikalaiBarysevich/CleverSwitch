@@ -1,0 +1,7 @@
+{
+  "uuid": "cleverswitch@mikalaibarysevich.github.io",
+  "name": "CleverSwitch Edge Switch",
+  "description": "Tells CleverSwitch which screen edge the cursor is on and which modifier keys are held, so it can switch Logitech devices to another host. It does nothing while CleverSwitch is not running.",
+  "shell-version": ["45", "46", "47", "48", "49", "50", "51"],
+  "url": "https://github.com/MikalaiBarysevich/CleverSwitch"
+}

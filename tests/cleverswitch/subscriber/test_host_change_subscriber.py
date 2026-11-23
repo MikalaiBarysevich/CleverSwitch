@@ -72,3 +72,14 @@ def test_host_change_ignores_non_host_change_event():
     sub = HostChangeSubscriber(registry, topics)
     sub.notify("not a host change event")
     topics.write.publish.assert_not_called()
+
+
+def test_nothing_is_sent_after_shutdown_began():
+    """Discovery un-divert keys right after the edge backend stops; a queued event must not re-send a switch."""
+    topics = _make_topics()
+    registry = LogiDeviceRegistry()
+    registry.register(WPID_KB, _make_device(WPID_KB, 1, ROLE_KEYBOARD))
+
+    HostChangeSubscriber(registry, topics, lambda: True).notify(HostChangeEvent(slot=1, pid=PID, target_host=1))
+
+    topics.write.publish.assert_not_called()

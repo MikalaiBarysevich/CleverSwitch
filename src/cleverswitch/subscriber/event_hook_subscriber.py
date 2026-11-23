@@ -3,11 +3,12 @@ import threading
 
 from ..cache.device_cache import DeviceCache
 from ..event.device_connected_event import DeviceConnectedEvent
-from ..event.host_change_event import HostChangeEvent
+from ..event.host_change_event import HostChangeEvent, SwitchSource
 from ..event.info_task_progress_event import InfoTaskProgressEvent
+from ..hidpp.constants import FEATURE_CHANGE_HOST
 from ..hook import hooks
 from ..model.config.hooks_config import HooksConfig
-from ..model.logi_device import LogiDevice
+from ..model.logi_device import ROLE_KEYBOARD, LogiDevice
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
 from ..topic.topics import Topics
@@ -60,10 +61,33 @@ class EventHookSubscriber(Subscriber):
             hooks.fire_disconnect(self._hooks_config, device.display_name, device.role)
 
     def _on_host_change(self, event: HostChangeEvent) -> None:
-        device = next(
-            (d for d in self._device_registry.all_entries() if d.pid == event.pid and d.slot == event.slot),
-            None,
-        )
+        if event.source == SwitchSource.EDGE:
+            if not self._has_change_host_device():
+                # Nothing was sent, so reporting a switch would only mislead a hook.
+                log.debug("No device supports CHANGE_HOST; SWITCH hooks are skipped")
+                return
+            device = self._representative_device()
+        else:
+            device = next(
+                (d for d in self._device_registry.all_entries() if d.pid == event.pid and d.slot == event.slot),
+                None,
+            )
         if device is None or device.name is None or device.role is None:
+            if event.source == SwitchSource.EDGE:
+                # Only an edge switch can get here: a device switch carries its own pid/slot.
+                log.debug("No named device to report the edge switch; SWITCH hooks are skipped")
             return
-        hooks.fire_switch(self._hooks_config, device.display_name, device.role, event.target_host)
+        hooks.fire_switch(
+            self._hooks_config, device.display_name, device.role, event.target_host, source=event.source.value
+        )
+
+    def _has_change_host_device(self) -> bool:
+        return any(FEATURE_CHANGE_HOST in d.available_features for d in self._device_registry.all_entries())
+
+    # An edge switch has no originating device. Keyboards come first, connected before disconnected, because
+    # hooks only fire for keyboards by default: picking a connected mouse over a disconnected keyboard would
+    # silently drop the SWITCH hook.
+    def _representative_device(self) -> LogiDevice | None:
+        named = [d for d in self._device_registry.all_entries() if d.name is not None and d.role is not None]
+        ranked = sorted(named, key=lambda d: (d.role != ROLE_KEYBOARD, not d.connected))
+        return next(iter(ranked), None)
