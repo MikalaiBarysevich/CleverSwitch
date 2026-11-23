@@ -109,6 +109,7 @@ edge_switch:
 - The modifiers must match exactly (Ctrl+Shift does not fire a `ctrl` edge), and a held mouse button blocks it, so Ctrl-drag and Ctrl-click near an edge are safe.
 - Every device that supports CHANGE_HOST (0x1814) is switched; a device without it is left alone. With only a mouse, no SWITCH hook runs unless `hooks.fire_for_all_devices: true`, because hooks are keyboard-only by default.
 - Inside a remote desktop or VM session, edge switch sees that session's cursor and fires there like anywhere else.
+- The binary and source installers offer to write this section for you; the AUR package installs no config.
 - Editing `edge_switch` needs a restart; the config is read once at startup.
 - If edge switch cannot start (for example the permission is missing), CleverSwitch keeps running and tries again whenever a device connects.
 - Run one CleverSwitch per machine. Two instances are only rejected on KDE and GNOME; anywhere else both would send their own switches.

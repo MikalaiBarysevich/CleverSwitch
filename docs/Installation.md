@@ -41,7 +41,7 @@ If no prompt appears, grant it manually:
 1. Download `cleverswitch_macOS.tar.gz` from the [Releases](https://github.com/MikalaiBarysevich/CleverSwitch/releases) page.
 2. Double-click the downloaded file to extract it — a `cleverswitch_macOS` folder will appear.
 3. Open the folder and double-click **`install.command`**.
-   A Terminal window will open and guide you through the setup, including an option to launch CleverSwitch automatically on login.
+   A Terminal window will open and guide you through the setup, including options for launch-at-login and edge switch (see [Edge Switch](https://github.com/MikalaiBarysevich/CleverSwitch#edge-switch)).
 
 On first run, macOS will prompt for **Input Monitoring** permission.
 If no prompt appears, grant it manually:
@@ -60,6 +60,8 @@ chmod +x scripts/mac/install_from_sources.sh
 ./scripts/mac/install_from_sources.sh
 ```
 
+Like the binary installer, it offers to set up edge switch.
+
 The script installs Homebrew (if needed), Python, and CleverSwitch via pip. It also offers to set up launch-at-login.
 
 ## Windows
@@ -69,7 +71,7 @@ The script installs Homebrew (if needed), Python, and CleverSwitch via pip. It a
 1. Download `cleverswitch_windows_x64.zip` from the [Releases](https://github.com/MikalaiBarysevich/CleverSwitch/releases) page.
 2. Right-click the downloaded file and choose **Extract All**, then open the extracted folder.
 3. Double-click **`install.bat`**.
-   The installer will copy `cleverswitch.exe` to your user programs folder, add it to your PATH, and offer to set up startup.
+   The installer will copy `cleverswitch.exe` to your user programs folder, add it to your PATH, and offer to set up startup and edge switch (see [Edge Switch](https://github.com/MikalaiBarysevich/CleverSwitch#edge-switch)).
 
 > If Windows shows a security prompt, click **Run anyway** (the file is safe — Windows warns about unrecognised publishers by default).
 
@@ -103,7 +105,7 @@ or
 paru -S cleverswitch
 ```
 
-Edge switch needs no setup on Windows or macOS (macOS's Input Monitoring requirement is the same one CleverSwitch already needs). On Linux it needs a per-desktop step; see [Edge Switch](https://github.com/MikalaiBarysevich/CleverSwitch#edge-switch) in the README.
+The package installs no config, so add an `edge_switch` section yourself; the binary and source installers offer a wizard for it instead. See [Edge Switch](https://github.com/MikalaiBarysevich/CleverSwitch#edge-switch).
 
 This installs the `cleverswitch` command, the udev rule for non-root HID access, and a systemd **user** service — all managed by pacman, so upgrades and removal are automatic. After installing:
 
@@ -113,7 +115,7 @@ This installs the `cleverswitch` command, the udev rule for non-root HID access,
 systemctl --user enable --now cleverswitch.service
 ```
 
-The packaged rule also grants read access to Logitech keyboards and mice in `/dev/input`, which edge switch on Hyprland and KDE Plasma needs to see the held modifier. Any program you run can then read keystrokes from those devices, which Wayland otherwise prevents; see [Turning off `/dev/input` access](../README.md#turning-off-devinput-access) if you do not want that. Restart CleverSwitch after the rule changes.
+The packaged rule also grants the `/dev/input` access edge switch needs on Hyprland and KDE Plasma; what that exposes and how to turn it off is in [`/dev/input` access](../README.md#devinput-access).
 
 ### Option 2: Pre-built binary (other distros)
 
@@ -124,9 +126,9 @@ The packaged rule also grants read access to Logitech keyboards and mice in `/de
 chmod +x install.sh && ./install.sh
 ```
 
-The installer copies the binary to `~/.local/bin/`, checks that the directory is on your PATH, installs udev rules for non-root HID access (with your confirmation), and offers to run CleverSwitch as a systemd user service on login.
+The installer copies the binary to `~/.local/bin/`, checks that the directory is on your PATH, installs udev rules for non-root HID access (with your confirmation), offers to run CleverSwitch as a systemd user service on login, and offers to set up edge switch — including the GNOME extension where it applies. See [Edge Switch](https://github.com/MikalaiBarysevich/CleverSwitch#edge-switch).
 
-The rules it installs have two parts: HID++ access, which CleverSwitch always needs, and read access to Logitech keyboards and mice in `/dev/input`, which edge switch on Hyprland and KDE Plasma uses to see the held modifier. The installer asks before replacing rules that differ from the shipped ones, because that drops local edits. If you do not want the `/dev/input` half, see [Turning off `/dev/input` access](../README.md#turning-off-devinput-access). Restart CleverSwitch after the rules change.
+It asks before replacing udev rules that differ from the shipped ones, because that drops local edits. Restart CleverSwitch after the rules change.
 
 ### Option 3: From source
 
@@ -137,6 +139,8 @@ The rules it installs have two parts: HID++ access, which CleverSwitch always ne
 chmod +x scripts/linux/install_from_sources.sh
 ./scripts/linux/install_from_sources.sh
 ```
+
+As with the binary installer, it offers to set up edge switch.
 
 The script checks for Python 3, installs CleverSwitch via pip, sets up udev rules, and optionally sets up a systemd user service to start on login.
 
@@ -204,7 +208,7 @@ chmod +x scripts/linux/uninstall.sh
 ./scripts/linux/uninstall.sh
 ```
 
-The script also offers to remove the GNOME Shell extension (log out and back in afterwards). The KWin script used on KDE exists only while CleverSwitch runs, so nothing is left behind there. If you installed from the AUR, pacman removes the packaged extension from `/usr/share/gnome-shell/extensions/`; a copy you made under `~/.local/share/gnome-shell/extensions/` has to be removed by hand (`gnome-extensions disable cleverswitch@mikalaibarysevich.github.io`, then delete its directory).
+The script also offers to remove the GNOME Shell extension. The KWin script used on KDE exists only while CleverSwitch runs, so nothing is left behind there. With the AUR package, pacman removes the packaged extension; a copy under `~/.local/share/gnome-shell/extensions/` has to be deleted by hand.
 
 This stops and removes the systemd user service (and any XDG autostart entry), removes the binary from `~/.local/bin/`, uninstalls the CleverSwitch pip package if present, and optionally removes udev rules.
 

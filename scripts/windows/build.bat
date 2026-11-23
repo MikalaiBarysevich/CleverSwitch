@@ -111,6 +111,7 @@ copy /y LICENSE.txt "%STAGE%\" >nul
 copy /y docs\Installation.md "%STAGE%\" >nul
 copy /y config.example.yaml "%STAGE%\" >nul
 copy /y scripts\windows\install.bat "%STAGE%\" >nul
+copy /y scripts\windows\configure_edge_switch.ps1 "%STAGE%\" >nul
 copy /y scripts\windows\uninstall.bat "%STAGE%\" >nul
 copy /y scripts\windows\setup_startup_windows.bat "%STAGE%\" >nul
 copy /y scripts\windows\set_user_path.ps1 "%STAGE%\" >nul
