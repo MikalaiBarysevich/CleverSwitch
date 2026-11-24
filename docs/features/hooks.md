@@ -38,7 +38,7 @@ Each hook is a **named** entry with the following keys:
 | `path`    | A script to run directly, without a shell. Mutually exclusive with `command`.           |
 | `command` | A shell command (supports pipes, `$VAR` expansion, etc). Mutually exclusive with `path`. |
 | `type`    | Which event(s) fire the hook: `CONNECT`, `SWITCH`, `DISCONNECT` — a single value or a list. |
-| `timeout` | Seconds before the hook process is killed (default: `5`).                               |
+| `timeout` | Seconds before the hook and the processes it started are killed (default: `5`).           |
 | `fire_for_all_devices` | Optional per-hook override of the global `hooks.fire_for_all_devices`. Set `true` to also fire for mouse events, or `false` to stay keyboard-only; omit to inherit the global default. |
 
 Specify exactly one of `path` or `command`; setting both (or neither) logs an error and skips that hook.
