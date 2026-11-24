@@ -326,6 +326,36 @@ def test_opposite_state_disconnect_event_updates_connected_flag():
     assert device.connected is False
 
 
+def test_connected_device_reporting_new_slot_takes_the_new_address():
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
+
+    device = _make_device(pending_steps=set())
+    registry.register(WPID, device)
+
+    sub.notify(DeviceConnectedEvent(slot=2, pid=PID, link_established=True, wpid=WPID, device_type=1))
+
+    assert (device.slot, device.pid) == (2, PID)
+    topics.flags.publish.assert_called_once()
+    flag_event = topics.flags.publish.call_args[0][0]
+    assert (flag_event.slot, flag_event.pid) == (2, PID)
+
+
+def test_duplicate_connect_with_same_address_publishes_nothing():
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
+
+    device = _make_device(pending_steps=set())
+    registry.register(WPID, device)
+
+    sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1))
+
+    topics.flags.publish.assert_not_called()
+    topics.device_info.publish.assert_not_called()
+
+
 # ── Ignored events ───────────────────────────────────────────────────────────
 
 

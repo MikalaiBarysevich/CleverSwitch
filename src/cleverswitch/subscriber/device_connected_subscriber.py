@@ -27,7 +27,11 @@ class DeviceConnectionSubscriber(Subscriber):
 
         logi_device = self._device_registry.get_by_wpid(event.wpid)
 
-        if logi_device is not None and logi_device.connected == event.link_established:
+        if (
+            logi_device is not None
+            and logi_device.connected == event.link_established
+            and (logi_device.slot, logi_device.pid) == (event.slot, event.pid)
+        ):
             return
 
         cached_device = self._cache.find_by_wpid(event.wpid)

@@ -49,8 +49,8 @@ discovery.discover()
                   DeviceConnectedEvent(link_established=False) per registered device on that pid
 
 DeviceConnectionSubscriber.notify(DeviceConnectedEvent)
-  ├── idempotence: skips if logi_device.connected == event.link_established (absorbs duplicates,
-  │     e.g. from the disconnect fan-out)
+  ├── idempotence: skips if logi_device.connected == event.link_established and (slot, pid) equal the
+  │     event's (absorbs duplicates, e.g. from the disconnect fan-out)
   ├── new device + cache hit → cached LogiDevice registered, then reconnection path (skips discovery)
   ├── new device + link_established=True  → LogiDevice registered, DeviceInfoRequestEvent published
   ├── new device + link_established=False → skipped (stale pairing entry from receiver enumeration)
