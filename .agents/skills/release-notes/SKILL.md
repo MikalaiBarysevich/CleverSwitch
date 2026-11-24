@@ -5,7 +5,7 @@ description: Generate GitHub release notes for unreleased CleverSwitch tags in t
 
 # CleverSwitch Release Notes
 
-Produce a single combined release-notes markdown body covering every unreleased tag, in the exact format used by prior releases at https://github.com/MikalaiBarysevich/CleverSwitch/releases.
+Produce a single combined release-notes markdown body covering every unreleased tag, in the repo's current release-notes format. Prior releases at https://github.com/MikalaiBarysevich/CleverSwitch/releases are the reference for tone and bullet style.
 
 ## Rules
 
@@ -31,7 +31,7 @@ The range is `<latest published tag>..<latest tag>`. Tags inside that range are 
 gh release view <recent-published-tag> --repo MikalaiBarysevich/CleverSwitch
 ```
 
-Use the most recent published release as the canonical format template. Match its section structure, heading levels, bullet style, and bold-label convention exactly.
+Use the most recent published release for tone and bullet style, but the structure in Step 4 is authoritative — older releases still contain a Platform Support section and the old `Installation.md` path.
 
 ### 3. Gather commits and PR context
 
@@ -46,7 +46,7 @@ Trivial sync/merge commits with no user-facing impact (e.g. "Sync main") are omi
 
 ### 4. Write the body
 
-Required structure (copied from prior releases — keep verbatim except for the Overview/Changes content):
+Required structure (keep verbatim except for the Overview/Changes content):
 
 ```markdown
 ### Overview
@@ -58,17 +58,11 @@ Required structure (copied from prior releases — keep verbatim except for the 
 * **<Short title>:** <what changed and the user-facing impact. Include the technical mechanism only when it explains why the fix matters (e.g. "the `::` form was being parsed as a label and breaking variable expansion").>
 * ...
 
-### Platform Support
-
-* **Windows x64**
-* **Linux.**
-* **macOS.**
-
 ### Installation & Assets
 
-* **Windows:** download `cleverswitch_windows_x64.zip` from the **Assets** section below and follow the `Installation.md` included in the archive.
-* **Linux:** download `cleverswitch_linux.tar.gz` from the **Assets** section below and follow the `Installation.md` included in the archive.
-* **macOS:** download `cleverswitch_macOS.tar.gz` from the **Assets** section below and follow the `Installation.md` included in the archive.
+* **Windows:** download `cleverswitch_windows_x64.zip` from the **Assets** section below and follow `docs/installation.md` in the archive.
+* **Linux (Arch-based):** `yay -S cleverswitch` (or `paru -S cleverswitch`), then `systemctl --user enable --now cleverswitch.service`. For other distributions, download `cleverswitch_linux.tar.gz` from the **Assets** section below and follow `docs/installation.md` in the archive.
+* **macOS:** `brew tap mikalaibarysevich/cleverswitch`, `brew trust mikalaibarysevich/cleverswitch`, `brew install cleverswitch`, then `brew services start cleverswitch`. Or download `cleverswitch_macOS.tar.gz` from the **Assets** section below and follow `docs/installation.md` in the archive.
 ```
 
 ### 5. Style notes
@@ -78,3 +72,6 @@ Required structure (copied from prior releases — keep verbatim except for the 
 - Order bullets by user-visible importance, not by merge order.
 - Overview is one paragraph, two sentences max — name the headline change first.
 - Never mention PR numbers, commit SHAs, or internal refactors that have no user impact.
+- No `Platform Support` section — the README owns the platform/support matrix.
+- Installation bullets lead with the package manager (Homebrew, AUR) and fall back to the archive.
+- The archive keeps `README.md` at its root and bundles user docs under `docs/`; always link `docs/installation.md`, never `Installation.md`.

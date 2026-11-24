@@ -14,6 +14,7 @@ Communication is via **HID++ 2.0** directly over the Logitech **Bolt USB receive
 - Log calls use f-strings only: `log.info(f"wpid=0x{wpid:04X}")` — never `%s`/`%d` style. `wpid` and `pid` values are always formatted as `0x{value:04X}`.
 - Label devices in logs and hooks with `device.display_name`, never `device.name`.
 - When behaviour changes, update the matching doc under `docs/architecture/` (skill: `update-agents-md`). Stale docs are worse than missing ones.
+- User-facing docs: `README.md` (repo root) is the feature overview only; procedures, config references and per-feature detail live under `docs/`. When user-visible behaviour, config keys, CLI flags or platform support changes, update the matching doc (skill: `write-user-docs`).
 - After any file edit, verify the executable bit survived on `scripts/mac/*.command` and `scripts/*.sh`; file-rewriting tools drop it and git records the mode change as a regression. Restore with `git update-index --chmod=+x <path>`.
 
 ## Tech stack
@@ -50,6 +51,21 @@ git update-index --chmod=+x scripts/mac/<file>.command
 ```
 
 ## Where to look
+
+User-facing docs:
+
+| Topic | Doc |
+|---|---|
+| Features, support matrix, quick start | `README.md` |
+| Install, update, autostart, uninstall | `docs/installation.md` |
+| Config keys, CLI flags, device cache | `docs/configuration.md` |
+| Hooks | `docs/features/hooks.md` |
+| Edge switch (user guide) | `docs/features/edge-switch.md` |
+| Log files, rotation, debug output | `docs/features/logging.md` |
+| Troubleshooting | `docs/troubleshooting.md` |
+| Docs index | `docs/README.md` |
+
+Architecture — read only the doc for the subsystem you touch:
 
 | Subsystem | Doc |
 |---|---|

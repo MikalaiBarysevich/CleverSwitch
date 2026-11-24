@@ -108,7 +108,10 @@ mkdir "%STAGE%"
 copy /y "dist\%EXE_NAME%" "%STAGE%\" >nul
 copy /y README.md "%STAGE%\" >nul
 copy /y LICENSE.txt "%STAGE%\" >nul
-copy /y docs\Installation.md "%STAGE%\" >nul
+mkdir "%STAGE%\docs" >nul 2>nul
+mkdir "%STAGE%\docs\features" >nul 2>nul
+copy /y docs\*.md "%STAGE%\docs\" >nul
+copy /y docs\features\*.md "%STAGE%\docs\features\" >nul
 copy /y config.example.yaml "%STAGE%\" >nul
 copy /y scripts\windows\install.bat "%STAGE%\" >nul
 copy /y scripts\windows\configure_edge_switch.ps1 "%STAGE%\" >nul

@@ -244,7 +244,7 @@ _es_install_gnome_extension() {
 
     if [ -z "$src" ] || [ ! -d "$src/$uuid" ]; then
         _es_warn "The GNOME Shell extension is not in this archive; copy gnome-extension/$uuid from the"
-        _es_warn "source tree. See 'Enabling edge switch on KDE / GNOME' in README.md."
+        _es_warn "source tree. See 'Enabling edge switch on KDE / GNOME' in docs/features/edge-switch.md."
         return 0
     fi
     mkdir -p "$(dirname "$dest")" || return 1
@@ -264,7 +264,7 @@ es_configure_linux() {
         return 0
     fi
     if ! _es_ask_yes_no "Configure edge switch (switch hosts by holding a modifier at a screen edge)?"; then
-        _es_info "Skipped. See 'Edge Switch' in README.md to set it up later."
+        _es_info "Skipped. See docs/features/edge-switch.md to set it up later."
         return 0
     fi
 
@@ -289,7 +289,7 @@ es_configure_linux() {
 # Entry point for the macOS installers: no /dev/input, no widget, just the permission note.
 es_configure_macos() {
     if ! _es_ask_yes_no "Configure edge switch (switch hosts by holding a modifier at a screen edge)?"; then
-        _es_info "Skipped. See 'Edge Switch' in README.md to set it up later."
+        _es_info "Skipped. See docs/features/edge-switch.md to set it up later."
         return 0
     fi
     _es_collect

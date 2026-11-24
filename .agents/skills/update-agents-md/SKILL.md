@@ -70,6 +70,7 @@ Go through each changed file and classify it. Only the first category needs docu
 ## Step 3: Pick the target file
 
 - **`AGENTS.md`** — a rule an agent must follow anywhere in the repo, a command, a convention, a dependency, or a change to the "Where to look" map. Keep it under roughly 150 lines; if a paragraph explains *how a subsystem works*, it belongs in a doc.
+- **`README.md` and the matching page under `docs/`** — user-visible behaviour, config keys, CLI flags, supported platforms or install steps. Follow the `write-user-docs` skill's location table: the README keeps a summary and a link; detail goes in `docs/installation.md`, `docs/configuration.md`, a feature guide or `docs/troubleshooting.md`.
 - **`docs/architecture/<subsystem>.md`** — mechanism, lifecycle, event flow, retry rules, threading. Match the change to an existing doc:
 
 | Subsystem | Doc |

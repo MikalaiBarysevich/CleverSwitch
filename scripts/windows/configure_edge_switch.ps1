@@ -58,7 +58,7 @@ function Ask-Host([string]$Label) {
 }
 
 if (-not (Ask-YesNo "Configure edge switch (switch hosts by holding a modifier at a screen edge)?")) {
-    Write-Host "==> Skipped. See 'Edge Switch' in README.md to set it up later."
+    Write-Host "==> Skipped. See docs/features/edge-switch.md to set it up later."
     exit 0
 }
 

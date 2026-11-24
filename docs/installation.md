@@ -41,7 +41,7 @@ If no prompt appears, grant it manually:
 1. Download `cleverswitch_macOS.tar.gz` from the [Releases](https://github.com/MikalaiBarysevich/CleverSwitch/releases) page.
 2. Double-click the downloaded file to extract it — a `cleverswitch_macOS` folder will appear.
 3. Open the folder and double-click **`install.command`**.
-   A Terminal window will open and guide you through the setup, including options for launch-at-login and edge switch (see [Edge Switch](https://github.com/MikalaiBarysevich/CleverSwitch#edge-switch)).
+   A Terminal window will open and guide you through the setup, including options for launch-at-login and edge switch (see [Edge Switch](features/edge-switch.md)).
 
 On first run, macOS will prompt for **Input Monitoring** permission.
 If no prompt appears, grant it manually:
@@ -51,6 +51,8 @@ If no prompt appears, grant it manually:
 3. Press **Cmd + Shift + G**, paste `~/.local/bin/cleverswitch`, and click Open.
 
 ### Option 3: From source
+
+Requires Homebrew and hidapi. Install Homebrew from [brew.sh](https://brew.sh) if you do not have it, then run `brew install hidapi` before the script.
 
 1. Clone the repository.
 2. Open Terminal and navigate to the project folder.
@@ -62,7 +64,7 @@ chmod +x scripts/mac/install_from_sources.sh
 
 Like the binary installer, it offers to set up edge switch.
 
-The script installs Homebrew (if needed), Python, and CleverSwitch via pip. It also offers to set up launch-at-login.
+The script installs Homebrew (if needed), Python, pipx and CleverSwitch, and offers to set up launch-at-login.
 
 ## Windows
 
@@ -71,7 +73,7 @@ The script installs Homebrew (if needed), Python, and CleverSwitch via pip. It a
 1. Download `cleverswitch_windows_x64.zip` from the [Releases](https://github.com/MikalaiBarysevich/CleverSwitch/releases) page.
 2. Right-click the downloaded file and choose **Extract All**, then open the extracted folder.
 3. Double-click **`install.bat`**.
-   The installer will copy `cleverswitch.exe` to your user programs folder, add it to your PATH, and offer to set up startup and edge switch (see [Edge Switch](https://github.com/MikalaiBarysevich/CleverSwitch#edge-switch)).
+   The installer will copy `cleverswitch.exe` to your user programs folder, add it to your PATH, and offer to set up startup and edge switch (see [Edge Switch](features/edge-switch.md)).
 
 > If Windows shows a security prompt, click **Run anyway** (the file is safe — Windows warns about unrecognised publishers by default).
 
@@ -105,7 +107,7 @@ or
 paru -S cleverswitch
 ```
 
-The package installs no config, so add an `edge_switch` section yourself; the binary and source installers offer a wizard for it instead. See [Edge Switch](https://github.com/MikalaiBarysevich/CleverSwitch#edge-switch).
+The package installs no config, so add an `edge_switch` section yourself; the binary and source installers offer a wizard for it instead. See [Edge Switch](features/edge-switch.md).
 
 This installs the `cleverswitch` command, the udev rule for non-root HID access, and a systemd **user** service — all managed by pacman, so upgrades and removal are automatic. After installing:
 
@@ -115,7 +117,7 @@ This installs the `cleverswitch` command, the udev rule for non-root HID access,
 systemctl --user enable --now cleverswitch.service
 ```
 
-The packaged rule also grants the `/dev/input` access edge switch needs on Hyprland and KDE Plasma; what that exposes and how to turn it off is in [`/dev/input` access](../README.md#devinput-access).
+The packaged rule also grants the `/dev/input` access edge switch needs on Hyprland and KDE Plasma; what that exposes and how to turn it off is in [`/dev/input` access](features/edge-switch.md#devinput-access).
 
 ### Option 2: Pre-built binary (other distros)
 
@@ -126,11 +128,13 @@ The packaged rule also grants the `/dev/input` access edge switch needs on Hyprl
 chmod +x install.sh && ./install.sh
 ```
 
-The installer copies the binary to `~/.local/bin/`, checks that the directory is on your PATH, installs udev rules for non-root HID access (with your confirmation), offers to run CleverSwitch as a systemd user service on login, and offers to set up edge switch — including the GNOME extension where it applies. See [Edge Switch](https://github.com/MikalaiBarysevich/CleverSwitch#edge-switch).
+The installer copies the binary to `~/.local/bin/`, checks that the directory is on your PATH, installs udev rules for non-root HID access (with your confirmation), offers to run CleverSwitch as a systemd user service on login, and offers to set up edge switch — including the GNOME extension where it applies. See [Edge Switch](features/edge-switch.md).
 
 It asks before replacing udev rules that differ from the shipped ones, because that drops local edits. Restart CleverSwitch after the rules change.
 
 ### Option 3: From source
+
+Requires Python 3, pipx and libhidapi. Install hidapi with your distribution's package manager, for example `sudo apt install libhidapi-hidraw0` (Debian/Ubuntu), `sudo pacman -S hidapi` (Arch) or `sudo dnf install hidapi` (Fedora).
 
 1. Clone the repository.
 2. Open a terminal and navigate to the project folder.
@@ -142,7 +146,7 @@ chmod +x scripts/linux/install_from_sources.sh
 
 As with the binary installer, it offers to set up edge switch.
 
-The script checks for Python 3, installs CleverSwitch via pip, sets up udev rules, and optionally sets up a systemd user service to start on login.
+The script checks for Python 3, installs CleverSwitch via pipx, sets up udev rules, and optionally sets up a systemd user service to start on login.
 
 ## Run on Startup
 
