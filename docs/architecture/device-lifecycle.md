@@ -52,7 +52,8 @@ DeviceConnectionSubscriber.notify(DeviceConnectedEvent)
   ├── idempotence: skips if logi_device.connected == event.link_established (absorbs duplicates,
   │     e.g. from the disconnect fan-out)
   ├── new device + cache hit → cached LogiDevice registered, then reconnection path (skips discovery)
-  ├── new device + link_established=True  → LogiDevice registered, DeviceInfoRequestEvent published
+  ├── new device + link_established=True  → LogiDevice registered (a replaced entry in the same (pid, slot)
+  │     that is disconnected is unregistered first), DeviceInfoRequestEvent published
   ├── new device + link_established=False → skipped (stale pairing entry from receiver enumeration)
   └── reconnect → logi_device.connected updated, SetReportFlagEvent re-published if supported_flags known,
         DeviceInfoRequestEvent published only for still-pending_steps

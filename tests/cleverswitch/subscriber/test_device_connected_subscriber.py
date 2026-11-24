@@ -223,6 +223,70 @@ def test_reconnection_does_not_request_info_if_setup_complete():
     topics.device_info.publish.assert_not_called()
 
 
+# ── Stale entries ────────────────────────────────────────────────────────────
+
+
+def test_new_link_in_slot_evicts_disconnected_entry_it_replaces():
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
+
+    stale = LogiDevice(wpid=0x4000, pid=PID, slot=1, role=ROLE_MOUSE, available_features={})
+    stale.connected = False
+    registry.register(0x4000, stale)
+
+    sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1))
+
+    assert registry.get_by_wpid(0x4000) is None
+    assert registry.get_by_wpid(WPID) is not None
+
+
+def test_reconnection_evicts_stale_entry_in_same_slot():
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
+
+    device = _make_device(pending_steps=set())
+    device.connected = False
+    registry.register(WPID, device)
+    stale = LogiDevice(wpid=0x4000, pid=PID, slot=1, role=ROLE_MOUSE, available_features={})
+    stale.connected = False
+    registry.register(0x4000, stale)
+
+    sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1))
+
+    assert registry.get_by_wpid(0x4000) is None
+    assert registry.get_by_wpid(WPID) is device
+
+
+def test_eviction_leaves_entries_in_other_slots_untouched():
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
+
+    other = LogiDevice(wpid=0x4000, pid=PID, slot=2, role=ROLE_MOUSE, available_features={})
+    other.connected = False
+    registry.register(0x4000, other)
+
+    sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1))
+
+    assert registry.get_by_wpid(0x4000) is other
+
+
+def test_same_wpid_re_registering_keeps_its_entry():
+    registry = LogiDeviceRegistry()
+    topics = _make_topics()
+    sub = DeviceConnectionSubscriber(registry, topics, _make_cache())
+
+    device = _make_device(pending_steps=set())
+    device.connected = False
+    registry.register(WPID, device)
+
+    sub.notify(DeviceConnectedEvent(slot=1, pid=PID, link_established=True, wpid=WPID, device_type=1))
+
+    assert registry.get_by_wpid(WPID) is device
+
+
 # ── connected flag ───────────────────────────────────────────────────────────
 
 
