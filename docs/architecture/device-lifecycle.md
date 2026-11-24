@@ -5,7 +5,8 @@ discovery.discover()
   ├── hotplug/backend_factory.create_backend() → HotplugBackend, one per platform (nothing polls):
   │     Linux: NetlinkHotplugBackend — udevd's netlink group (2, after rules ran, so the uaccess ACL
   │     is already applied), root-sent messages only, hidraw add/remove → pid from DEVPATH; ENOBUFS →
-  │     HotplugResyncEvent.
+  │     HotplugResyncEvent; any other socket error re-checks every device and retries after 0.5 s,
+  │     stopping hotplug for good after 5 consecutive failures.
   │     macOS: IOKitHotplugBackend — an IOHIDManager matching Logitech's vendor id, scheduled on its
   │     own CFRunLoop thread; matching/removal callbacks read only ProductID (the IORegistry entry is
   │     already gone on removal; IOHIDDeviceRef values are reused, so never key by the ref). The

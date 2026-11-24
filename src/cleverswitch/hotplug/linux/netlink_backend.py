@@ -4,6 +4,7 @@ import os
 import select
 import socket
 import threading
+import time
 
 from ...errors.errors import HotplugError
 from ...event.hid_node_added_event import HidNodeAddedEvent
@@ -23,6 +24,8 @@ _UDEV_GROUP = 2
 _RECEIVE_BUFFER = 1 << 20
 _MESSAGE_SIZE = 16384
 _STOP_JOIN_TIMEOUT = 2.0
+_ERROR_RETRY_DELAY = 0.5
+_MAX_CONSECUTIVE_ERRORS = 5
 
 
 class NetlinkHotplugBackend(HotplugBackend):
@@ -61,6 +64,7 @@ class NetlinkHotplugBackend(HotplugBackend):
         os.close(self._wake_write)
 
     def _run(self) -> None:
+        failures = 0
         while True:
             readable, _, _ = select.select([self._sock, self._wake_read], [], [])
             if self._wake_read in readable:
@@ -72,8 +76,18 @@ class NetlinkHotplugBackend(HotplugBackend):
                     log.warning("udev events were lost; re-checking every device")
                     self._topics.hotplug.publish(HotplugResyncEvent(slot=0, pid=0))
                     continue
-                log.error(f"udev event socket failed, device hotplug stopped: {e}")
-                return
+                failures += 1
+                if failures >= _MAX_CONSECUTIVE_ERRORS:
+                    log.error(f"udev event socket failed, device hotplug stopped: {e}")
+                    return
+                log.warning(
+                    f"udev event socket failed ({failures}/{_MAX_CONSECUTIVE_ERRORS}), "
+                    f"re-checking every device and retrying: {e}"
+                )
+                self._topics.hotplug.publish(HotplugResyncEvent(slot=0, pid=0))
+                time.sleep(_ERROR_RETRY_DELAY)
+                continue
+            failures = 0
             self._handle(data, ancdata)
 
     def _handle(self, data: bytes, ancdata) -> None:
