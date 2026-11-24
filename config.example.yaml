@@ -50,12 +50,20 @@ hooks:
 #     backup_count: 3      # 1..50, rotated files kept (cleverswitch.log.1, .2, ...)
 
 
+# Device cache (optional)
+# Discovered device information is cached so a reconnect skips discovery.
+# Reset it with: cleverswitch --clear-cache
+#
+# cache:
+#   path: ~/.config/cleverswitch/device_cache.json
+
+
 # Edge switch (optional)
 # Hold the modifier and move the cursor onto an outer edge of the desktop to switch every device to the
 # host mapped to that edge. Only the outer edges of all monitors together count, the cursor must move
 # onto the edge while the modifier is held, and a held mouse button blocks it.
-# On Linux it works on X11, Hyprland, KDE Plasma 6 and GNOME 45+; Hyprland and KDE need /dev/input access and
-# GNOME needs the bundled GNOME Shell extension (see README).
+# On Linux it works on X11, Hyprland, KDE Plasma 6 and GNOME 45–51; Hyprland and KDE need /dev/input access and
+# GNOME needs the bundled GNOME Shell extension (see docs/features/edge-switch.md).
 #
 # edge_switch:
 #   enabled: true
