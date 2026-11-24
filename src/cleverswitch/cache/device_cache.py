@@ -59,14 +59,16 @@ class DeviceCache:
             self._cache_registry.register(device.wpid, device)
             self._write_to_disk()
 
-    def clear(self) -> None:
+    def clear(self) -> bool:
         with self._lock:
             self._cache_registry = LogiDeviceRegistry()
             try:
                 self._path.unlink(missing_ok=True)
                 log.info(f"Cleared device cache at {self._path}")
+                return True
             except OSError as e:
                 log.warning(f"Failed to clear device cache {self._path}: {e}")
+                return False
 
     def _write_to_disk(self) -> None:
         disk_cache = DiskCache(version=CACHE_VERSION, devices=self._cache_registry.all_entries())

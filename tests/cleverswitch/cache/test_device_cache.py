@@ -218,13 +218,32 @@ def test_clear_missing_file_is_noop(tmp_path):
     cache.clear()  # must not raise
 
 
-def test_clear_swallows_unlink_error(tmp_path, mocker):
+def test_clear_swallows_unlink_error_and_reports_failure(tmp_path, mocker):
     path = tmp_path / "cache.json"
     cache = DeviceCache(path)
     cache.save(_keyboard())
     mocker.patch.object(type(path), "unlink", side_effect=OSError("locked"))
-    cache.clear()  # must not raise
+    assert cache.clear() is False  # must not raise
     assert cache.find_by_wpid(WPID) is None  # in-memory still reset
+
+
+def test_clear_returns_true_on_success(tmp_path):
+    path = tmp_path / "cache.json"
+    cache = DeviceCache(path)
+    cache.save(_keyboard())
+    assert cache.clear() is True
+
+
+def test_clear_returns_true_when_file_is_absent(tmp_path):
+    assert DeviceCache(tmp_path / "nope.json").clear() is True
+
+
+def test_clear_permission_error_returns_false(tmp_path, mocker):
+    path = tmp_path / "cache.json"
+    cache = DeviceCache(path)
+    cache.save(_keyboard())
+    mocker.patch("pathlib.Path.unlink", side_effect=PermissionError)
+    assert cache.clear() is False
 
 
 def test_save_overwrites_existing_entry(tmp_path):
