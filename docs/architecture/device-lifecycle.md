@@ -70,8 +70,9 @@ InfoTaskOrchestrator.notify(InfoTaskProgressEvent)
   ├── success + pending_steps empty → cache.save(device), logs "Device fully discovered" (once per wpid).
   │     friendly_name is never back-filled from name; display_name already falls back to it.
   └── failure + device.connected → retries the task immediately, up to MAX_DISCOVERY_ATTEMPTS (5)
-        for the steps in _CAPPED_STEPS (CHANGE_HOST, CID_REPORTING, FIND_ES_CIDS_FLAGS, GET_DEVICE_TYPE);
-        on exhaustion logs once at CRITICAL and keeps running. Cosmetic steps retry unbounded.
+        for the steps in _CAPPED_STEPS (CHANGE_HOST, CID_REPORTING, NAME_AND_TYPE, FRIENDLY_NAME,
+        FIND_ES_CIDS_FLAGS, GET_DEVICE_TYPE, GET_DEVICE_NAME, GET_DEVICE_FRIENDLY_NAME);
+        on exhaustion logs once at CRITICAL and keeps running. Any step not in the set retries unbounded.
         A task that failed after an error reply reports it only after ERROR_RETRY_DELAY (2s), so a
         device that answers everything with an error (a receiver's 0x09 for an unreachable device)
         is retried at the pace of a timeout, not in a hot loop.
