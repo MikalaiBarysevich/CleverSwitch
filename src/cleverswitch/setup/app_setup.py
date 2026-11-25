@@ -12,7 +12,6 @@ from ..errors.errors import ConfigError
 from ..log.log_setup import configure_logging
 from ..model.config.logging_config import LoggingConfig
 from ..model.context.app_context import AppContext
-from ..model.switch_echo_guard import SwitchEchoGuard
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.analytics_rejection_subscriber import AnalyticsRejectionSubscriber
 from ..subscriber.change_host_notification_subscriber import ChangeHostNotificationSubscriber
@@ -108,7 +107,6 @@ def _init_subscribers(
     cache: DeviceCache,
     shutdown: threading.Event,
 ) -> None:
-    echo_guard = SwitchEchoGuard()
     stopping = shutdown.is_set
     DeviceConnectionSubscriber(device_registry, topics, cache)
     DeviceInfoSubscriber(device_registry, topics)
@@ -118,7 +116,7 @@ def _init_subscribers(
     AnalyticsRejectionSubscriber(device_registry, topics, cache)
     HostChangeSubscriber(device_registry, topics, stopping)
     EasySwitchKeySubscriber(device_registry, topics)
-    ChangeHostNotificationSubscriber(device_registry, topics, echo_guard)
+    ChangeHostNotificationSubscriber(device_registry, topics)
     WirelessStatusSubscriber(device_registry, topics)
     TransportDisconnectionSubscriber(device_registry, topics)
     ReceiverArmingSubscriber(topics)
@@ -126,4 +124,4 @@ def _init_subscribers(
     ChannelRearmSubscriber(device_registry, topics)
     EventHookSubscriber(config.hooks, device_registry, topics, cache)
     if config.edge_switch.enabled:
-        EdgeSwitchSubscriber(config.edge_switch, topics, echo_guard, stopping)
+        EdgeSwitchSubscriber(config.edge_switch, topics, stopping)
