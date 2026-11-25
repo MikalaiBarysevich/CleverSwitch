@@ -57,6 +57,18 @@ Configuration is optional — without a file, defaults are used. Copy
 when you want hooks, edge switch or custom logging. Full reference:
 [configuration](docs/configuration.md).
 
+## Shared clipboard
+
+CleverSwitch switches your keyboard and mouse, not your clipboard, by design. Sharing a clipboard
+means running an encrypted network service on every host, with device pairing and per-OS clipboard
+access, including the Wayland restrictions — a different product, and one that open-source tools
+already do better than a HID daemon could.
+
+For a clipboard that follows you between hosts, use a dedicated tool such as
+[UniClipboard](https://github.com/UniClipboard/UniClipboard) (AGPL-3.0; peer-to-peer, end-to-end
+encrypted; Linux, macOS and Windows). It is an independent project, separate from CleverSwitch,
+which does not integrate with it, configure it, or support it.
+
 ## How it works
 
 ```
