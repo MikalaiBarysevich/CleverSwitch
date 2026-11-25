@@ -4,7 +4,6 @@ from ..event.hidpp_notification_event import HidppNotificationEvent
 from ..event.host_change_event import HostChangeEvent
 from ..hidpp.constants import FEATURE_CHANGE_HOST, HOST_SWITCH_CIDS
 from ..model.logi_device import LogiDevice
-from ..model.switch_echo_guard import SwitchEchoGuard
 from ..registry.logi_device_registry import LogiDeviceRegistry
 from ..subscriber.subscriber import Subscriber
 from ..topic.topics import Topics
@@ -24,10 +23,9 @@ class ChangeHostNotificationSubscriber(Subscriber):
     against the device's resolved x1814 index happens here.
     """
 
-    def __init__(self, device_registry: LogiDeviceRegistry, topics: Topics, echo_guard: SwitchEchoGuard | None = None):
+    def __init__(self, device_registry: LogiDeviceRegistry, topics: Topics):
         self._device_registry = device_registry
         self._topics = topics
-        self._echo_guard = echo_guard
         topics.hid_event.subscribe(self)
 
     def notify(self, event) -> None:
@@ -50,10 +48,6 @@ class ChangeHostNotificationSubscriber(Subscriber):
         target_host = event.payload[1]
         if target_host not in VALID_HOSTS:
             log.warning(f"'{device.display_name}' announced unknown target host {target_host}")
-            return
-
-        if self._echo_guard is not None and self._echo_guard.is_echo(target_host):
-            log.debug(f"'{device.display_name}' announced the switch to host {target_host + 1} we just sent; ignoring")
             return
 
         log.info(f"'{device.display_name}' switched to host {target_host + 1}")

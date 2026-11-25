@@ -7,7 +7,6 @@ from cleverswitch.event.host_change_event import HostChangeEvent, SwitchSource
 from cleverswitch.event.hotplug_resync_event import HotplugResyncEvent
 from cleverswitch.model.config.edge import Edge
 from cleverswitch.model.config.edge_switch_config import EdgeSwitchConfig
-from cleverswitch.model.switch_echo_guard import SwitchEchoGuard
 from cleverswitch.subscriber.edge_switch_subscriber import EdgeSwitchSubscriber
 from cleverswitch.topic.topic import Topic
 from cleverswitch.topic.topics import Topics
@@ -25,9 +24,9 @@ def _make_topics():
     )
 
 
-def _subscriber(topics, guard=None):
+def _subscriber(topics):
     cfg = EdgeSwitchConfig(enabled=True, edges={Edge.LEFT: 0, Edge.RIGHT: 1})
-    return EdgeSwitchSubscriber(cfg, topics, guard or MagicMock(spec=SwitchEchoGuard))
+    return EdgeSwitchSubscriber(cfg, topics)
 
 
 def test_subscribes_to_edge_topic():
@@ -38,13 +37,11 @@ def test_subscribes_to_edge_topic():
 
 def test_mapped_edge_publishes_host_change_from_edge_source():
     topics = _make_topics()
-    guard = MagicMock(spec=SwitchEchoGuard)
-    _subscriber(topics, guard).notify(EdgeTouchedEvent(slot=0, pid=0, edge=Edge.RIGHT))
+    _subscriber(topics).notify(EdgeTouchedEvent(slot=0, pid=0, edge=Edge.RIGHT))
 
     topics.hid_event.publish.assert_called_once_with(
         HostChangeEvent(slot=0, pid=0, target_host=1, source=SwitchSource.EDGE)
     )
-    guard.record.assert_called_once_with(1)
 
 
 def test_unmapped_edge_publishes_nothing():
@@ -61,9 +58,7 @@ def test_ignores_other_events():
 
 def test_no_switch_is_requested_once_shutdown_began():
     topics = _make_topics()
-    sub = EdgeSwitchSubscriber(
-        EdgeSwitchConfig(enabled=True, edges={Edge.LEFT: 0}), topics, MagicMock(spec=SwitchEchoGuard), lambda: True
-    )
+    sub = EdgeSwitchSubscriber(EdgeSwitchConfig(enabled=True, edges={Edge.LEFT: 0}), topics, lambda: True)
     sub.notify(EdgeTouchedEvent(slot=0, pid=0, edge=Edge.LEFT))
     topics.hid_event.publish.assert_not_called()
 
@@ -109,9 +104,7 @@ def test_a_queued_edge_event_goes_through_real_queues(shutdown_first, expected_w
 
     shutdown = threading.Event()
     HostChangeSubscriber(registry, topics, shutdown.is_set)
-    EdgeSwitchSubscriber(
-        EdgeSwitchConfig(enabled=True, edges={Edge.LEFT: 0}), topics, SwitchEchoGuard(), shutdown.is_set
-    )
+    EdgeSwitchSubscriber(EdgeSwitchConfig(enabled=True, edges={Edge.LEFT: 0}), topics, shutdown.is_set)
 
     if shutdown_first:
         shutdown.set()
