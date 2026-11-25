@@ -38,7 +38,7 @@ cache:
   path: ~/.config/cleverswitch/device_cache.json
 ```
 
-To reset it, run `cleverswitch --clear-cache`: the cache is deleted and the command exits without starting the daemon.
+To reset it, run `cleverswitch --clear-cache`: the cache is deleted and the command exits without starting the daemon. It exits with status 1 if the file cannot be deleted.
 
 ## CLI options
 

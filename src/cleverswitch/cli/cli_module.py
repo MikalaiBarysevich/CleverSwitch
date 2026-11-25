@@ -36,7 +36,8 @@ def main() -> None:
             log.error(f"{e}")
             sys.exit(1)
         configure_logging(config.logging, verbose, file_allowed=False)
-        DeviceCache(config.cache_path).clear()
+        if not DeviceCache(config.cache_path).clear():
+            sys.exit(1)
         return
 
     app_context = setup_context(args)

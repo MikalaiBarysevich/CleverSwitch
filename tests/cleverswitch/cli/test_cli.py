@@ -224,3 +224,35 @@ def test_unexpected_discovery_crash_is_logged_once_with_traceback(mocker, monkey
     assert len(errors) == 1
     assert errors[0].exc_info is not None
     excepthook.assert_not_called()
+
+
+def test_clear_cache_exits_1_when_cache_cannot_be_deleted(mocker, monkeypatch, tmp_path, _logging):
+    from src.cleverswitch.model.config.logging_config import LoggingConfig
+
+    cache_file = tmp_path / "device_cache.json"
+    cache_file.write_text("{}")
+    monkeypatch.setattr(sys, "argv", ["cleverswitch", "--clear-cache"])
+    mock_load = mocker.patch("src.cleverswitch.cli.cli_module.cfg_module.load")
+    mock_load.return_value.cache_path = cache_file
+    mock_load.return_value.logging = LoggingConfig()
+    mocker.patch("pathlib.Path.unlink", side_effect=PermissionError)
+
+    with pytest.raises(SystemExit) as exc:
+        main()
+
+    assert exc.value.code == 1
+
+
+def test_clear_cache_exits_0_when_cache_is_cleared(mocker, monkeypatch, tmp_path, _logging):
+    from src.cleverswitch.model.config.logging_config import LoggingConfig
+
+    cache_file = tmp_path / "device_cache.json"
+    cache_file.write_text("{}")
+    monkeypatch.setattr(sys, "argv", ["cleverswitch", "--clear-cache"])
+    mock_load = mocker.patch("src.cleverswitch.cli.cli_module.cfg_module.load")
+    mock_load.return_value.cache_path = cache_file
+    mock_load.return_value.logging = LoggingConfig()
+
+    main()
+
+    assert not cache_file.exists()
