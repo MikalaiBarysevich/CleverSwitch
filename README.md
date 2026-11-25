@@ -6,8 +6,8 @@ CleverSwitch is a small headless daemon for Logitech keyboards and mice. It list
 Easy-Switch key press over HID++ and relays the same CHANGE_HOST command to every other supported
 device, so your whole desk lands on the same computer at the same time.
 
-No GUI, no companion app, no firmware changes. Runs on Linux, macOS and Windows, over receivers
-and Bluetooth.
+No GUI, no companion app, no firmware changes, nothing sent to the cloud. Runs on Linux, macOS and
+Windows, over receivers and Bluetooth.
 
 [![CI](https://github.com/MikalaiBarysevich/CleverSwitch/actions/workflows/ci.yml/badge.svg)](https://github.com/MikalaiBarysevich/CleverSwitch/actions/workflows/ci.yml)
 [![Release](https://github.com/MikalaiBarysevich/CleverSwitch/actions/workflows/release.yml/badge.svg)](https://github.com/MikalaiBarysevich/CleverSwitch/releases)
@@ -31,6 +31,8 @@ and Bluetooth.
   cached for fast startup.
 - **Quiet neighbour** — runs alongside Logi Options+ and Solaar, needs no GUI, and keeps a
   size-rotated log file on every platform.
+- **Fully local** — no account, no cloud, no telemetry. Everything runs on your machine, and the
+  daemon never opens a network connection.
 
 ## Quick start
 
