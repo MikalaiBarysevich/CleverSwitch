@@ -238,10 +238,10 @@ def test_logs_critical_once_when_capped_step_exhausted(caplog):
 
 
 def test_uncapped_step_retries_beyond_max():
-    device = _make_device(pending={Task.Name.GET_DEVICE_NAME})
+    device = _make_device(pending={"unlisted-step"})
     orch, _, _, _ = _make_orchestrator()
 
-    assert _fail(orch, device, Task.Name.GET_DEVICE_NAME, times=8) == 8
+    assert _fail(orch, device, "unlisted-step", times=8) == 8
 
 
 @pytest.mark.parametrize(
@@ -249,8 +249,12 @@ def test_uncapped_step_retries_beyond_max():
     [
         Task.Feature.Name.CHANGE_HOST,
         Task.Feature.Name.CID_REPORTING,
+        Task.Feature.Name.NAME_AND_TYPE,
+        Task.Feature.Name.FRIENDLY_NAME,
         Task.Name.FIND_ES_CIDS_FLAGS,
         Task.Name.GET_DEVICE_TYPE,
+        Task.Name.GET_DEVICE_NAME,
+        Task.Name.GET_DEVICE_FRIENDLY_NAME,
     ],
 )
 def test_all_capped_steps_are_bounded(step_name):
@@ -258,6 +262,19 @@ def test_all_capped_steps_are_bounded(step_name):
     orch, _, _, _ = _make_orchestrator()
 
     assert _fail(orch, device, step_name, times=MAX_DISCOVERY_ATTEMPTS + 3) == MAX_DISCOVERY_ATTEMPTS - 1
+
+
+@pytest.mark.parametrize(
+    "step_name",
+    [Task.Name.GET_DEVICE_NAME, Task.Feature.Name.FRIENDLY_NAME],
+)
+def test_consume_attempt_allows_name_step_until_last_attempt(step_name):
+    device = _make_device(pending={step_name})
+    orch, _, _, _ = _make_orchestrator()
+
+    results = [orch._consume_attempt(device, step_name) for _ in range(MAX_DISCOVERY_ATTEMPTS)]
+
+    assert results == [True] * (MAX_DISCOVERY_ATTEMPTS - 1) + [False]
 
 
 def test_budget_is_per_step():
