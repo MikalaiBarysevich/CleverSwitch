@@ -52,6 +52,8 @@ class DeviceConnectionSubscriber(Subscriber):
         if not event.link_established:
             return
 
+        self._evict_stale(event.pid, event.slot, event.wpid)
+
         if (logi_device.slot, logi_device.pid) != (event.slot, event.pid):
             log.info(
                 f"{name} moved from slot={logi_device.slot} pid=0x{logi_device.pid:04X} "
@@ -107,6 +109,7 @@ class DeviceConnectionSubscriber(Subscriber):
             connected=event.link_established,
         )
 
+        self._evict_stale(event.pid, event.slot, event.wpid)
         self._device_registry.register(event.wpid, device)
 
         self._topics.device_info.publish(
@@ -117,3 +120,9 @@ class DeviceConnectionSubscriber(Subscriber):
                 type=event.device_type is None,
             )
         )
+
+    def _evict_stale(self, pid: int, slot: int, wpid: int) -> None:
+        for entry in self._device_registry.all_entries():
+            if entry.pid == pid and entry.slot == slot and entry.wpid != wpid and not entry.connected:
+                log.debug(f"Evicting '{entry.display_name}' wpid=0x{entry.wpid:04X}: replaced in slot={slot}")
+                self._device_registry.unregister(entry.wpid)
