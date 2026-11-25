@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
 import subprocess
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
@@ -82,18 +83,24 @@ def _run(hook: HookEntry, extra_env: dict[str, str]) -> None:
 
     try:
         with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
                 env=env,
-                timeout=hook.timeout,
                 stdout=stdout,
                 stderr=stderr,
                 shell=shell,
+                **_process_group_kwargs(),
             )
+            try:
+                proc.communicate(timeout=hook.timeout)
+            except subprocess.TimeoutExpired:
+                _kill_process_tree(proc)
+                proc.communicate()
+                raise
             out = _read_output(stdout)
             err = _read_output(stderr)
-        if result.returncode != 0:
-            log.warning(f"Hook {label} exited with code {result.returncode}")
+        if proc.returncode != 0:
+            log.warning(f"Hook {label} exited with code {proc.returncode}")
             if err:
                 log.warning(f"Hook stderr: {err}")
         elif out:
@@ -102,6 +109,26 @@ def _run(hook: HookEntry, extra_env: dict[str, str]) -> None:
         log.warning(f"Hook {label} timed out after {hook.timeout}s")
     except Exception as e:
         log.warning(f"Hook {label} failed: {e}")
+
+
+def _process_group_kwargs() -> dict:
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    if os.name == "nt":
+        try:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+        except OSError:
+            pass
+        proc.kill()
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
 
 
 def _read_output(output) -> str:

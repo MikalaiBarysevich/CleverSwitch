@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import signal
 import subprocess
 import sys
 import time
@@ -161,16 +163,19 @@ def test_fire_selects_hook_registered_for_multiple_types(mocker):
 # ── _run() ────────────────────────────────────────────────────────────────────
 
 
+def _popen(mocker, returncode=0, communicate_side_effect=None):
+    proc = mocker.MagicMock(pid=999_999_999, returncode=returncode)
+    proc.communicate.side_effect = communicate_side_effect
+    return mocker.patch("cleverswitch.hook.hooks.subprocess.Popen", return_value=proc)
+
+
 def test_run_executes_command_via_shell(mocker):
-    mock_result = mocker.MagicMock()
-    mock_result.returncode = 0
-    mock_result.stdout = ""
-    mock_run = mocker.patch("cleverswitch.hook.hooks.subprocess.run", return_value=mock_result)
+    mock_popen = _popen(mocker)
 
     _run(_command("echo hello"), {})
 
-    mock_run.assert_called_once()
-    args, kwargs = mock_run.call_args
+    mock_popen.assert_called_once()
+    args, kwargs = mock_popen.call_args
     assert args[0] == "echo hello"  # string, not list
     assert kwargs["shell"] is True
 
@@ -178,15 +183,12 @@ def test_run_executes_command_via_shell(mocker):
 def test_run_executes_script_without_shell_when_file_exists(mocker, tmp_path):
     script = tmp_path / "hook.sh"
     script.touch()
-    mock_result = mocker.MagicMock()
-    mock_result.returncode = 0
-    mock_result.stdout = ""
-    mock_run = mocker.patch("cleverswitch.hook.hooks.subprocess.run", return_value=mock_result)
+    mock_popen = _popen(mocker)
 
     _run(_script(str(script)), {})
 
-    mock_run.assert_called_once()
-    args, kwargs = mock_run.call_args
+    mock_popen.assert_called_once()
+    args, kwargs = mock_popen.call_args
     assert args[0] == [str(script)]  # list, not string
     assert kwargs.get("shell", False) is False
 
@@ -195,38 +197,40 @@ def test_run_expands_tilde_in_script_path(mocker, tmp_path):
     script = tmp_path / "hook.sh"
     script.touch()
     mocker.patch("cleverswitch.hook.hooks.os.path.expanduser", return_value=str(script))
-    mock_result = mocker.MagicMock()
-    mock_result.returncode = 0
-    mock_result.stdout = ""
-    mock_run = mocker.patch("cleverswitch.hook.hooks.subprocess.run", return_value=mock_result)
+    mock_popen = _popen(mocker)
 
     _run(_script("~/hook.sh"), {})
 
-    args, _ = mock_run.call_args
+    args, _ = mock_popen.call_args
     assert args[0] == [str(script)]
 
 
-def test_run_passes_hook_timeout_to_subprocess(mocker, tmp_path):
+def test_run_passes_hook_timeout_to_communicate(mocker, tmp_path):
     script = tmp_path / "hook.sh"
     script.touch()
-    mock_result = mocker.MagicMock()
-    mock_result.returncode = 0
-    mock_result.stdout = ""
-    mock_run = mocker.patch("cleverswitch.hook.hooks.subprocess.run", return_value=mock_result)
+    mock_popen = _popen(mocker)
 
     _run(_script(str(script), timeout=15), {})
 
-    _, call_kwargs = mock_run.call_args
-    assert call_kwargs["timeout"] == 15
+    mock_popen.return_value.communicate.assert_called_once_with(timeout=15)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process group")
+def test_run_starts_hook_in_its_own_session(mocker, tmp_path):
+    script = tmp_path / "hook.sh"
+    script.touch()
+    mock_popen = _popen(mocker)
+
+    _run(_script(str(script)), {})
+
+    _, kwargs = mock_popen.call_args
+    assert kwargs["start_new_session"] is True
 
 
 def test_run_logs_warning_on_nonzero_exit_code(mocker, tmp_path, caplog):
     script = tmp_path / "hook.sh"
     script.touch()
-    mock_result = mocker.MagicMock()
-    mock_result.returncode = 1
-    mock_result.stderr = "something went wrong"
-    mocker.patch("cleverswitch.hook.hooks.subprocess.run", return_value=mock_result)
+    _popen(mocker, returncode=1)
 
     with caplog.at_level(logging.WARNING, logger="cleverswitch.hook.hooks"):
         _run(_script(str(script)), {})
@@ -237,9 +241,41 @@ def test_run_logs_warning_on_nonzero_exit_code(mocker, tmp_path, caplog):
 def test_run_logs_warning_on_timeout(mocker, tmp_path, caplog):
     script = tmp_path / "hook.sh"
     script.touch()
-    mocker.patch(
-        "cleverswitch.hook.hooks.subprocess.run",
-        side_effect=subprocess.TimeoutExpired(cmd=str(script), timeout=5),
+    mocker.patch("cleverswitch.hook.hooks.os.killpg")
+    _popen(
+        mocker,
+        communicate_side_effect=[subprocess.TimeoutExpired(cmd=str(script), timeout=5), (None, None)],
+    )
+
+    with caplog.at_level(logging.WARNING, logger="cleverswitch.hook.hooks"):
+        _run(_script(str(script), timeout=5), {})
+
+    assert "timed out after 5s" in caplog.text
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process group")
+def test_run_kills_the_process_group_on_timeout(mocker, tmp_path):
+    script = tmp_path / "hook.sh"
+    script.touch()
+    mock_killpg = mocker.patch("cleverswitch.hook.hooks.os.killpg")
+    mock_popen = _popen(
+        mocker,
+        communicate_side_effect=[subprocess.TimeoutExpired(cmd=str(script), timeout=5), (None, None)],
+    )
+
+    _run(_script(str(script), timeout=5), {})
+
+    mock_killpg.assert_called_once_with(mock_popen.return_value.pid, signal.SIGKILL)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process group")
+def test_run_ignores_missing_process_group_on_timeout(mocker, tmp_path, caplog):
+    script = tmp_path / "hook.sh"
+    script.touch()
+    mocker.patch("cleverswitch.hook.hooks.os.killpg", side_effect=ProcessLookupError)
+    _popen(
+        mocker,
+        communicate_side_effect=[subprocess.TimeoutExpired(cmd=str(script), timeout=5), (None, None)],
     )
 
     with caplog.at_level(logging.WARNING, logger="cleverswitch.hook.hooks"):
@@ -248,6 +284,29 @@ def test_run_logs_warning_on_timeout(mocker, tmp_path, caplog):
     assert "timed out" in caplog.text
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process group")
+def test_run_kills_child_processes_of_a_hook_that_times_out(tmp_path, caplog):
+    child_pid_file = tmp_path / "child.pid"
+    script = tmp_path / "hook.sh"
+    script.write_text(f'#!/bin/sh\nsleep 60 &\necho $! > "{child_pid_file}"\nsleep 60\n')
+    script.chmod(0o755)
+
+    with caplog.at_level(logging.WARNING, logger="cleverswitch.hook.hooks"):
+        _run(_script(str(script), timeout=1), {})
+
+    child_pid = int(child_pid_file.read_text())
+    for _ in range(20):
+        try:
+            os.kill(child_pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.1)
+    else:
+        pytest.fail(f"child {child_pid} of the timed-out hook is still running")
+    assert "timed out after 1s" in caplog.text
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX shell")
 def test_run_kills_hanging_command_at_timeout_without_orphan_warning(caplog):
     hook = _command(f'"{sys.executable}" -c "import time; time.sleep(10)"', timeout=1)
 
@@ -292,7 +351,7 @@ def test_run_logs_stdout_of_a_successful_command(caplog):
 def test_run_logs_warning_on_unexpected_exception(mocker, tmp_path, caplog):
     script = tmp_path / "hook.sh"
     script.touch()
-    mocker.patch("cleverswitch.hook.hooks.subprocess.run", side_effect=PermissionError("denied"))
+    mocker.patch("cleverswitch.hook.hooks.subprocess.Popen", side_effect=PermissionError("denied"))
 
     with caplog.at_level(logging.WARNING, logger="cleverswitch.hook.hooks"):
         _run(_script(str(script)), {})
@@ -307,16 +366,13 @@ def test_run_logs_warning_when_script_path_does_not_exist(caplog):
 
 
 def test_run_does_not_call_subprocess_when_script_path_is_missing(mocker):
-    mock_run = mocker.patch("cleverswitch.hook.hooks.subprocess.run")
+    mock_popen = mocker.patch("cleverswitch.hook.hooks.subprocess.Popen")
     _run(_script("/missing/script.sh"), {})
-    mock_run.assert_not_called()
+    mock_popen.assert_not_called()
 
 
 def test_run_command_logs_warning_on_nonzero_exit_code(mocker, caplog):
-    mock_result = mocker.MagicMock()
-    mock_result.returncode = 1
-    mock_result.stderr = "command failed"
-    mocker.patch("cleverswitch.hook.hooks.subprocess.run", return_value=mock_result)
+    _popen(mocker, returncode=1)
 
     with caplog.at_level(logging.WARNING, logger="cleverswitch.hook.hooks"):
         _run(_command("bad-command"), {})
@@ -325,8 +381,11 @@ def test_run_command_logs_warning_on_nonzero_exit_code(mocker, caplog):
 
 
 def test_run_command_logs_warning_on_timeout(mocker, caplog):
-    exc = subprocess.TimeoutExpired(cmd="slow-command", timeout=5)
-    mocker.patch("cleverswitch.hook.hooks.subprocess.run", side_effect=exc)
+    mocker.patch("cleverswitch.hook.hooks.os.killpg")
+    _popen(
+        mocker,
+        communicate_side_effect=[subprocess.TimeoutExpired(cmd="slow-command", timeout=5), (None, None)],
+    )
 
     with caplog.at_level(logging.WARNING, logger="cleverswitch.hook.hooks"):
         _run(_command("slow-command", timeout=5), {})
@@ -335,7 +394,7 @@ def test_run_command_logs_warning_on_timeout(mocker, caplog):
 
 
 def test_run_command_logs_warning_on_unexpected_exception(mocker, caplog):
-    mocker.patch("cleverswitch.hook.hooks.subprocess.run", side_effect=OSError("exec failed"))
+    mocker.patch("cleverswitch.hook.hooks.subprocess.Popen", side_effect=OSError("exec failed"))
 
     with caplog.at_level(logging.WARNING, logger="cleverswitch.hook.hooks"):
         _run(_command("broken-command"), {})
