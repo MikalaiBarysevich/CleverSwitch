@@ -13,6 +13,8 @@ Produce a single combined release-notes markdown body covering every unreleased 
 - **Skip already-published tags.** Check `gh release list` and exclude any tag that already has a published (non-draft) release.
 - **Output a single fenced ```markdown code block** containing the raw markdown — no surrounding commentary, no extra prose, ready to paste into the GitHub release editor.
 - **Do not invent changes.** Every bullet must trace back to a real commit/PR in the version range. If a PR has no body, infer the change from the diff (`git show --stat <sha>` + targeted `git show <sha> -- <path>`).
+- **Checksums are mandatory.** Include a `### Checksums` section with the full SHA-256 of every release asset. Take the values from the draft release's asset digests (`gh release view <tag> --json assets`) when a draft release exists; otherwise leave the `<sha256>` placeholders. Never invent, abbreviate or truncate them. GitHub already shows each asset's digest, but the release body must repeat the full values.
+- **State the Windows signing status.** The Windows install bullet must say whether `cleverswitch.exe` is code-signed. It is currently unsigned, so warn that SmartScreen may show an unrecognised-publisher prompt and point users to the checksums.
 
 ## Steps
 
@@ -60,10 +62,20 @@ Required structure (keep verbatim except for the Overview/Changes content):
 
 ### Installation & Assets
 
-* **Windows:** download `cleverswitch_windows_x64.zip` from the **Assets** section below and follow `docs/installation.md` in the archive.
+* **Windows:** download `cleverswitch_windows_x64.zip` from the **Assets** section below and follow `docs/installation.md` in the archive. The executable is not code-signed, so SmartScreen may warn about an unrecognised publisher; verify the SHA-256 below before running it.
 * **Linux (Arch-based):** `yay -S cleverswitch` (or `paru -S cleverswitch`), then `systemctl --user enable --now cleverswitch.service`. For other distributions, download `cleverswitch_linux.tar.gz` from the **Assets** section below and follow `docs/installation.md` in the archive.
 * **macOS:** `brew tap mikalaibarysevich/cleverswitch`, `brew trust mikalaibarysevich/cleverswitch`, `brew install cleverswitch`, then `brew services start cleverswitch`. Or download `cleverswitch_macOS.tar.gz` from the **Assets** section below and follow `docs/installation.md` in the archive.
+
+### Checksums
+
+SHA-256 for the release assets (these match the digest GitHub reports for each asset):
+
+* `cleverswitch_windows_x64.zip` — `<sha256>`
+* `cleverswitch_linux.tar.gz` — `<sha256>`
+* `cleverswitch_macOS.tar.gz` — `<sha256>`
 ```
+
+Fill the checksum placeholders from the draft release's asset digests before publishing. If no draft release exists yet, leave the placeholders in the draft body — never invent hashes, and never publish the placeholders.
 
 ### 5. Style notes
 
